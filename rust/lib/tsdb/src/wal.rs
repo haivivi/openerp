@@ -19,6 +19,7 @@ const MAX_SEGMENT_SIZE: u64 = 16 * 1024 * 1024; // 16 MB per segment
 
 /// A WAL segment writer.
 struct WalSegment {
+    #[allow(dead_code)]
     path: PathBuf,
     writer: BufWriter<File>,
     size: u64,
