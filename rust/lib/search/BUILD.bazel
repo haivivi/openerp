@@ -1,0 +1,20 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "search",
+    srcs = glob(["src/**/*.rs"]),
+    visibility = ["//rust:__subpackages__"],
+    deps = [
+        "@crates//:serde_json",
+        "@crates//:tantivy",
+        "@crates//:thiserror",
+    ],
+)
+
+rust_test(
+    name = "search_test",
+    crate = ":search",
+    deps = [
+        "@crates//:tempfile",
+    ],
+)
