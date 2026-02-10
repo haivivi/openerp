@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 
 rust_library(
     name = "search",
@@ -15,6 +15,16 @@ rust_test(
     name = "search_test",
     crate = ":search",
     deps = [
+        "@crates//:tempfile",
+    ],
+)
+
+rust_binary(
+    name = "search_bench",
+    srcs = ["benches/search_bench.rs"],
+    deps = [
+        ":search",
+        "@crates//:criterion",
         "@crates//:tempfile",
     ],
 )

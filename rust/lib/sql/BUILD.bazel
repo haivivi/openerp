@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 
 rust_library(
     name = "sql",
@@ -15,5 +15,14 @@ rust_test(
     crate = ":sql",
     deps = [
         "@crates//:tempfile",
+    ],
+)
+
+rust_binary(
+    name = "sql_bench",
+    srcs = ["benches/sql_bench.rs"],
+    deps = [
+        ":sql",
+        "@crates//:criterion",
     ],
 )

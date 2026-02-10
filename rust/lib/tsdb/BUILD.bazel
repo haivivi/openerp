@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 
 rust_library(
     name = "tsdb",
@@ -17,6 +17,17 @@ rust_test(
     name = "tsdb_test",
     crate = ":tsdb",
     deps = [
+        "@crates//:tempfile",
+    ],
+)
+
+rust_binary(
+    name = "tsdb_bench",
+    srcs = ["benches/tsdb_bench.rs"],
+    deps = [
+        ":tsdb",
+        "@crates//:criterion",
+        "@crates//:serde_json",
         "@crates//:tempfile",
     ],
 )
