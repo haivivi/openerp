@@ -3,10 +3,6 @@ load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 rust_library(
     name = "task",
     srcs = glob(["src/**/*.rs"]),
-    aliases = {
-        "//rust/lib/core": "openerp_core",
-        "//rust/lib/sql": "openerp_sql",
-    },
     visibility = ["//rust:__subpackages__"],
     deps = [
         "//rust/lib/core",
@@ -24,13 +20,7 @@ rust_library(
 rust_test(
     name = "task_test",
     crate = ":task",
-    aliases = {
-        "//rust/lib/core": "openerp_core",
-        "//rust/lib/sql": "openerp_sql",
-    },
     deps = [
-        "//rust/lib/core",
-        "//rust/lib/sql",
         "@crates//:tempfile",
         "@crates//:tokio",
     ],
