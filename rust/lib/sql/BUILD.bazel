@@ -1,0 +1,28 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+rust_library(
+    name = "sql",
+    srcs = glob(["src/**/*.rs"]),
+    visibility = ["//rust:__subpackages__"],
+    deps = [
+        "@crates//:rusqlite",
+        "@crates//:thiserror",
+    ],
+)
+
+rust_test(
+    name = "sql_test",
+    crate = ":sql",
+    deps = [
+        "@crates//:tempfile",
+    ],
+)
+
+rust_binary(
+    name = "sql_bench",
+    srcs = ["benches/sql_bench.rs"],
+    deps = [
+        ":sql",
+        "@crates//:criterion",
+    ],
+)

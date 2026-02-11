@@ -1,0 +1,5 @@
+# Common flags
+build --enable_platform_specific_config
+
+# Rust
+build --@rules_rust//rust/toolchain/channel=stable

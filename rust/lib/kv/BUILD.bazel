@@ -1,0 +1,30 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+rust_library(
+    name = "kv",
+    srcs = glob(["src/**/*.rs"]),
+    visibility = ["//rust:__subpackages__"],
+    deps = [
+        "@crates//:redb",
+        "@crates//:thiserror",
+        "@crates//:tracing",
+    ],
+)
+
+rust_test(
+    name = "kv_test",
+    crate = ":kv",
+    deps = [
+        "@crates//:tempfile",
+    ],
+)
+
+rust_binary(
+    name = "kv_bench",
+    srcs = ["benches/kv_bench.rs"],
+    deps = [
+        ":kv",
+        "@crates//:criterion",
+        "@crates//:tempfile",
+    ],
+)

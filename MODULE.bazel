@@ -1,0 +1,55 @@
+module(
+    name = "openerp",
+    version = "0.0.1",
+)
+
+bazel_dep(name = "bazel_skylib", version = "1.9.0")
+bazel_dep(name = "platforms", version = "1.0.0")
+bazel_dep(name = "rules_rust", version = "0.68.1")
+
+# Rust toolchain
+rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
+rust.toolchain(edition = "2021")
+use_repo(rust, "rust_toolchains")
+register_toolchains("@rust_toolchains//:all")
+
+# Rust crate dependencies (Cargo-free, direct specs)
+crate = use_extension("@rules_rust//crate_universe:extensions.bzl", "crate")
+
+# Shared
+crate.spec(package = "thiserror", version = "2")
+crate.spec(package = "serde", version = "1", features = ["derive"])
+crate.spec(package = "serde_json", version = "1")
+crate.spec(package = "serde_yml", version = "0.0.12")
+crate.spec(package = "tracing", version = "0.1")
+crate.spec(package = "tracing-subscriber", version = "0.3", features = ["env-filter"])
+crate.spec(package = "uuid", version = "1", features = ["v4"])
+crate.spec(package = "chrono", version = "0.4", features = ["serde"])
+
+# HTTP
+crate.spec(package = "axum", version = "0.8")
+crate.spec(package = "tokio", version = "1", features = ["full"])
+
+# KV
+crate.spec(package = "redb", version = "2")
+
+# SQL
+crate.spec(package = "rusqlite", version = "0.32", features = ["bundled"])
+
+# Search
+crate.spec(package = "tantivy", version = "0.22")
+
+# TSDB
+crate.spec(package = "zstd", version = "0.13")
+crate.spec(package = "crc32fast", version = "1")
+crate.spec(package = "parking_lot", version = "0.12")
+
+# Testing & Benchmarks
+crate.spec(package = "tempfile", version = "3")
+crate.spec(package = "criterion", version = "0.5", features = ["html_reports"])
+
+# Pin: 0.3.37+ needs nightly
+crate.spec(package = "time", version = ">=0.3.20, <0.3.37")
+
+crate.from_specs()
+use_repo(crate, "crates")

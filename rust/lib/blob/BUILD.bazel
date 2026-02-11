@@ -1,0 +1,28 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+rust_library(
+    name = "blob",
+    srcs = glob(["src/**/*.rs"]),
+    visibility = ["//rust:__subpackages__"],
+    deps = [
+        "@crates//:thiserror",
+    ],
+)
+
+rust_test(
+    name = "blob_test",
+    crate = ":blob",
+    deps = [
+        "@crates//:tempfile",
+    ],
+)
+
+rust_binary(
+    name = "blob_bench",
+    srcs = ["benches/blob_bench.rs"],
+    deps = [
+        ":blob",
+        "@crates//:criterion",
+        "@crates//:tempfile",
+    ],
+)
