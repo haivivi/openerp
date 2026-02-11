@@ -1,7 +1,6 @@
 use std::collections::HashMap;
 
 use openerp_core::ServiceError;
-use kv::KVStore;
 
 use crate::model::SNSegment;
 use crate::sn::{
