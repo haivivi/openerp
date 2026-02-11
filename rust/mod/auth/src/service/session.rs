@@ -1,6 +1,6 @@
 use jsonwebtoken::{decode, encode, DecodingKey, EncodingKey, Header, Validation};
 
-use openerp_core::{new_id, now_rfc3339};
+use openerp_core::new_id;
 use openerp_sql::Value;
 
 use crate::model::{Claims, Session, TokenPair, User};
