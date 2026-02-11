@@ -1,5 +1,5 @@
 use openerp_core::{ListParams, ListResult, ServiceError, new_id, now_rfc3339};
-use sql::Value;
+use openerp_sql::Value;
 
 use crate::model::{Firmware, FirmwareFile, FirmwareStatus};
 use super::PmsService;

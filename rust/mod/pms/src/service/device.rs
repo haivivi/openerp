@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use openerp_core::{ListParams, ListResult, ServiceError, new_id, now_rfc3339};
-use sql::Value;
+use openerp_sql::Value;
 
 use crate::model::{Batch, BatchStatus, Device, DeviceStatus};
 use crate::sn::{default_config, encode_sn, EncodeInput};

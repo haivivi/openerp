@@ -12,10 +12,10 @@ use serde::de::DeserializeOwned;
 use serde::Serialize;
 
 use openerp_core::{ListParams, ListResult, ServiceError, merge_patch, new_id, now_rfc3339};
-use kv::KVStore;
-use sql::{SQLStore, Value};
-use search::SearchEngine;
-use blob::BlobStore;
+use openerp_kv::KVStore;
+use openerp_sql::{SQLStore, Value};
+use openerp_search::SearchEngine;
+use openerp_blob::BlobStore;
 
 /// PMS service — holds all storage backends and provides business logic.
 pub struct PmsService {

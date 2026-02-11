@@ -1,5 +1,5 @@
 use openerp_core::ServiceError;
-use sql::SQLStore;
+use openerp_sql::SQLStore;
 
 /// SQL DDL statements to initialize the PMS database schema.
 ///
