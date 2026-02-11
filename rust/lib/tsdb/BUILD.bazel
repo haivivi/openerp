@@ -2,6 +2,7 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 
 rust_library(
     name = "tsdb",
+    crate_name = "openerp_tsdb",
     srcs = glob(["src/**/*.rs"]),
     visibility = ["//rust:__subpackages__"],
     deps = [
