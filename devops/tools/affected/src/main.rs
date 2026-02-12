@@ -171,8 +171,15 @@ fn find_affected_targets(changed_files: &[String], verbose: bool) -> BTreeSet<St
             }
             continue;
         }
-        // Skip bazel output dirs.
-        if file.starts_with("bazel-") {
+        // Skip bazel output dirs and non-source directories.
+        if file.starts_with("bazel-")
+            || file.starts_with(".github/")
+            || file.starts_with(".git/")
+            || file.starts_with("docs/")
+        {
+            if verbose {
+                eprintln!("  skip (non-source): {file}");
+            }
             continue;
         }
         if let Some(pkg) = find_package_for_file(file) {
