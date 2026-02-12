@@ -71,6 +71,16 @@ async fn poll_task(
     Path(id): Path<String>,
     Query(query): Query<PollQuery>,
 ) -> Result<Json<Task>, ServiceError> {
+    let timeout = Duration::from_secs(query.timeout.min(120));
+    let notify = engine.notify().clone();
+    let deadline = tokio::time::Instant::now() + timeout;
+
+    // Register the Notified future BEFORE reading the snapshot.
+    // Notify::notify_waiters() only wakes already-registered waiters and does
+    // not store a permit. Creating the future first ensures we don't miss a
+    // notification that fires between the snapshot read and the select! poll.
+    let mut notified = Box::pin(notify.notified());
+
     // Get current snapshot.
     let snapshot = engine.store().get(&id)?;
 
@@ -79,23 +89,15 @@ async fn poll_task(
         return Ok(Json(snapshot));
     }
 
-    // Wait for a state change notification or timeout.
-    let timeout = Duration::from_secs(query.timeout.min(120));
-    let notify = engine.notify().clone();
-
-    let deadline = tokio::time::Instant::now() + timeout;
-
     loop {
-        // Wait for notification or timeout.
         let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining.is_zero() {
-            // Timeout — return current state.
             let current = engine.store().get(&id)?;
             return Ok(Json(current));
         }
 
         tokio::select! {
-            _ = notify.notified() => {
+            _ = &mut notified => {
                 // Something changed — check if *this* task changed.
                 let current = engine.store().get(&id)?;
                 if current.status != snapshot.status
@@ -104,7 +106,8 @@ async fn poll_task(
                 {
                     return Ok(Json(current));
                 }
-                // Not our task — keep waiting.
+                // Not our task — re-register and keep waiting.
+                notified = Box::pin(notify.notified());
             }
             _ = tokio::time::sleep(remaining) => {
                 let current = engine.store().get(&id)?;

@@ -87,7 +87,8 @@ pub struct TaskEngine {
     /// Registered handlers keyed by task type string.
     registry: Mutex<HashMap<String, TypeRegistration>>,
     /// Per-task cancellation tokens, keyed by task id.
-    cancellations: Mutex<HashMap<String, CancellationToken>>,
+    /// Wrapped in Arc so spawned tasks can clean up after themselves.
+    cancellations_shared: Arc<Mutex<HashMap<String, CancellationToken>>>,
     /// Notify waiters when any task state changes (used by long-poll).
     notify: Arc<Notify>,
 }
@@ -98,7 +99,7 @@ impl TaskEngine {
         Self {
             store,
             registry: Mutex::new(HashMap::new()),
-            cancellations: Mutex::new(HashMap::new()),
+            cancellations_shared: Arc::new(Mutex::new(HashMap::new())),
             notify: Arc::new(Notify::new()),
         }
     }
@@ -219,7 +220,7 @@ impl TaskEngine {
             }
             TaskStatus::Running => {
                 // Signal the handler's cancellation token.
-                if let Some(token) = self.cancellations.lock().await.get(task_id) {
+                if let Some(token) = self.cancellations_shared.lock().await.get(task_id) {
                     token.cancel();
                 }
                 task.status = TaskStatus::Cancelled;
@@ -236,7 +237,7 @@ impl TaskEngine {
         }
 
         // Clean up cancellation token.
-        self.cancellations.lock().await.remove(task_id);
+        self.cancellations_shared.lock().await.remove(task_id);
 
         Ok(task)
     }
@@ -273,15 +274,20 @@ impl TaskEngine {
         let pending = self.store.pending_tasks(task_type, slots)?;
 
         for mut task in pending {
-            // Transition to RUNNING.
+            // Atomically claim: PENDING → RUNNING (CAS).
+            // If another concurrent dispatch already claimed this task,
+            // claim_task returns false and we skip it.
             task.status = TaskStatus::Running;
             task.start_at = Some(now_rfc3339());
-            self.store.update(&task)?;
+            let claimed = self.store.claim_task(&task)?;
+            if !claimed {
+                continue;
+            }
             self.notify.notify_waiters();
 
             // Create cancellation token.
             let cancel = CancellationToken::new();
-            self.cancellations
+            self.cancellations_shared
                 .lock()
                 .await
                 .insert(task.id.clone(), cancel.clone());
@@ -297,9 +303,16 @@ impl TaskEngine {
             let handler = Arc::clone(&handler);
             let engine_notify = Arc::clone(&self.notify);
             let engine_store = Arc::clone(&self.store);
+            let engine_cancellations = Arc::clone(&self.cancellations_shared);
 
             tokio::spawn(async move {
-                let result = (handler)(task.clone(), Arc::clone(&ctx)).await;
+                // Run handler in a nested spawn so we can detect panics via
+                // JoinHandle. Without this, a panic aborts the outer future
+                // and the task stays RUNNING forever, consuming a concurrency slot.
+                let handler_handle = tokio::spawn(
+                    (handler)(task.clone(), Arc::clone(&ctx)),
+                );
+                let result = handler_handle.await;
 
                 // Re-read task in case handler updated progress.
                 let mut final_task = match engine_store.get(&task_id) {
@@ -310,19 +323,28 @@ impl TaskEngine {
                 // Only update if still RUNNING (might have been cancelled).
                 if final_task.status == TaskStatus::Running {
                     match result {
-                        Ok(value) => {
+                        Ok(Ok(value)) => {
                             final_task.status = TaskStatus::Completed;
                             final_task.result = Some(value);
                             final_task.end_at = Some(now_rfc3339());
                         }
-                        Err(e) => {
+                        Ok(Err(e)) => {
                             final_task.status = TaskStatus::Failed;
                             final_task.error = Some(e.to_string());
+                            final_task.end_at = Some(now_rfc3339());
+                        }
+                        Err(join_err) => {
+                            // Handler panicked or was cancelled.
+                            final_task.status = TaskStatus::Failed;
+                            final_task.error = Some(format!("handler panicked: {join_err}"));
                             final_task.end_at = Some(now_rfc3339());
                         }
                     }
                     let _ = engine_store.update(&final_task);
                 }
+
+                // Clean up cancellation token to prevent memory leak.
+                engine_cancellations.lock().await.remove(&final_task.id);
 
                 engine_notify.notify_waiters();
             });
@@ -358,7 +380,7 @@ impl TaskEngine {
             let elapsed = (now - started).num_seconds();
             if elapsed >= timeout_secs as i64 {
                 // Cancel the handler.
-                if let Some(token) = self.cancellations.lock().await.remove(&task.id) {
+                if let Some(token) = self.cancellations_shared.lock().await.remove(&task.id) {
                     token.cancel();
                 }
                 task.status = TaskStatus::Failed;

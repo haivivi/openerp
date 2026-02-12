@@ -20,7 +20,8 @@ use worker::WorkerConfig;
 /// long-poll progress, cancellation, and timeout management.
 pub struct TaskModule {
     engine: Arc<TaskEngine>,
-    _worker_cancel: tokio_util::sync::CancellationToken,
+    /// Dropping this guard cancels the background worker loops.
+    _worker_cancel: tokio_util::sync::DropGuard,
 }
 
 impl TaskModule {
@@ -40,7 +41,8 @@ impl TaskModule {
 
         Ok(Self {
             engine,
-            _worker_cancel: cancel,
+            // Convert to DropGuard so the token is cancelled when TaskModule drops.
+            _worker_cancel: cancel.drop_guard(),
         })
     }
 

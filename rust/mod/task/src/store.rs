@@ -228,6 +228,30 @@ impl TaskStore {
         rows.iter().map(row_to_task).collect()
     }
 
+    /// Atomically claim a PENDING task by transitioning it to RUNNING.
+    ///
+    /// Returns `true` if the task was claimed (status was PENDING and is now RUNNING).
+    /// Returns `false` if someone else already claimed it (no rows affected).
+    /// This is the CAS (compare-and-swap) that prevents duplicate dispatch.
+    pub fn claim_task(&self, task: &Task) -> Result<bool, ServiceError> {
+        let data =
+            serde_json::to_string(task).map_err(|e| ServiceError::Internal(e.to_string()))?;
+
+        let affected = self
+            .db
+            .exec(
+                "UPDATE tasks SET data = ?1, status = ?2 WHERE id = ?3 AND status = 'PENDING'",
+                &[
+                    Value::Text(data),
+                    Value::Text(task.status.as_str().to_string()),
+                    Value::Text(task.id.clone()),
+                ],
+            )
+            .map_err(|e| ServiceError::Storage(e.to_string()))?;
+
+        Ok(affected > 0)
+    }
+
     /// Fetch all RUNNING tasks (for the watchdog).
     pub fn running_tasks(&self) -> Result<Vec<Task>, ServiceError> {
         let rows = self
