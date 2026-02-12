@@ -37,6 +37,12 @@ crate.spec(package = "async-trait", version = "0.1")
 crate.spec(package = "anyhow", version = "1")
 crate.spec(package = "clap", version = "4.5", features = ["derive"])
 
+# Proc macro
+crate.spec(package = "syn", version = "2.0", features = ["full", "extra-traits"])
+crate.spec(package = "quote", version = "1.0")
+crate.spec(package = "proc-macro2", version = "1.0")
+crate.spec(package = "linkme", version = "0.3")
+
 # KV
 crate.spec(package = "redb", version = "2")
 
