@@ -31,6 +31,11 @@ crate.spec(package = "chrono", version = "0.4", features = ["serde"])
 crate.spec(package = "axum", version = "0.8")
 crate.spec(package = "tokio", version = "1", features = ["full"])
 crate.spec(package = "tokio-util", version = "0.7")
+crate.spec(package = "async-trait", version = "0.1")
+
+# CLI
+crate.spec(package = "anyhow", version = "1")
+crate.spec(package = "clap", version = "4.5", features = ["derive"])
 
 # KV
 crate.spec(package = "redb", version = "2")

@@ -74,6 +74,7 @@ fn generate_service_trait(output: &mut String, service: &Service) {
         output.push_str(&endpoint.name);
         output.push_str("(&self");
         
+        // Add all params to trait method signature
         for param in &endpoint.params {
             output.push_str(&format!(", {}: {}", param.name, rust_type(&param.ty)));
         }
@@ -112,11 +113,22 @@ fn generate_router(output: &mut String, service: &Service) {
 fn generate_handler(output: &mut String, endpoint: &Endpoint, service_name: &str) {
     output.push_str(&format!("async fn {}_handler<S: {}>(", endpoint.name, service_name));
     
-    // Extract path params
+    // Extract params by kind
     let path_params: Vec<_> = endpoint.params.iter()
         .filter(|p| matches!(p.kind, ParamKind::Path))
         .collect();
     
+    let query_params: Vec<_> = endpoint.params.iter()
+        .filter(|p| matches!(p.kind, ParamKind::Query))
+        .collect();
+        
+    let body_param = endpoint.params.iter()
+        .find(|p| matches!(p.kind, ParamKind::Body));
+    
+    // Generate extractors
+    let mut needs_newline = false;
+    
+    // Path extractor
     if !path_params.is_empty() {
         output.push_str("\n    Path((");
         for (i, param) in path_params.iter().enumerate() {
@@ -128,31 +140,31 @@ fn generate_handler(output: &mut String, endpoint: &Endpoint, service_name: &str
             if i > 0 { output.push_str(", "); }
             output.push_str(&rust_type(&param.ty));
         }
-        output.push_str(")>,\n    ");
+        output.push_str(")>,");
+        needs_newline = true;
     }
     
-    // Extract query params
-    let query_params: Vec<_> = endpoint.params.iter()
-        .filter(|p| matches!(p.kind, ParamKind::Query))
-        .collect();
-    
-    if !query_params.is_empty() {
-        output.push_str("Query(query): Query<QueryParams>,\n    ");
-    }
-    
-    output.push_str("State(svc): State<Arc<S>>,\n");
-    
-    // Extract body param
-    let body_param = endpoint.params.iter()
-        .find(|p| matches!(p.kind, ParamKind::Body));
-    
+    // Body extractor (must be before State)
     if let Some(body) = body_param {
-        output.push_str(&format!("    Json({}): Json<{}>,\n", body.name, rust_type(&body.ty)));
+        if needs_newline { output.push_str("\n    "); }
+        output.push_str(&format!("Json({}): Json<{}>,", body.name, rust_type(&body.ty)));
+        needs_newline = true;
     }
+    
+    // State extractor (always last)
+    if needs_newline { output.push_str("\n    "); }
+    output.push_str("State(svc): State<Arc<S>>,\n");
     
     output.push_str(") -> Result<Json<");
     output.push_str(&rust_type(&endpoint.return_type));
     output.push_str(">, ServiceError> {\n");
+    
+    // Extract query params into variables
+    for param in &query_params {
+        if let Some(default) = &param.default {
+            output.push_str(&format!("    let {} = /* TODO: extract from query */ {};\n", param.name, default));
+        }
+    }
     
     // Call service method
     output.push_str(&format!("    let result = svc.{}(", endpoint.name));

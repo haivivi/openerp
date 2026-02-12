@@ -149,8 +149,9 @@ fn parse_endpoint(line: &str, doc: Option<String>) -> Result<Endpoint> {
     let rest = parts[1];
     
     // Parse path
-    let path_end = rest.find('"', 1).ok_or_else(|| anyhow::anyhow!("Missing path"))?;
-    let path = rest[1..path_end].to_string();
+    let path_start = rest.find('"').ok_or_else(|| anyhow::anyhow!("Missing path"))?;
+    let path_end = rest[path_start + 1..].find('"').ok_or_else(|| anyhow::anyhow!("Missing path end"))?;
+    let path = rest[path_start + 1..path_start + 1 + path_end].to_string();
     
     // Parse name and params
     let after_path = &rest[path_end + 1..].trim();
@@ -194,28 +195,47 @@ fn parse_params(s: &str) -> Result<Vec<Param>> {
         }
         
         // Format: "kind name: Type" or "kind name: Type = default"
-        let tokens: Vec<&str> = part.split_whitespace().collect();
+        // Example: "body: CreateUserRequest" or "path id: String" or "query page: i32 = 1"
         
-        if tokens.len() < 3 {
+        // Split by colon first
+        let colon_parts: Vec<&str> = part.splitn(2, ':').collect();
+        if colon_parts.len() != 2 {
             continue;
         }
         
-        let kind = match tokens[0] {
-            "path" => ParamKind::Path,
-            "query" => ParamKind::Query,
-            "body" => ParamKind::Body,
-            _ => continue,
-        };
+        let left = colon_parts[0].trim();
+        let right = colon_parts[1].trim();
         
-        let name = tokens[1].trim_end_matches(':').to_string();
-        let ty_str = tokens[2..].iter().take_while(|t| *t != "=").collect::<Vec<_>>().join(" ");
-        let ty = parse_type(&ty_str)?;
+        // Parse left side (kind and name)
+        let left_tokens: Vec<&str> = left.split_whitespace().collect();
+        if left_tokens.is_empty() {
+            continue;
+        }
         
-        let default = if let Some(idx) = tokens.iter().position(|&t| t == "=") {
-            tokens.get(idx + 1).map(|s| s.to_string())
+        let (kind, name) = if left_tokens.len() == 1 {
+            // Just "body:" - infer kind from context
+            let token = left_tokens[0];
+            match token {
+                "body" => (ParamKind::Body, "body".to_string()),
+                _ => continue,
+            }
         } else {
-            None
+            // "path id:" or "query page:"
+            let kind = match left_tokens[0] {
+                "path" => ParamKind::Path,
+                "query" => ParamKind::Query,
+                "body" => ParamKind::Body,
+                _ => continue,
+            };
+            let name = left_tokens[1].to_string();
+            (kind, name)
         };
+        
+        // Parse right side (type and optional default)
+        let right_parts: Vec<&str> = right.split('=').map(|s| s.trim()).collect();
+        let ty_str = right_parts[0];
+        let ty = parse_type(ty_str)?;
+        let default = right_parts.get(1).map(|s| s.to_string());
         
         params.push(Param { name, ty, kind, default });
     }
