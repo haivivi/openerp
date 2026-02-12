@@ -1,0 +1,14 @@
+load("@rules_rust//rust:defs.bzl", "rust_library")
+
+rust_library(
+    name = "openerp_codegen_lib",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "openerp_codegen_lib",
+    edition = "2021",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@crates//:anyhow",
+        "@crates//:serde",
+        "@crates//:serde_json",
+    ],
+)
