@@ -1,0 +1,14 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+rust_binary(
+    name = "openerp-codegen",
+    srcs = glob(["src/**/*.rs"]),
+    crate_name = "openerp_api_codegen",
+    edition = "2021",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@crates//:anyhow",
+        "@crates//:clap",
+        "@crates//:serde",
+    ],
+)
