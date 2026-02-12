@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_library")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 rust_library(
     name = "openerp_codegen_lib",
@@ -10,5 +10,15 @@ rust_library(
         "@crates//:anyhow",
         "@crates//:serde",
         "@crates//:serde_json",
+    ],
+)
+
+rust_test(
+    name = "tests",
+    srcs = glob(["tests/**/*.rs"]),
+    crate_name = "integration_test",
+    edition = "2021",
+    deps = [
+        ":openerp_codegen_lib",
     ],
 )
