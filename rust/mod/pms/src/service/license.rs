@@ -211,7 +211,11 @@ impl PmsService {
     ) -> Result<License, ServiceError> {
         let id = License::composite_key(license_type, number);
         let current: License = self.get_record("licenses", &id)?;
-        let updated: License = Self::apply_patch(&current, patch)?;
+        let updated: License = Self::apply_patch(
+            &current,
+            patch,
+            &["type", "number", "source", "importId"],
+        )?;
 
         let status_str = serde_json::to_value(&updated.status)
             .ok()

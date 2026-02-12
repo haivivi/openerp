@@ -5,11 +5,15 @@ use openerp_core::ServiceError;
 use super::PmsService;
 
 /// Aggregated device information — joins device with related entities.
+///
+/// `secret` is deliberately omitted to avoid leaking authentication
+/// credentials through the SN-based lookup endpoint (SN is printed on
+/// physical devices). The by-secret endpoint returns secret implicitly
+/// because the caller already possesses it.
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DeviceInfo {
     pub sn: String,
-    pub secret: String,
     pub status: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub model: Option<Model>,
@@ -36,7 +40,6 @@ impl PmsService {
 
         DeviceInfo {
             sn: device.sn.clone(),
-            secret: device.secret.clone(),
             status: status_str,
             model,
             firmware,

@@ -86,7 +86,7 @@ impl PmsService {
     ) -> Result<Firmware, ServiceError> {
         let id = Firmware::composite_key(model, semver);
         let current: Firmware = self.get_record("firmwares", &id)?;
-        let updated: Firmware = Self::apply_patch(&current, patch)?;
+        let updated: Firmware = Self::apply_patch(&current, patch, &["model", "semver"])?;
 
         let status_str = serde_json::to_value(&updated.status)
             .ok()

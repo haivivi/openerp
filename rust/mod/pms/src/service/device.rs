@@ -87,7 +87,11 @@ impl PmsService {
         patch: serde_json::Value,
     ) -> Result<Batch, ServiceError> {
         let current: Batch = self.get_record("batches", id)?;
-        let updated: Batch = Self::apply_patch(&current, patch)?;
+        let updated: Batch = Self::apply_patch(
+            &current,
+            patch,
+            &["model", "quantity", "provisionedCount"],
+        )?;
 
         let status_str = serde_json::to_value(&updated.status)
             .ok()
@@ -132,7 +136,17 @@ impl PmsService {
             ("update_at", Value::Text(now)),
         ])?;
 
-        let remaining = batch.quantity - batch.provisioned_count;
+        let remaining = batch.quantity.saturating_sub(batch.provisioned_count);
+        if remaining == 0 {
+            batch.status = BatchStatus::Completed;
+            let now = now_rfc3339();
+            batch.update_at = Some(now.clone());
+            self.update_record("batches", batch_id, &batch, &[
+                ("status", Value::Text("COMPLETED".into())),
+                ("update_at", Value::Text(now)),
+            ])?;
+            return Ok(batch);
+        }
         for _ in 0..remaining {
             let mut dimensions = HashMap::new();
             dimensions.insert("manufacturer".into(), 0u32);

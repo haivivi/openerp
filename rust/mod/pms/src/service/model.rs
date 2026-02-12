@@ -61,7 +61,7 @@ impl PmsService {
     ) -> Result<Model, ServiceError> {
         let id = code.to_string();
         let current: Model = self.get_record("models", &id)?;
-        let updated: Model = Self::apply_patch(&current, patch)?;
+        let updated: Model = Self::apply_patch(&current, patch, &["code"])?;
 
         self.update_record(
             "models",

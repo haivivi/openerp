@@ -239,9 +239,14 @@ impl PmsService {
     }
 
     /// Apply a JSON merge-patch to a record.
+    ///
+    /// `protect_fields` lists additional field names (camelCase) that must not
+    /// be modified by the caller (e.g. primary-key fields, system-managed counters).
+    /// `id` and `createAt` are always protected.
     pub(crate) fn apply_patch<T: Serialize + DeserializeOwned>(
         current: &T,
         patch: serde_json::Value,
+        protect_fields: &[&str],
     ) -> Result<T, ServiceError> {
         let mut json = serde_json::to_value(current)
             .map_err(|e| ServiceError::Internal(e.to_string()))?;
@@ -252,6 +257,9 @@ impl PmsService {
         if let Some(obj) = patch_filtered.as_object_mut() {
             obj.remove("id");
             obj.remove("createAt");
+            for field in protect_fields {
+                obj.remove(*field);
+            }
             obj.insert("updateAt".into(), serde_json::json!(now));
         }
 
