@@ -26,10 +26,10 @@ jobs:
         run: |
           # Get affected build targets
           BUILD=$(bazel run //devops/tools/affected -- \
-            --base=origin/${{ github.base_ref }} --mode=build --oneline 2>/dev/null || true)
+            --base=origin/${{ github.base_ref }} --mode=build --oneline)
           # Get affected test targets
           TEST=$(bazel run //devops/tools/affected -- \
-            --base=origin/${{ github.base_ref }} --mode=test --oneline 2>/dev/null || true)
+            --base=origin/${{ github.base_ref }} --mode=test --oneline)
 
           echo "build_targets=${BUILD}" >> "$GITHUB_OUTPUT"
           echo "test_targets=${TEST}" >> "$GITHUB_OUTPUT"

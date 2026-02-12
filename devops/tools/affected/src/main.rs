@@ -8,7 +8,7 @@
 use std::collections::{BTreeSet, HashSet};
 use std::env;
 use std::io::{self, BufRead, Write};
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
 fn main() {
@@ -164,13 +164,6 @@ fn find_affected_targets(changed_files: &[String], verbose: bool) -> BTreeSet<St
     // Deduplicate by Bazel package.
     let mut packages = HashSet::new();
     for file in changed_files {
-        // Skip files that no longer exist (deleted).
-        if !Path::new(file).exists() {
-            if verbose {
-                eprintln!("  skip (deleted): {file}");
-            }
-            continue;
-        }
         // Skip bazel output dirs and non-source directories.
         if file.starts_with("bazel-")
             || file.starts_with(".github/")

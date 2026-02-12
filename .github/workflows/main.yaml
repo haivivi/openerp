@@ -5,7 +5,7 @@ on:
     branches: [main]
 
 concurrency:
-  group: main-${{ github.sha }}
+  group: main
   cancel-in-progress: false
 
 jobs:
@@ -26,9 +26,9 @@ jobs:
         run: |
           # Compare against the previous commit
           BUILD=$(bazel run //devops/tools/affected -- \
-            --base=HEAD~1 --mode=build --oneline 2>/dev/null || true)
+            --base=HEAD~1 --mode=build --oneline)
           TEST=$(bazel run //devops/tools/affected -- \
-            --base=HEAD~1 --mode=test --oneline 2>/dev/null || true)
+            --base=HEAD~1 --mode=test --oneline)
 
           echo "build_targets=${BUILD}" >> "$GITHUB_OUTPUT"
           echo "test_targets=${TEST}" >> "$GITHUB_OUTPUT"
