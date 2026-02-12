@@ -24,11 +24,11 @@ jobs:
       - name: Find affected targets
         id: affected
         run: |
-          # Compare against the previous commit
+          # Compare against pre-push tip (handles rebase-and-merge with multiple commits)
           BUILD=$(bazel run //devops/tools/affected -- \
-            --base=HEAD~1 --mode=build --oneline)
+            --base=${{ github.event.before }} --mode=build --oneline)
           TEST=$(bazel run //devops/tools/affected -- \
-            --base=HEAD~1 --mode=test --oneline)
+            --base=${{ github.event.before }} --mode=test --oneline)
 
           echo "build_targets=${BUILD}" >> "$GITHUB_OUTPUT"
           echo "test_targets=${TEST}" >> "$GITHUB_OUTPUT"

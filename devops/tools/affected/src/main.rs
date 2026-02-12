@@ -147,7 +147,10 @@ fn git_changed_files(base: &str) -> Vec<String> {
 
     let output = run_cmd("git", &["diff", "--name-only", &format!("{actual_base}..HEAD"), "--"])
         .or_else(|_| run_cmd("git", &["diff", "--name-only", &actual_base, "HEAD", "--"]))
-        .unwrap_or_default();
+        .unwrap_or_else(|e| {
+            eprintln!("error: git diff failed: {e}");
+            std::process::exit(1);
+        });
 
     output
         .lines()
@@ -244,21 +247,28 @@ fn find_package_for_file(file: &str) -> Option<String> {
     None
 }
 
+fn target_name(label: &str) -> &str {
+    label.rsplit_once(':').map(|(_, name)| name).unwrap_or(label)
+}
+
 fn filter_by_mode<'a>(targets: &'a BTreeSet<String>, mode: &str) -> BTreeSet<&'a str> {
     match mode {
         "build" => targets
             .iter()
-            .filter(|t| !t.contains("_test") && !t.contains("_bench"))
+            .filter(|t| {
+                let name = target_name(t);
+                !name.contains("_test") && !name.contains("_bench")
+            })
             .map(|s| s.as_str())
             .collect(),
         "test" => targets
             .iter()
-            .filter(|t| t.contains("_test"))
+            .filter(|t| target_name(t).contains("_test"))
             .map(|s| s.as_str())
             .collect(),
         "bench" => targets
             .iter()
-            .filter(|t| t.contains("_bench"))
+            .filter(|t| target_name(t).contains("_bench"))
             .map(|s| s.as_str())
             .collect(),
         _ => targets.iter().map(|s| s.as_str()).collect(),
