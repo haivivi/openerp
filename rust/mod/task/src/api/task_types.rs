@@ -18,10 +18,7 @@ pub fn router(engine: Arc<TaskEngine>) -> Router {
         .with_state(engine)
 }
 
-// ---------------------------------------------------------------------------
-// GET /task-types
-// ---------------------------------------------------------------------------
-
+/// GET /task-types — list all registered task types.
 async fn list_types(
     State(engine): State<EngineState>,
 ) -> Result<Json<Vec<TaskType>>, ServiceError> {
@@ -29,10 +26,8 @@ async fn list_types(
     Ok(Json(types))
 }
 
-// ---------------------------------------------------------------------------
-// POST /task-types
-// ---------------------------------------------------------------------------
-
+/// POST /task-types — register a task type (no trigger via HTTP, trigger is
+/// registered programmatically by in-process services).
 async fn register_type(
     State(engine): State<EngineState>,
     Json(req): Json<RegisterTaskTypeRequest>,
@@ -45,34 +40,18 @@ async fn register_type(
         max_concurrency: req.max_concurrency,
     };
 
-    // Register with a no-op handler. Real handlers are registered
-    // programmatically by business services. The HTTP endpoint is
-    // mainly for runtime type metadata registration.
-    let td = type_def.clone();
-    engine
-        .register(td, |_task, _ctx| async {
-            Err(ServiceError::Internal(
-                "no handler registered via API".into(),
-            ))
-        })
-        .await;
-
+    engine.register(type_def.clone(), None).await;
     Ok(Json(type_def))
 }
 
-// ---------------------------------------------------------------------------
-// DELETE /task-types/:type_key
-// ---------------------------------------------------------------------------
-
+/// DELETE /task-types/:type_key — unregister a task type.
 async fn unregister_type(
     State(engine): State<EngineState>,
     Path(type_key): Path<String>,
 ) -> Result<Json<serde_json::Value>, ServiceError> {
     let removed = engine.unregister(&type_key).await;
     if !removed {
-        return Err(ServiceError::NotFound(format!(
-            "task type {type_key}"
-        )));
+        return Err(ServiceError::NotFound(format!("task type {type_key}")));
     }
     Ok(Json(serde_json::json!({ "deleted": true })))
 }
