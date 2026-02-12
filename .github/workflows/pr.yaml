@@ -1,0 +1,75 @@
+name: PR Check
+
+on:
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  affected:
+    name: Find affected targets
+    runs-on: ubuntu-latest
+    outputs:
+      build_targets: ${{ steps.affected.outputs.build_targets }}
+      test_targets: ${{ steps.affected.outputs.test_targets }}
+      has_targets: ${{ steps.affected.outputs.has_targets }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Find affected targets
+        id: affected
+        run: |
+          # Get affected build targets
+          BUILD=$(bazel run //devops/tools/affected -- \
+            --base=origin/${{ github.base_ref }} --mode=build --oneline)
+          # Get affected test targets
+          TEST=$(bazel run //devops/tools/affected -- \
+            --base=origin/${{ github.base_ref }} --mode=test --oneline)
+
+          echo "build_targets=${BUILD}" >> "$GITHUB_OUTPUT"
+          echo "test_targets=${TEST}" >> "$GITHUB_OUTPUT"
+
+          if [ -n "$BUILD" ] || [ -n "$TEST" ]; then
+            echo "has_targets=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_targets=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          echo "### Affected targets" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Build:** ${BUILD:-none}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Test:** ${TEST:-none}" >> "$GITHUB_STEP_SUMMARY"
+
+  build:
+    name: Build
+    needs: affected
+    if: needs.affected.outputs.has_targets == 'true' && needs.affected.outputs.build_targets != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build affected targets
+        env:
+          BUILD_TARGETS: ${{ needs.affected.outputs.build_targets }}
+        run: bazel build $BUILD_TARGETS
+
+  test:
+    name: Test
+    needs: affected
+    if: needs.affected.outputs.has_targets == 'true' && needs.affected.outputs.test_targets != ''
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test affected targets
+        env:
+          TEST_TARGETS: ${{ needs.affected.outputs.test_targets }}
+        run: bazel test $TEST_TARGETS
