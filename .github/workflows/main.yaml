@@ -9,62 +9,20 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  affected:
-    name: Find affected targets
-    runs-on: ubuntu-latest
-    outputs:
-      build_targets: ${{ steps.affected.outputs.build_targets }}
-      test_targets: ${{ steps.affected.outputs.test_targets }}
-      has_targets: ${{ steps.affected.outputs.has_targets }}
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-
-      - name: Find affected targets
-        id: affected
-        run: |
-          # Compare against pre-push tip (handles rebase-and-merge with multiple commits)
-          BUILD=$(bazel run //devops/tools/affected -- \
-            --base=${{ github.event.before }} --mode=build --oneline)
-          TEST=$(bazel run //devops/tools/affected -- \
-            --base=${{ github.event.before }} --mode=test --oneline)
-
-          echo "build_targets=${BUILD}" >> "$GITHUB_OUTPUT"
-          echo "test_targets=${TEST}" >> "$GITHUB_OUTPUT"
-
-          if [ -n "$BUILD" ] || [ -n "$TEST" ]; then
-            echo "has_targets=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_targets=false" >> "$GITHUB_OUTPUT"
-          fi
-
-          echo "### Affected targets" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Build:** ${BUILD:-none}" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Test:** ${TEST:-none}" >> "$GITHUB_STEP_SUMMARY"
-
   build:
     name: Build
-    needs: affected
-    if: needs.affected.outputs.has_targets == 'true' && needs.affected.outputs.build_targets != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Build affected targets
-        run: bazel build ${{ needs.affected.outputs.build_targets }}
+      - name: Build all targets
+        run: bazel build //...
 
   test:
     name: Test
-    needs: affected
-    if: needs.affected.outputs.has_targets == 'true' && needs.affected.outputs.test_targets != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
 
-      - name: Test affected targets
-        run: bazel test ${{ needs.affected.outputs.test_targets }}
+      - name: Test all targets
+        run: bazel test //...

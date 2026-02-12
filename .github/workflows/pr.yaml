@@ -55,7 +55,9 @@ jobs:
           fetch-depth: 0
 
       - name: Build affected targets
-        run: bazel build ${{ needs.affected.outputs.build_targets }}
+        env:
+          BUILD_TARGETS: ${{ needs.affected.outputs.build_targets }}
+        run: bazel build $BUILD_TARGETS
 
   test:
     name: Test
@@ -68,4 +70,6 @@ jobs:
           fetch-depth: 0
 
       - name: Test affected targets
-        run: bazel test ${{ needs.affected.outputs.test_targets }}
+        env:
+          TEST_TARGETS: ${{ needs.affected.outputs.test_targets }}
+        run: bazel test $TEST_TARGETS

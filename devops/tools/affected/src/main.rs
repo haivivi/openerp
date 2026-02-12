@@ -27,6 +27,7 @@ fn main() {
         }
         if args.check.is_some() {
             println!("not-affected");
+            std::process::exit(1);
         }
         return;
     }
