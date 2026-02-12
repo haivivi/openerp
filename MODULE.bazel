@@ -44,6 +44,13 @@ crate.spec(package = "zstd", version = "0.13")
 crate.spec(package = "crc32fast", version = "1")
 crate.spec(package = "parking_lot", version = "0.12")
 
+# Auth
+crate.spec(package = "jsonwebtoken", version = "9")
+crate.spec(package = "sha2", version = "0.10")
+crate.spec(package = "tower-http", version = "0.6", features = ["cors"])
+crate.spec(package = "reqwest", version = "0.12", features = ["json", "rustls-tls"], default_features = False)
+crate.spec(package = "base64", version = "0.22")
+
 # Testing & Benchmarks
 crate.spec(package = "tempfile", version = "3")
 crate.spec(package = "criterion", version = "0.5", features = ["html_reports"])
