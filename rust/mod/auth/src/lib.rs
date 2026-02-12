@@ -20,7 +20,7 @@
 
 pub mod model;
 pub mod service;
-pub mod api;
+// TODO: API layer will be generated from lib/api/schema/auth.api
 
 use std::sync::Arc;
 
@@ -61,6 +61,7 @@ impl Module for AuthModule {
     }
 
     fn routes(&self) -> Router {
-        api::build_router(self.service.clone())
+        // TODO: Will be replaced with generated API from lib/api/server/auth
+        Router::new()
     }
 }

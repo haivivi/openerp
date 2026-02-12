@@ -1,4 +1,4 @@
-pub mod api;
+// TODO: API layer will be generated from lib/api/schema/pms.api
 pub mod model;
 pub mod sn;
 pub mod service;
@@ -29,6 +29,7 @@ impl Module for PmsModule {
     }
 
     fn routes(&self) -> Router {
-        api::router(self.service.clone())
+        // TODO: Will be replaced with generated API from lib/api/server/pms
+        Router::new()
     }
 }

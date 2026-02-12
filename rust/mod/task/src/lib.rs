@@ -1,4 +1,4 @@
-pub mod api;
+// TODO: API layer will be generated from lib/api/schema/task.api
 pub mod engine;
 pub mod model;
 pub mod store;
@@ -70,6 +70,7 @@ impl Module for TaskModule {
     }
 
     fn routes(&self) -> Router {
-        api::router(Arc::clone(&self.engine))
+        // TODO: Will be replaced with generated API from lib/api/server/task
+        Router::new()
     }
 }
