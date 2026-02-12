@@ -203,9 +203,7 @@ fn find_affected_targets(changed_files: &[String], verbose: bool) -> BTreeSet<St
                 }
             }
             Err(e) => {
-                if verbose {
-                    eprintln!("  warning: query failed for {pkg}: {e}");
-                }
+                eprintln!("warning: bazel query failed for {pkg}: {e}");
             }
         }
     }
