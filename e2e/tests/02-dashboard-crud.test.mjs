@@ -1,10 +1,10 @@
 /**
- * E2E Test: Dashboard CRUD operations (shadcn sidebar layout)
+ * E2E Test: Dashboard CRUD operations (modal dialogs)
  *
  * Tests:
- * 1. Create a user via Users page
- * 2. Create a role via Roles page
- * 3. Create a PMS model via Product Models page
+ * 1. Create a user via modal dialog
+ * 2. Create a role via modal dialog
+ * 3. Create a PMS model via modal dialog
  * 4. Stats update on Overview page
  * 5. Delete user
  * 6. Delete role
@@ -37,14 +37,24 @@ async function navigateTo(page, pageName) {
       if (item.dataset.page === name) { item.click(); break; }
     }
   }, pageName);
-  // Wait for the target page to become visible.
   await page.waitForFunction(
     (name) => document.getElementById('page-' + name)?.classList.contains('active'),
     { timeout: 3000 },
     pageName,
   );
-  // Brief pause for data to load.
   await new Promise(r => setTimeout(r, 500));
+}
+
+/** Open a dialog and wait for it to be visible. */
+async function openAndWaitDialog(page, type) {
+  await page.evaluate((t) => window.openDialog(t), type);
+  await page.waitForFunction(
+    (t) => document.getElementById('dlg-' + t)?.classList.contains('open'),
+    { timeout: 3000 },
+    type,
+  );
+  // Wait for focus animation.
+  await new Promise(r => setTimeout(r, 150));
 }
 
 describe('Dashboard CRUD', () => {
@@ -62,7 +72,6 @@ describe('Dashboard CRUD', () => {
     await cleanupTestData(token);
 
     await page.goto(`${BASE_URL}/dashboard`, { waitUntil: 'networkidle0' });
-    // Wait for initial overview data load (em-dash is placeholder).
     await page.waitForFunction(
       () => {
         const el = document.getElementById('statUsers');
@@ -80,14 +89,22 @@ describe('Dashboard CRUD', () => {
     if (browser) await browser.close();
   });
 
-  it('creates a user via the UI', async () => {
+  it('creates a user via modal dialog', async () => {
     await navigateTo(page, 'users');
     await waitToastClear(page);
 
+    // Open Add User dialog.
+    await openAndWaitDialog(page, 'user');
+
     await page.type('#newUserName', 'E2E Test User');
     await page.type('#newUserEmail', 'e2e@test.com');
-    await page.click('button[onclick="createUser()"]');
+    await page.click('#btnUser');
 
+    // Wait for dialog to close and user to appear in the table.
+    await page.waitForFunction(
+      () => !document.getElementById('dlg-user')?.classList.contains('open'),
+      { timeout: 5000 },
+    );
     await page.waitForFunction(
       () => document.getElementById('usersBody')?.textContent.includes('E2E Test User'),
       { timeout: 5000 },
@@ -98,15 +115,21 @@ describe('Dashboard CRUD', () => {
     assert.ok(found, 'User "E2E Test User" appears in table');
   });
 
-  it('creates a role via the UI', async () => {
+  it('creates a role via modal dialog', async () => {
     await navigateTo(page, 'roles');
     await waitToastClear(page);
 
+    await openAndWaitDialog(page, 'role');
+
     await page.type('#newRoleId', 'e2e:tester');
     await page.type('#newRoleDesc', 'E2E test role');
-    await page.type('#newRolePerms', 'e2e:test:read, e2e:test:write');
-    await page.click('button[onclick="createRole()"]');
+    await page.type('#newRolePerms', 'e2e:test:read\ne2e:test:write');
+    await page.click('#btnRole');
 
+    await page.waitForFunction(
+      () => !document.getElementById('dlg-role')?.classList.contains('open'),
+      { timeout: 5000 },
+    );
     await page.waitForFunction(
       () => document.getElementById('rolesBody')?.textContent.includes('e2e:tester'),
       { timeout: 5000 },
@@ -117,15 +140,21 @@ describe('Dashboard CRUD', () => {
     assert.ok(found, 'Role "e2e:tester" appears in table');
   });
 
-  it('creates a PMS model via the UI', async () => {
+  it('creates a PMS model via modal dialog', async () => {
     await navigateTo(page, 'models');
     await waitToastClear(page);
+
+    await openAndWaitDialog(page, 'model');
 
     await page.type('#newModelCode', '999');
     await page.type('#newModelSeries', 'E2E');
     await page.type('#newModelDisplay', 'E2E Test Model');
-    await page.click('button[onclick="createModel()"]');
+    await page.click('#btnModel');
 
+    await page.waitForFunction(
+      () => !document.getElementById('dlg-model')?.classList.contains('open'),
+      { timeout: 5000 },
+    );
     await page.waitForFunction(
       () => document.getElementById('modelsBody')?.textContent.includes('999'),
       { timeout: 5000 },
@@ -137,7 +166,6 @@ describe('Dashboard CRUD', () => {
   });
 
   it('stats update after creating resources', async () => {
-    // Switch to overview to see stats.
     await navigateTo(page, 'overview');
 
     await page.waitForFunction(

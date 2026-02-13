@@ -17,7 +17,6 @@
   --destructive:oklch(.577 .245 27.325);--destructive-fg:oklch(.985 0 0);
   --success:oklch(.696 .17 162.48);
   --warning:oklch(.769 .189 70.08);
-  --chart-1:oklch(.646 .222 41.116);--chart-2:oklch(.6 .21 261);
   --ring:oklch(.708 0 0);--radius:.625rem;
   --sidebar-w:256px;
   --font:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif
@@ -87,26 +86,57 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 .empty-cell{text-align:center;color:var(--muted-fg);padding:32px 16px}
 .mono{font-family:'SF Mono',SFMono-Regular,ui-monospace,'DejaVu Sans Mono',Menlo,Consolas,monospace;font-size:12px}
 
-/* ─── Create toolbar ─── */
-.create-bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
-.create-bar input{
-  flex:1;min-width:120px;height:36px;padding:0 12px;
-  background:transparent;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);
-  color:var(--card-fg);font-size:13px;outline:none;transition:box-shadow .15s,border-color .15s;
-}
-.create-bar input::placeholder{color:var(--muted-fg)}
-.create-bar input:focus{border-color:var(--ring);box-shadow:0 0 0 3px oklch(.708 0 0/.12)}
+/* ─── Buttons ─── */
 .btn-sm-primary{
   height:36px;padding:0 14px;border:none;border-radius:calc(var(--radius) - 2px);
   background:var(--primary);color:var(--primary-fg);font-size:13px;font-weight:500;
   cursor:pointer;white-space:nowrap;transition:opacity .15s;display:inline-flex;align-items:center;gap:5px;
 }
 .btn-sm-primary:hover{opacity:.9}
+.btn-sm-primary:disabled{opacity:.5;cursor:not-allowed}
+.btn-sm-secondary{
+  height:36px;padding:0 14px;border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);
+  background:transparent;color:var(--card-fg);font-size:13px;font-weight:500;
+  cursor:pointer;white-space:nowrap;transition:background .15s;display:inline-flex;align-items:center;gap:5px;
+}
+.btn-sm-secondary:hover{background:var(--accent)}
 .btn-ghost-destructive{
   height:28px;padding:0 8px;border:none;border-radius:calc(var(--radius) - 4px);
   background:transparent;color:var(--destructive);font-size:12px;cursor:pointer;transition:background .1s;
 }
 .btn-ghost-destructive:hover{background:oklch(.577 .245 27.325/.1)}
+
+/* ─── Dialog / Modal (shadcn style) ─── */
+.dialog-overlay{
+  position:fixed;inset:0;background:oklch(0 0 0/.8);z-index:100;
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;transition:opacity .15s;
+}
+.dialog-overlay.open{opacity:1;pointer-events:auto}
+.dialog{
+  background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);
+  width:100%;max-width:480px;padding:24px;
+  box-shadow:0 16px 48px oklch(0 0 0/.5);
+  transform:scale(.96) translateY(8px);transition:transform .15s;
+}
+.dialog-overlay.open .dialog{transform:scale(1) translateY(0)}
+.dialog-header{margin-bottom:20px}
+.dialog-header h2{font-size:18px;font-weight:600;letter-spacing:-.02em}
+.dialog-header p{font-size:14px;color:var(--muted-fg);margin-top:4px}
+.dialog-body{display:flex;flex-direction:column;gap:14px}
+.field{display:flex;flex-direction:column;gap:5px}
+.field label{font-size:13px;font-weight:500}
+.field input,.field textarea{
+  width:100%;height:40px;padding:0 12px;
+  background:transparent;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);
+  color:var(--card-fg);font-size:14px;outline:none;transition:box-shadow .15s,border-color .15s;
+}
+.field textarea{height:auto;padding:8px 12px;resize:vertical;min-height:60px;font-family:inherit;line-height:1.5}
+.field input::placeholder,.field textarea::placeholder{color:var(--muted-fg)}
+.field input:focus,.field textarea:focus{border-color:var(--ring);box-shadow:0 0 0 3px oklch(.708 0 0/.12)}
+.field .hint{font-size:12px;color:var(--muted-fg)}
+.dialog-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+.dialog-error{font-size:13px;color:var(--destructive);display:none}
 
 /* ─── Toast ─── */
 .toast{position:fixed;bottom:20px;right:20px;padding:10px 16px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:0 4px 12px oklch(0 0 0/.4);border:1px solid var(--border);background:var(--card);color:var(--card-fg);opacity:0;transform:translateY(8px);transition:all .2s;z-index:999;display:flex;align-items:center;gap:8px;pointer-events:none}
@@ -208,10 +238,9 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 
     <!-- Users page -->
     <div class="page" id="page-users">
-      <div class="create-bar">
-        <input type="text" id="newUserName" placeholder="Name">
-        <input type="text" id="newUserEmail" placeholder="Email">
-        <button class="btn-sm-primary" onclick="createUser()">+ Add User</button>
+      <div class="section-header" style="margin-bottom:12px">
+        <h2>Users</h2>
+        <button class="btn-sm-primary" onclick="openDialog('user')">+ Add User</button>
       </div>
       <div class="table-card"><table><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Created</th><th style="width:80px"></th></tr></thead>
       <tbody id="usersBody"><tr><td class="empty-cell" colspan="5">Loading&hellip;</td></tr></tbody></table></div>
@@ -219,11 +248,9 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 
     <!-- Roles page -->
     <div class="page" id="page-roles">
-      <div class="create-bar">
-        <input type="text" id="newRoleId" placeholder="Role ID (e.g. pms:viewer)">
-        <input type="text" id="newRoleDesc" placeholder="Description">
-        <input type="text" id="newRolePerms" placeholder="Permissions (comma-separated)">
-        <button class="btn-sm-primary" onclick="createRole()">+ Add Role</button>
+      <div class="section-header" style="margin-bottom:12px">
+        <h2>Roles</h2>
+        <button class="btn-sm-primary" onclick="openDialog('role')">+ Add Role</button>
       </div>
       <div class="table-card"><table><thead><tr><th>ID</th><th>Description</th><th>Permissions</th><th style="width:80px"></th></tr></thead>
       <tbody id="rolesBody"><tr><td class="empty-cell" colspan="4">Loading&hellip;</td></tr></tbody></table></div>
@@ -231,11 +258,9 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 
     <!-- Models page -->
     <div class="page" id="page-models">
-      <div class="create-bar">
-        <input type="number" id="newModelCode" placeholder="Code" style="max-width:100px">
-        <input type="text" id="newModelSeries" placeholder="Series name">
-        <input type="text" id="newModelDisplay" placeholder="Display name">
-        <button class="btn-sm-primary" onclick="createModel()">+ Add Model</button>
+      <div class="section-header" style="margin-bottom:12px">
+        <h2>Product Models</h2>
+        <button class="btn-sm-primary" onclick="openDialog('model')">+ Add Model</button>
       </div>
       <div class="table-card"><table><thead><tr><th>Code</th><th>Series</th><th>Display Name</th><th>Description</th><th style="width:80px"></th></tr></thead>
       <tbody id="modelsBody"><tr><td class="empty-cell" colspan="5">Loading&hellip;</td></tr></tbody></table></div>
@@ -243,15 +268,106 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 
     <!-- Devices page -->
     <div class="page" id="page-devices">
+      <div class="section-header" style="margin-bottom:12px"><h2>Devices</h2></div>
       <div class="table-card"><table><thead><tr><th>SN</th><th>Model</th><th>Status</th><th>Batch</th><th>Created</th></tr></thead>
       <tbody id="devicesBody"><tr><td class="empty-cell" colspan="5">No devices</td></tr></tbody></table></div>
     </div>
 
     <!-- Tasks page -->
     <div class="page" id="page-tasks">
+      <div class="section-header" style="margin-bottom:12px"><h2>Tasks</h2></div>
       <div class="table-card"><table><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Created</th></tr></thead>
       <tbody id="tasksBody"><tr><td class="empty-cell" colspan="5">Loading&hellip;</td></tr></tbody></table></div>
     </div>
+  </div>
+</div>
+
+<!-- ── Modal: Add User ── -->
+<div class="dialog-overlay" id="dlg-user">
+  <div class="dialog">
+    <div class="dialog-header">
+      <h2>Add User</h2>
+      <p>Create a new user account.</p>
+    </div>
+    <form id="formUser" class="dialog-body" onsubmit="return submitUser(event)">
+      <div class="field">
+        <label for="newUserName">Name <span style="color:var(--destructive)">*</span></label>
+        <input type="text" id="newUserName" placeholder="Full name" required>
+      </div>
+      <div class="field">
+        <label for="newUserEmail">Email</label>
+        <input type="email" id="newUserEmail" placeholder="user@example.com">
+      </div>
+      <div class="dialog-error" id="errUser"></div>
+      <div class="dialog-footer">
+        <button type="button" class="btn-sm-secondary" onclick="closeDialog('user')">Cancel</button>
+        <button type="submit" class="btn-sm-primary" id="btnUser">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Modal: Add Role ── -->
+<div class="dialog-overlay" id="dlg-role">
+  <div class="dialog">
+    <div class="dialog-header">
+      <h2>Add Role</h2>
+      <p>Define a new role with permissions.</p>
+    </div>
+    <form id="formRole" class="dialog-body" onsubmit="return submitRole(event)">
+      <div class="field">
+        <label for="newRoleId">Role ID <span style="color:var(--destructive)">*</span></label>
+        <input type="text" id="newRoleId" placeholder="e.g. pms:viewer" required>
+        <span class="hint">Use format module:name</span>
+      </div>
+      <div class="field">
+        <label for="newRoleDesc">Description</label>
+        <input type="text" id="newRoleDesc" placeholder="What this role is for">
+      </div>
+      <div class="field">
+        <label for="newRolePerms">Permissions <span style="color:var(--destructive)">*</span></label>
+        <textarea id="newRolePerms" rows="3" placeholder="One per line, e.g.&#10;pms:model:read&#10;pms:device:read" required></textarea>
+        <span class="hint">One permission per line, or comma-separated</span>
+      </div>
+      <div class="dialog-error" id="errRole"></div>
+      <div class="dialog-footer">
+        <button type="button" class="btn-sm-secondary" onclick="closeDialog('role')">Cancel</button>
+        <button type="submit" class="btn-sm-primary" id="btnRole">Create</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<!-- ── Modal: Add Model ── -->
+<div class="dialog-overlay" id="dlg-model">
+  <div class="dialog">
+    <div class="dialog-header">
+      <h2>Add Product Model</h2>
+      <p>Register a new product model in PMS.</p>
+    </div>
+    <form id="formModel" class="dialog-body" onsubmit="return submitModel(event)">
+      <div class="field">
+        <label for="newModelCode">Code <span style="color:var(--destructive)">*</span></label>
+        <input type="number" id="newModelCode" placeholder="Numeric code, e.g. 101" required min="1">
+      </div>
+      <div class="field">
+        <label for="newModelSeries">Series Name <span style="color:var(--destructive)">*</span></label>
+        <input type="text" id="newModelSeries" placeholder="e.g. H200" required>
+      </div>
+      <div class="field">
+        <label for="newModelDisplay">Display Name</label>
+        <input type="text" id="newModelDisplay" placeholder="Human-readable name">
+      </div>
+      <div class="field">
+        <label for="newModelDesc">Description</label>
+        <textarea id="newModelDesc" rows="2" placeholder="Optional description"></textarea>
+      </div>
+      <div class="dialog-error" id="errModel"></div>
+      <div class="dialog-footer">
+        <button type="button" class="btn-sm-secondary" onclick="closeDialog('model')">Cancel</button>
+        <button type="submit" class="btn-sm-primary" id="btnModel">Create</button>
+      </div>
+    </form>
   </div>
 </div>
 
@@ -272,6 +388,77 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 
   // ── JWT decode ──
   try{const p=JSON.parse(atob(token.split('.')[1]));document.getElementById('userName').textContent=p.sub;document.getElementById('userAvatar').textContent=(p.sub||'?')[0].toUpperCase();if(p.roles&&p.roles[0])document.getElementById('userRoleBadge').textContent=p.roles[0]}catch(e){}
+
+  // ── Dialog open/close ──
+  window.openDialog=function(type){
+    const dlg=document.getElementById('dlg-'+type);
+    if(!dlg)return;
+    // Reset form
+    const form=dlg.querySelector('form');if(form)form.reset();
+    const err=dlg.querySelector('.dialog-error');if(err){err.style.display='none';err.textContent=''}
+    dlg.classList.add('open');
+    // Focus first input after animation
+    setTimeout(()=>{const inp=dlg.querySelector('input');if(inp)inp.focus()},100);
+  };
+  window.closeDialog=function(type){
+    const dlg=document.getElementById('dlg-'+type);
+    if(dlg)dlg.classList.remove('open');
+  };
+  // Close on overlay click
+  document.querySelectorAll('.dialog-overlay').forEach(overlay=>{
+    overlay.addEventListener('click',function(e){if(e.target===this)this.classList.remove('open')});
+  });
+  // Close on Escape
+  document.addEventListener('keydown',function(e){
+    if(e.key==='Escape'){document.querySelectorAll('.dialog-overlay.open').forEach(d=>d.classList.remove('open'))}
+  });
+
+  // ── Dialog submissions ──
+  window.submitUser=async function(e){
+    e.preventDefault();
+    const errEl=document.getElementById('errUser'),btn=document.getElementById('btnUser');
+    const n=document.getElementById('newUserName').value.trim(),em=document.getElementById('newUserEmail').value.trim();
+    if(!n){errEl.textContent='Name is required';errEl.style.display='block';return false}
+    btn.disabled=true;btn.textContent='Creating\u2026';errEl.style.display='none';
+    try{
+      await api('POST','/auth/users',{name:n,email:em||undefined});
+      closeDialog('user');toast('User created','success');loadUsers();loadStats();
+    }catch(ex){errEl.textContent=ex.message;errEl.style.display='block'}
+    finally{btn.disabled=false;btn.textContent='Create'}
+    return false;
+  };
+  window.submitRole=async function(e){
+    e.preventDefault();
+    const errEl=document.getElementById('errRole'),btn=document.getElementById('btnRole');
+    const id=document.getElementById('newRoleId').value.trim(),desc=document.getElementById('newRoleDesc').value.trim();
+    const raw=document.getElementById('newRolePerms').value.trim();
+    const perms=raw.split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
+    if(!id){errEl.textContent='Role ID is required';errEl.style.display='block';return false}
+    if(!perms.length){errEl.textContent='At least one permission is required';errEl.style.display='block';return false}
+    btn.disabled=true;btn.textContent='Creating\u2026';errEl.style.display='none';
+    try{
+      await api('POST','/auth/roles',{id,description:desc,permissions:perms});
+      closeDialog('role');toast('Role created','success');loadRoles();loadStats();
+    }catch(ex){errEl.textContent=ex.message;errEl.style.display='block'}
+    finally{btn.disabled=false;btn.textContent='Create'}
+    return false;
+  };
+  window.submitModel=async function(e){
+    e.preventDefault();
+    const errEl=document.getElementById('errModel'),btn=document.getElementById('btnModel');
+    const c=parseInt(document.getElementById('newModelCode').value);
+    const s=document.getElementById('newModelSeries').value.trim();
+    const d=document.getElementById('newModelDisplay').value.trim();
+    const desc=document.getElementById('newModelDesc').value.trim();
+    if(!c||!s){errEl.textContent='Code and series name are required';errEl.style.display='block';return false}
+    btn.disabled=true;btn.textContent='Creating\u2026';errEl.style.display='none';
+    try{
+      await api('POST','/pms/models',{code:c,series_name:s,display_name:d||s,description:desc||undefined});
+      closeDialog('model');toast('Model created','success');loadModels();loadStats();
+    }catch(ex){errEl.textContent=ex.message;errEl.style.display='block'}
+    finally{btn.disabled=false;btn.textContent='Create'}
+    return false;
+  };
 
   // ── Sidebar navigation ──
   const navItems=document.querySelectorAll('.nav-item[data-page]');
@@ -337,24 +524,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     else if(pg==='tasks')loadTasks();
   }
 
-  // ── Create / Delete ──
-  window.createUser=async function(){
-    const n=document.getElementById('newUserName').value.trim(),e=document.getElementById('newUserEmail').value.trim();
-    if(!n){toast('Name is required','error');return}
-    try{await api('POST','/auth/users',{name:n,email:e||undefined});document.getElementById('newUserName').value='';document.getElementById('newUserEmail').value='';toast('User created','success');loadUsers();loadStats()}catch(ex){toast(ex.message,'error')}
-  };
-  window.createRole=async function(){
-    const id=document.getElementById('newRoleId').value.trim(),desc=document.getElementById('newRoleDesc').value.trim(),ps=document.getElementById('newRolePerms').value.trim();
-    if(!id){toast('Role ID is required','error');return}
-    const perms=ps?ps.split(',').map(s=>s.trim()).filter(Boolean):[];
-    if(!perms.length){toast('At least one permission required','error');return}
-    try{await api('POST','/auth/roles',{id,description:desc,permissions:perms});document.getElementById('newRoleId').value='';document.getElementById('newRoleDesc').value='';document.getElementById('newRolePerms').value='';toast('Role created','success');loadRoles();loadStats()}catch(ex){toast(ex.message,'error')}
-  };
-  window.createModel=async function(){
-    const c=parseInt(document.getElementById('newModelCode').value),s=document.getElementById('newModelSeries').value.trim(),d=document.getElementById('newModelDisplay').value.trim();
-    if(!c||!s){toast('Code and series required','error');return}
-    try{await api('POST','/pms/models',{code:c,series_name:s,display_name:d||s});document.getElementById('newModelCode').value='';document.getElementById('newModelSeries').value='';document.getElementById('newModelDisplay').value='';toast('Model created','success');loadModels();loadStats()}catch(ex){toast(ex.message,'error')}
-  };
+  // ── Delete ──
   window.deleteUser=async function(id){if(!confirm('Delete this user?'))return;try{await api('DELETE','/auth/users/'+id);toast('User deleted','success');loadUsers();loadStats()}catch(ex){toast(ex.message,'error')}};
   window.deleteRole=async function(id){if(!confirm('Delete this role?'))return;try{await api('DELETE','/auth/roles/'+id);toast('Role deleted','success');loadRoles();loadStats()}catch(ex){toast(ex.message,'error')}};
   window.deleteModel=async function(c){if(!confirm('Delete this model?'))return;try{await api('DELETE','/pms/models/'+c);toast('Model deleted','success');loadModels();loadStats()}catch(ex){toast(ex.message,'error')}};
