@@ -1,11 +1,12 @@
-// TODO: API layer will be generated from lib/api/schema/task.api
 pub mod engine;
 pub mod model;
 pub mod store;
 pub mod worker;
+pub mod handlers;
 
 use std::sync::Arc;
 
+use axum::routing::{get, post};
 use axum::Router;
 use openerp_core::Module;
 use openerp_kv::KVStore;
@@ -17,14 +18,6 @@ use store::TaskStore;
 use worker::WorkerConfig;
 
 /// The Task module — state machine + notification center for async tasks.
-///
-/// Does **not** execute tasks itself. Instead it:
-/// - Records task state in SQL (proper columns, lightweight progress updates).
-/// - Stores executor runtime data in KV (input params, checkpoint state).
-/// - Stores executor logs in TSDB.
-/// - Notifies executors when tasks are created (trigger callbacks).
-/// - Provides HTTP APIs for executors to claim, report progress, complete/fail.
-/// - Runs watchdog loops to detect stale/timed-out tasks.
 pub struct TaskModule {
     engine: Arc<TaskEngine>,
     /// Dropping this guard cancels the background watchdog loops.
@@ -70,7 +63,111 @@ impl Module for TaskModule {
     }
 
     fn routes(&self) -> Router {
-        // TODO: Will be replaced with generated API from lib/api/server/task
+        let engine = self.engine.clone();
+
         Router::new()
+            // Task CRUD (create + list + get)
+            .route("/tasks", post(task_api::create_task).get(task_api::list_tasks))
+            .route("/tasks/{id}", get(task_api::get_task))
+            // Task custom actions
+            .route("/tasks/{id}/@claim", post(handlers::task::claim))
+            .route("/tasks/{id}/@progress", post(handlers::task::progress))
+            .route("/tasks/{id}/@complete", post(handlers::task::complete))
+            .route("/tasks/{id}/@fail", post(handlers::task::fail))
+            .route("/tasks/{id}/@cancel", post(handlers::task::cancel))
+            .route("/tasks/{id}/@poll", get(handlers::task::poll))
+            .route("/tasks/{id}/@log", post(handlers::task::log_write))
+            .route("/tasks/{id}/@logs", get(handlers::task::log_read))
+            // TaskType CRUD
+            .route("/task-types", post(task_api::create_task_type).get(task_api::list_task_types))
+            .route("/task-types/{id}", get(task_api::get_task_type).delete(task_api::delete_task_type))
+            .with_state(engine)
+    }
+}
+
+/// Inline API handlers for Task CRUD.
+mod task_api {
+    use std::sync::Arc;
+
+    use axum::extract::{Path, Query, State};
+    use axum::http::StatusCode;
+    use axum::response::IntoResponse;
+
+    use crate::engine::TaskEngine;
+    use crate::model::{CreateTaskRequest, TaskListQuery, RegisterTaskTypeRequest};
+
+    pub async fn create_task(
+        State(engine): State<Arc<TaskEngine>>,
+        axum::Json(body): axum::Json<CreateTaskRequest>,
+    ) -> impl IntoResponse {
+        match engine.create_task(
+            &body.task_type,
+            &body.input,
+            body.timeout_secs,
+            body.max_retries,
+            body.created_by,
+        ).await {
+            Ok(task) => (StatusCode::CREATED, axum::Json(serde_json::to_value(&task).unwrap())).into_response(),
+            Err(e) => e.into_response(),
+        }
+    }
+
+    pub async fn get_task(
+        State(engine): State<Arc<TaskEngine>>,
+        Path(id): Path<String>,
+    ) -> impl IntoResponse {
+        match engine.get(&id) {
+            Ok(task) => (StatusCode::OK, axum::Json(serde_json::to_value(&task).unwrap())).into_response(),
+            Err(e) => e.into_response(),
+        }
+    }
+
+    pub async fn list_tasks(
+        State(engine): State<Arc<TaskEngine>>,
+        Query(query): Query<TaskListQuery>,
+    ) -> impl IntoResponse {
+        match engine.list(query) {
+            Ok(result) => (StatusCode::OK, axum::Json(serde_json::to_value(&result).unwrap())).into_response(),
+            Err(e) => e.into_response(),
+        }
+    }
+
+    pub async fn create_task_type(
+        State(engine): State<Arc<TaskEngine>>,
+        axum::Json(body): axum::Json<RegisterTaskTypeRequest>,
+    ) -> impl IntoResponse {
+        match engine.register_task_type(body).await {
+            Ok(tt) => (StatusCode::CREATED, axum::Json(serde_json::to_value(&tt).unwrap())).into_response(),
+            Err(e) => e.into_response(),
+        }
+    }
+
+    pub async fn get_task_type(
+        State(engine): State<Arc<TaskEngine>>,
+        Path(id): Path<String>,
+    ) -> impl IntoResponse {
+        match engine.get_task_type(&id).await {
+            Ok(tt) => (StatusCode::OK, axum::Json(serde_json::to_value(&tt).unwrap())).into_response(),
+            Err(e) => e.into_response(),
+        }
+    }
+
+    pub async fn list_task_types(
+        State(engine): State<Arc<TaskEngine>>,
+    ) -> impl IntoResponse {
+        match engine.list_task_types().await {
+            Ok(types) => (StatusCode::OK, axum::Json(serde_json::to_value(&types).unwrap())).into_response(),
+            Err(e) => e.into_response(),
+        }
+    }
+
+    pub async fn delete_task_type(
+        State(engine): State<Arc<TaskEngine>>,
+        Path(id): Path<String>,
+    ) -> impl IntoResponse {
+        match engine.delete_task_type(&id).await {
+            Ok(()) => StatusCode::NO_CONTENT.into_response(),
+            Err(e) => e.into_response(),
+        }
     }
 }

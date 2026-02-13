@@ -36,6 +36,13 @@ crate.spec(package = "async-trait", version = "0.1")
 # CLI
 crate.spec(package = "anyhow", version = "1")
 crate.spec(package = "clap", version = "4.5", features = ["derive"])
+crate.spec(package = "toml", version = "0.8")
+crate.spec(package = "argon2", version = "0.5")
+crate.spec(package = "password-hash", version = "0.5")
+crate.spec(package = "tower", version = "0.5", features = ["util"])
+crate.spec(package = "rust-embed", version = "8", features = ["axum"])
+crate.spec(package = "mime_guess", version = "2")
+crate.spec(package = "rpassword", version = "7")
 
 # Proc macro
 crate.spec(package = "syn", version = "2.0", features = ["full", "extra-traits"])
@@ -61,7 +68,7 @@ crate.spec(package = "parking_lot", version = "0.12")
 crate.spec(package = "jsonwebtoken", version = "9")
 crate.spec(package = "sha2", version = "0.10")
 crate.spec(package = "tower-http", version = "0.6", features = ["cors"])
-crate.spec(package = "reqwest", version = "0.12", features = ["json", "rustls-tls"], default_features = False)
+crate.spec(package = "reqwest", version = "0.12", features = ["json", "rustls-tls", "blocking"], default_features = False)
 crate.spec(package = "base64", version = "0.22")
 
 # Testing & Benchmarks

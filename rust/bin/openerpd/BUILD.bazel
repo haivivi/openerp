@@ -1,0 +1,35 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+
+rust_binary(
+    name = "openerpd",
+    srcs = glob(["src/**/*.rs"]),
+    compile_data = glob(["src/**/*.html"]),
+    visibility = ["//visibility:public"],
+    deps = [
+        "//rust/lib/core",
+        "//rust/lib/kv",
+        "//rust/lib/sql",
+        "//rust/mod/auth",
+        "//rust/mod/pms",
+        "//rust/mod/task",
+        "@crates//:anyhow",
+        "@crates//:argon2",
+        "@crates//:axum",
+        "@crates//:chrono",
+        "@crates//:clap",
+        "@crates//:jsonwebtoken",
+        "@crates//:password-hash",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+        "@crates//:toml",
+        "@crates//:tower",
+        "@crates//:tracing",
+        "@crates//:tracing-subscriber",
+    ],
+)
+
+rust_test(
+    name = "openerpd_test",
+    crate = ":openerpd",
+)

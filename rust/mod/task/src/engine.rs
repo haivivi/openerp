@@ -262,6 +262,89 @@ impl TaskEngine {
     }
 
     // =======================================================================
+    // Query (SQL passthrough)
+    // =======================================================================
+
+    /// Get a single task by ID.
+    pub fn get(&self, task_id: &str) -> Result<Task, ServiceError> {
+        self.store.get(task_id)
+    }
+
+    /// List tasks with optional filters.
+    pub fn list(&self, query: crate::model::TaskListQuery) -> Result<openerp_core::ListResult<Task>, ServiceError> {
+        self.store.list(&query)
+    }
+
+    // =======================================================================
+    // Task type management (persistent-friendly wrappers)
+    // =======================================================================
+
+    /// Register a task type via API (no trigger callback — trigger is code-only).
+    pub async fn register_task_type(
+        &self,
+        req: crate::model::RegisterTaskTypeRequest,
+    ) -> Result<TaskType, ServiceError> {
+        let tt = TaskType {
+            task_type: req.task_type.clone(),
+            service: req.service,
+            description: req.description,
+            default_timeout: req.default_timeout,
+            max_concurrency: req.max_concurrency,
+        };
+        self.register(tt.clone(), None).await;
+        Ok(tt)
+    }
+
+    /// Get a task type by its key.
+    pub async fn get_task_type(&self, task_type: &str) -> Result<TaskType, ServiceError> {
+        let reg = self.registry.lock().await;
+        reg.get(task_type)
+            .map(|r| r.type_def.clone())
+            .ok_or_else(|| ServiceError::NotFound(format!("task type {task_type}")))
+    }
+
+    /// List all registered task types.
+    pub async fn list_task_types(&self) -> Result<Vec<TaskType>, ServiceError> {
+        Ok(self.task_types().await)
+    }
+
+    /// Delete a task type.
+    pub async fn delete_task_type(&self, task_type: &str) -> Result<(), ServiceError> {
+        if self.unregister(task_type).await {
+            Ok(())
+        } else {
+            Err(ServiceError::NotFound(format!("task type {task_type}")))
+        }
+    }
+
+    // =======================================================================
+    // Long-poll
+    // =======================================================================
+
+    /// Long-poll: wait up to `timeout_secs` for any state change, then return
+    /// the current task. Returns immediately if the task is already terminal.
+    pub async fn poll(&self, task_id: &str, timeout_secs: u64) -> Result<Task, ServiceError> {
+        let task = self.store.get(task_id)?;
+        if task.status.is_terminal() {
+            return Ok(task);
+        }
+
+        let timeout = std::time::Duration::from_secs(timeout_secs.min(120));
+        let notified = self.notify.notified();
+
+        match tokio::time::timeout(timeout, notified).await {
+            Ok(()) => {
+                // Something changed — return fresh state.
+                self.store.get(task_id)
+            }
+            Err(_) => {
+                // Timeout — return current state.
+                self.store.get(task_id)
+            }
+        }
+    }
+
+    // =======================================================================
     // Logs (TSDB passthrough)
     // =======================================================================
 
@@ -273,6 +356,17 @@ impl TaskEngine {
         lines: &[String],
     ) -> Result<(), ServiceError> {
         self.store.append_log(task_id, level, lines)
+    }
+
+    /// Query logs for a task.
+    pub fn query_logs(
+        &self,
+        task_id: &str,
+        limit: Option<usize>,
+        desc: bool,
+        level: Option<&str>,
+    ) -> Result<Vec<crate::model::TaskLogEntry>, ServiceError> {
+        self.store.query_logs(task_id, level, limit.unwrap_or(100), desc)
     }
 
     // =======================================================================

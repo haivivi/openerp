@@ -1,47 +1,5 @@
-load("@rules_rust//rust:defs.bzl", "rust_library")
-
-# Generate auth server API
-genrule(
-    name = "gen_auth_server",
-    srcs = ["schema/auth.api"],
-    outs = ["server/auth/src/lib.rs"],
-    cmd = "$(location //rust/lib/api/codegen) --input $(SRCS) --output $$(dirname $@) --target rust-server",
-    tools = ["//rust/lib/api/codegen"],
-)
-
-# Generate auth client API
-genrule(
-    name = "gen_auth_client",
-    srcs = ["schema/auth.api"],
-    outs = ["client/rust/auth/src/lib.rs"],
-    cmd = "$(location //rust/lib/api/codegen) --input $(SRCS) --output $$(dirname $@) --target rust-client",
-    tools = ["//rust/lib/api/codegen"],
-)
-
-# Auth server library
-rust_library(
-    name = "openerp_api_server_auth",
-    srcs = [":gen_auth_server"],
-    crate_name = "openerp_api_server_auth",
-    edition = "2021",
-    visibility = ["//visibility:public"],
-    deps = [
-        "//rust/lib/core",
-        "@crates//:async-trait",
-        "@crates//:axum",
-        "@crates//:serde",
-    ],
-)
-
-# Auth client library  
-rust_library(
-    name = "openerp_api_client_auth",
-    srcs = [":gen_auth_client"],
-    crate_name = "openerp_api_client_auth",
-    edition = "2021",
-    visibility = ["//visibility:public"],
-    deps = [
-        "@crates//:reqwest",
-        "@crates//:serde",
-    ],
-)
+# API layer — schema definitions, codegen tools, and generated code.
+#
+# The schema/ crate contains all resource definitions (DSL).
+# The codegen_lib/ crate provides code generation from IR.
+# The macro/ crate provides proc-macro attributes (#[db_resource], etc.).

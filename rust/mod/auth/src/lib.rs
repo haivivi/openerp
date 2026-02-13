@@ -20,10 +20,11 @@
 
 pub mod model;
 pub mod service;
-// TODO: API layer will be generated from lib/api/schema/auth.api
+pub mod handlers;
 
 use std::sync::Arc;
 
+use axum::routing::{delete, get, post, patch};
 use axum::Router;
 
 use openerp_core::Module;
@@ -61,7 +62,33 @@ impl Module for AuthModule {
     }
 
     fn routes(&self) -> Router {
-        // TODO: Will be replaced with generated API from lib/api/server/auth
+        let svc = self.service.clone();
+
         Router::new()
+            // User CRUD
+            .route("/users", get(service::api::list_users).post(service::api::create_user))
+            .route("/users/{id}", get(service::api::get_user).patch(service::api::update_user).delete(service::api::delete_user))
+            // User custom: me
+            .route("/me", get(handlers::user::me))
+            // Session CRUD
+            .route("/sessions", get(service::api::list_sessions))
+            .route("/sessions/{id}", get(service::api::get_session).delete(service::api::delete_session))
+            .route("/sessions/{id}/@revoke", post(handlers::session::revoke))
+            // Role CRUD
+            .route("/roles", get(service::api::list_roles).post(service::api::create_role))
+            .route("/roles/{id}", get(service::api::get_role).patch(service::api::update_role).delete(service::api::delete_role))
+            // Group CRUD + member management
+            .route("/groups", get(service::api::list_groups).post(service::api::create_group))
+            .route("/groups/{id}", get(service::api::get_group).patch(service::api::update_group).delete(service::api::delete_group))
+            .route("/groups/{id}/@members", get(handlers::group::list_members).post(handlers::group::add_member))
+            .route("/groups/{id}/@members/{member_ref}", delete(handlers::group::remove_member))
+            // Policy CRUD + check
+            .route("/policies", get(service::api::list_policies).post(service::api::create_policy))
+            .route("/policies/{id}", get(service::api::get_policy).patch(service::api::update_policy).delete(service::api::delete_policy))
+            .route("/check", post(handlers::policy::check))
+            // Provider CRUD
+            .route("/providers", get(service::api::list_providers).post(service::api::create_provider))
+            .route("/providers/{id}", get(service::api::get_provider).patch(service::api::update_provider).delete(service::api::delete_provider))
+            .with_state(svc)
     }
 }
