@@ -123,7 +123,26 @@ describe('Dashboard CRUD', () => {
 
     await page.type('#newRoleId', 'e2e:tester');
     await page.type('#newRoleDesc', 'E2E test role');
-    await page.type('#newRolePerms', 'e2e:test:read\ne2e:test:write');
+
+    // Use permission chip picker: expand "pms" module, click "read" chip on "model" resource.
+    await page.evaluate(() => {
+      // Open the pms module group.
+      const modules = document.querySelectorAll('.perm-module');
+      for (const m of modules) {
+        if (m.querySelector('.mod-name')?.textContent === 'pms') {
+          m.classList.add('open');
+          break;
+        }
+      }
+      // Click pms:model:read and pms:model:list chips.
+      document.querySelector('.perm-chip[data-perm="pms:model:read"]')?.click();
+      document.querySelector('.perm-chip[data-perm="pms:model:list"]')?.click();
+    });
+
+    // Verify counter updated.
+    const count = await page.$eval('#permCount', el => el.textContent);
+    assert.match(count, /2/, 'Shows 2 selected');
+
     await page.click('#btnRole');
 
     await page.waitForFunction(
@@ -136,8 +155,8 @@ describe('Dashboard CRUD', () => {
     );
 
     const rows = await page.$$eval('#rolesBody tr', trs => trs.map(tr => tr.textContent));
-    const found = rows.some(r => r.includes('e2e:tester') && r.includes('E2E test role'));
-    assert.ok(found, 'Role "e2e:tester" appears in table');
+    const found = rows.some(r => r.includes('e2e:tester') && r.includes('pms:model:read'));
+    assert.ok(found, 'Role "e2e:tester" with pms:model:read appears in table');
   });
 
   it('creates a PMS model via modal dialog', async () => {

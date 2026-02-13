@@ -118,12 +118,14 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
   width:100%;max-width:480px;padding:24px;
   box-shadow:0 16px 48px oklch(0 0 0/.5);
   transform:scale(.96) translateY(8px);transition:transform .15s;
+  max-height:90vh;display:flex;flex-direction:column;
 }
+.dialog.dialog-wide{max-width:640px}
 .dialog-overlay.open .dialog{transform:scale(1) translateY(0)}
-.dialog-header{margin-bottom:20px}
+.dialog-header{margin-bottom:20px;flex-shrink:0}
 .dialog-header h2{font-size:18px;font-weight:600;letter-spacing:-.02em}
 .dialog-header p{font-size:14px;color:var(--muted-fg);margin-top:4px}
-.dialog-body{display:flex;flex-direction:column;gap:14px}
+.dialog-body{display:flex;flex-direction:column;gap:14px;overflow-y:auto;flex:1;min-height:0}
 .field{display:flex;flex-direction:column;gap:5px}
 .field label{font-size:13px;font-weight:500}
 .field input,.field textarea{
@@ -135,8 +137,47 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 .field input::placeholder,.field textarea::placeholder{color:var(--muted-fg)}
 .field input:focus,.field textarea:focus{border-color:var(--ring);box-shadow:0 0 0 3px oklch(.708 0 0/.12)}
 .field .hint{font-size:12px;color:var(--muted-fg)}
+.dialog-footer-wrap{flex-shrink:0}
 .dialog-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
 .dialog-error{font-size:13px;color:var(--destructive);display:none}
+
+/* ─── Permission picker ─── */
+.perm-picker{border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);max-height:320px;overflow-y:auto}
+.perm-module{border-bottom:1px solid var(--border)}
+.perm-module:last-child{border-bottom:none}
+.perm-module-header{
+  display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;
+  font-size:13px;font-weight:600;text-transform:capitalize;user-select:none;
+  transition:background .1s;
+}
+.perm-module-header:hover{background:var(--accent)}
+.perm-module-header .chevron{
+  width:14px;height:14px;stroke:var(--muted-fg);fill:none;stroke-width:2;
+  stroke-linecap:round;stroke-linejoin:round;transition:transform .15s;flex-shrink:0;
+}
+.perm-module.open .perm-module-header .chevron{transform:rotate(90deg)}
+.perm-module-header .mod-name{flex:1}
+.perm-module-header .mod-count{font-size:11px;font-weight:400;color:var(--muted-fg);min-width:32px;text-align:right}
+.perm-module-body{display:none;padding:0 12px 8px 12px}
+.perm-module.open .perm-module-body{display:block}
+.perm-resource{margin-bottom:6px}
+.perm-resource-header{
+  display:flex;align-items:center;gap:6px;padding:4px 0;
+  font-size:12px;font-weight:500;color:var(--muted-fg);text-transform:capitalize;cursor:pointer;user-select:none;
+}
+.perm-resource-header:hover{color:var(--card-fg)}
+.perm-actions{display:flex;flex-wrap:wrap;gap:4px;padding-left:2px}
+.perm-chip{
+  display:inline-flex;align-items:center;height:24px;padding:0 8px;
+  border:1px solid var(--border);border-radius:4px;
+  font-size:11px;color:var(--muted-fg);cursor:pointer;
+  transition:all .1s;user-select:none;
+}
+.perm-chip:hover{border-color:var(--ring);color:var(--card-fg)}
+.perm-chip.selected{background:var(--primary);color:var(--primary-fg);border-color:var(--primary)}
+.perm-chip input{display:none}
+.perm-summary{display:flex;align-items:center;justify-content:space-between;font-size:12px;color:var(--muted-fg);margin-top:6px}
+.perm-summary strong{color:var(--card-fg)}
 
 /* ─── Toast ─── */
 .toast{position:fixed;bottom:20px;right:20px;padding:10px 16px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:0 4px 12px oklch(0 0 0/.4);border:1px solid var(--border);background:var(--card);color:var(--card-fg);opacity:0;transform:translateY(8px);transition:all .2s;z-index:999;display:flex;align-items:center;gap:8px;pointer-events:none}
@@ -309,7 +350,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 
 <!-- ── Modal: Add Role ── -->
 <div class="dialog-overlay" id="dlg-role">
-  <div class="dialog">
+  <div class="dialog dialog-wide">
     <div class="dialog-header">
       <h2>Add Role</h2>
       <p>Define a new role with permissions.</p>
@@ -325,14 +366,16 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
         <input type="text" id="newRoleDesc" placeholder="What this role is for">
       </div>
       <div class="field">
-        <label for="newRolePerms">Permissions <span style="color:var(--destructive)">*</span></label>
-        <textarea id="newRolePerms" rows="3" placeholder="One per line, e.g.&#10;pms:model:read&#10;pms:device:read" required></textarea>
-        <span class="hint">One permission per line, or comma-separated</span>
+        <label>Permissions <span style="color:var(--destructive)">*</span></label>
+        <div class="perm-picker" id="permPicker"></div>
+        <div class="perm-summary"><span id="permCount">0 selected</span><button type="button" class="btn-ghost-destructive" style="height:22px;font-size:11px" onclick="clearAllPerms()">Clear all</button></div>
       </div>
-      <div class="dialog-error" id="errRole"></div>
-      <div class="dialog-footer">
-        <button type="button" class="btn-sm-secondary" onclick="closeDialog('role')">Cancel</button>
-        <button type="submit" class="btn-sm-primary" id="btnRole">Create</button>
+      <div class="dialog-footer-wrap">
+        <div class="dialog-error" id="errRole"></div>
+        <div class="dialog-footer">
+          <button type="button" class="btn-sm-secondary" onclick="closeDialog('role')">Cancel</button>
+          <button type="submit" class="btn-sm-primary" id="btnRole">Create</button>
+        </div>
       </div>
     </form>
   </div>
@@ -389,6 +432,95 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
   // ── JWT decode ──
   try{const p=JSON.parse(atob(token.split('.')[1]));document.getElementById('userName').textContent=p.sub;document.getElementById('userAvatar').textContent=(p.sub||'?')[0].toUpperCase();if(p.roles&&p.roles[0])document.getElementById('userRoleBadge').textContent=p.roles[0]}catch(e){}
 
+  // ── Permission registry (from DSL) ──
+  const PERMS={
+    auth:{
+      user:['create','read','update','delete','list'],
+      role:['create','read','update','delete','list'],
+      group:['create','read','update','delete','list','add_member','remove_member'],
+      policy:['create','read','update','delete','list','check'],
+      session:['create','read','delete','list','revoke'],
+      provider:['create','read','update','delete','list']
+    },
+    pms:{
+      model:['create','read','update','delete','list'],
+      device:['create','read','update','delete','list','provision','activate'],
+      batch:['create','read','update','delete','list','provision'],
+      firmware:['create','read','update','delete','list','upload'],
+      license:['create','read','update','delete','list'],
+      license_import:['create','read','list','import'],
+      segment:['create','read','update','delete','list']
+    },
+    task:{
+      task:['create','read','list','claim','progress','complete','fail','cancel','poll','log'],
+      task_type:['create','read','update','delete','list']
+    }
+  };
+
+  // Build permission picker UI
+  function buildPermPicker(){
+    const picker=document.getElementById('permPicker');picker.innerHTML='';
+    for(const[mod,resources] of Object.entries(PERMS)){
+      const mDiv=document.createElement('div');mDiv.className='perm-module';
+      // Module header
+      const mHead=document.createElement('div');mHead.className='perm-module-header';
+      mHead.innerHTML='<svg class="chevron" viewBox="0 0 24 24"><polyline points="9 18 15 12 9 6"/></svg>'
+        +'<span class="mod-name">'+mod+'</span>'
+        +'<span class="mod-count" data-mod="'+mod+'">0</span>';
+      mHead.addEventListener('click',function(e){
+        // Don't toggle if clicking on the resource-level checkbox
+        if(e.target.closest('.perm-resource-header'))return;
+        mDiv.classList.toggle('open');
+      });
+      mDiv.appendChild(mHead);
+      // Module body
+      const mBody=document.createElement('div');mBody.className='perm-module-body';
+      for(const[res,actions] of Object.entries(resources)){
+        const rDiv=document.createElement('div');rDiv.className='perm-resource';
+        // Resource header with select-all
+        const rHead=document.createElement('div');rHead.className='perm-resource-header';
+        rHead.textContent=res.replace(/_/g,' ');
+        rHead.addEventListener('click',function(){
+          const chips=rDiv.querySelectorAll('.perm-chip');
+          const allSelected=[...chips].every(c=>c.classList.contains('selected'));
+          chips.forEach(c=>{if(allSelected)c.classList.remove('selected');else c.classList.add('selected')});
+          updatePermCount();
+        });
+        rDiv.appendChild(rHead);
+        // Action chips
+        const actDiv=document.createElement('div');actDiv.className='perm-actions';
+        for(const act of actions){
+          const chip=document.createElement('span');chip.className='perm-chip';
+          chip.dataset.perm=mod+':'+res+':'+act;
+          chip.textContent=act;
+          chip.addEventListener('click',function(e){
+            e.stopPropagation();
+            this.classList.toggle('selected');
+            updatePermCount();
+          });
+          actDiv.appendChild(chip);
+        }
+        rDiv.appendChild(actDiv);
+        mBody.appendChild(rDiv);
+      }
+      mDiv.appendChild(mBody);
+      picker.appendChild(mDiv);
+    }
+  }
+  function updatePermCount(){
+    const sel=document.querySelectorAll('.perm-chip.selected');
+    document.getElementById('permCount').innerHTML='<strong>'+sel.length+'</strong> selected';
+    // Update per-module counts
+    for(const mod of Object.keys(PERMS)){
+      const ct=document.querySelectorAll('.perm-chip.selected[data-perm^="'+mod+':"]').length;
+      const el=document.querySelector('.mod-count[data-mod="'+mod+'"]');
+      if(el)el.textContent=ct||'';
+    }
+  }
+  function getSelectedPerms(){return[...document.querySelectorAll('.perm-chip.selected')].map(c=>c.dataset.perm)}
+  window.clearAllPerms=function(){document.querySelectorAll('.perm-chip.selected').forEach(c=>c.classList.remove('selected'));updatePermCount()};
+  buildPermPicker();
+
   // ── Dialog open/close ──
   window.openDialog=function(type){
     const dlg=document.getElementById('dlg-'+type);
@@ -396,6 +528,8 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     // Reset form
     const form=dlg.querySelector('form');if(form)form.reset();
     const err=dlg.querySelector('.dialog-error');if(err){err.style.display='none';err.textContent=''}
+    // Reset permission checkboxes for role dialog
+    if(type==='role'){document.querySelectorAll('.perm-chip.selected').forEach(c=>c.classList.remove('selected'));updatePermCount()}
     dlg.classList.add('open');
     // Focus first input after animation
     setTimeout(()=>{const inp=dlg.querySelector('input');if(inp)inp.focus()},100);
@@ -431,14 +565,13 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     e.preventDefault();
     const errEl=document.getElementById('errRole'),btn=document.getElementById('btnRole');
     const id=document.getElementById('newRoleId').value.trim(),desc=document.getElementById('newRoleDesc').value.trim();
-    const raw=document.getElementById('newRolePerms').value.trim();
-    const perms=raw.split(/[\n,]/).map(s=>s.trim()).filter(Boolean);
+    const perms=getSelectedPerms();
     if(!id){errEl.textContent='Role ID is required';errEl.style.display='block';return false}
-    if(!perms.length){errEl.textContent='At least one permission is required';errEl.style.display='block';return false}
+    if(!perms.length){errEl.textContent='Select at least one permission';errEl.style.display='block';return false}
     btn.disabled=true;btn.textContent='Creating\u2026';errEl.style.display='none';
     try{
       await api('POST','/auth/roles',{id,description:desc,permissions:perms});
-      closeDialog('role');toast('Role created','success');loadRoles();loadStats();
+      closeDialog('role');toast('Role created with '+perms.length+' permissions','success');loadRoles();loadStats();
     }catch(ex){errEl.textContent=ex.message;errEl.style.display='block'}
     finally{btn.disabled=false;btn.textContent='Create'}
     return false;
