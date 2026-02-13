@@ -305,14 +305,31 @@ fn generate_unique_checks(ir: &openerp_ir::PersistentIR) -> TokenStream {
             let fname = format_ident!("{}", field_name);
             let idx_prefix = format!("idx:{}:{}:", to_snake_case(&ir.model), field_name);
             let err_msg = format!("{} with this {} already exists", ir.model, field_name);
-            stmts.push(quote! {
-                {
-                    let idx_key = format!("{}{}", #idx_prefix, record.#fname);
-                    if self.kv.get(&idx_key).map_err(Self::kv_err)?.is_some() {
-                        return Err(openerp_core::ServiceError::Validation(#err_msg.to_string()));
-                    }
-                }
+            // Check if the field type is Option — if so, only check when Some.
+            let field_ir = ir.fields.iter().find(|f| f.name == *field_name);
+            let is_option = field_ir.map_or(false, |f| {
+                matches!(f.ty, FieldType::Option(_))
             });
+
+            if is_option {
+                stmts.push(quote! {
+                    if let Some(ref val) = record.#fname {
+                        let idx_key = format!("{}{}", #idx_prefix, val);
+                        if self.kv.get(&idx_key).map_err(Self::kv_err)?.is_some() {
+                            return Err(openerp_core::ServiceError::Validation(#err_msg.to_string()));
+                        }
+                    }
+                });
+            } else {
+                stmts.push(quote! {
+                    {
+                        let idx_key = format!("{}{}", #idx_prefix, record.#fname);
+                        if self.kv.get(&idx_key).map_err(Self::kv_err)?.is_some() {
+                            return Err(openerp_core::ServiceError::Validation(#err_msg.to_string()));
+                        }
+                    }
+                });
+            }
         }
     }
     quote! { #(#stmts)* }
@@ -326,13 +343,27 @@ fn generate_unique_index_updates(ir: &openerp_ir::PersistentIR) -> TokenStream {
             let fname = format_ident!("{}", field_name);
             let idx_prefix = format!("idx:{}:{}:", to_snake_case(&ir.model), field_name);
             let key_field = format_ident!("{}", &ir.key.fields[0]);
-            stmts.push(quote! {
-                {
-                    let idx_key = format!("{}{}", #idx_prefix, record.#fname);
-                    let id_bytes = record.#key_field.to_string().into_bytes();
-                    self.kv.set(&idx_key, &id_bytes).map_err(Self::kv_err)?;
-                }
-            });
+
+            let field_ir = ir.fields.iter().find(|f| f.name == *field_name);
+            let is_option = field_ir.map_or(false, |f| matches!(f.ty, FieldType::Option(_)));
+
+            if is_option {
+                stmts.push(quote! {
+                    if let Some(ref val) = record.#fname {
+                        let idx_key = format!("{}{}", #idx_prefix, val);
+                        let id_bytes = record.#key_field.to_string().into_bytes();
+                        self.kv.set(&idx_key, &id_bytes).map_err(Self::kv_err)?;
+                    }
+                });
+            } else {
+                stmts.push(quote! {
+                    {
+                        let idx_key = format!("{}{}", #idx_prefix, record.#fname);
+                        let id_bytes = record.#key_field.to_string().into_bytes();
+                        self.kv.set(&idx_key, &id_bytes).map_err(Self::kv_err)?;
+                    }
+                });
+            }
         }
     }
     quote! { #(#stmts)* }
@@ -345,12 +376,25 @@ fn generate_unique_index_deletes(ir: &openerp_ir::PersistentIR) -> TokenStream {
             let field_name = &idx.fields[0];
             let fname = format_ident!("{}", field_name);
             let idx_prefix = format!("idx:{}:{}:", to_snake_case(&ir.model), field_name);
-            stmts.push(quote! {
-                {
-                    let idx_key = format!("{}{}", #idx_prefix, record.#fname);
-                    let _ = self.kv.delete(&idx_key);
-                }
-            });
+
+            let field_ir = ir.fields.iter().find(|f| f.name == *field_name);
+            let is_option = field_ir.map_or(false, |f| matches!(f.ty, FieldType::Option(_)));
+
+            if is_option {
+                stmts.push(quote! {
+                    if let Some(ref val) = record.#fname {
+                        let idx_key = format!("{}{}", #idx_prefix, val);
+                        let _ = self.kv.delete(&idx_key);
+                    }
+                });
+            } else {
+                stmts.push(quote! {
+                    {
+                        let idx_key = format!("{}{}", #idx_prefix, record.#fname);
+                        let _ = self.kv.delete(&idx_key);
+                    }
+                });
+            }
         }
     }
     quote! { #(#stmts)* }
