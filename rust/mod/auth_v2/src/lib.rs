@@ -128,7 +128,6 @@ mod tests {
             id: openerp_types::Id::new("pms:admin"),
             description: Some("PMS admin".into()),
             permissions: vec!["pms:device:read".into(), "pms:device:write".into()],
-            service: Some("pms".into()),
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
         };

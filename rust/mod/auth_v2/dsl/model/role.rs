@@ -7,7 +7,6 @@ pub struct Role {
     pub description: Option<String>,
     #[ui(widget = "permission_picker")]
     pub permissions: Vec<String>,
-    pub service: Option<String>,
     pub created_at: DateTime,
     pub updated_at: DateTime,
 }
