@@ -95,6 +95,7 @@ mod tests {
         let user = User {
             id: openerp_types::Id::default(),
             name: "Alice".into(),
+            description: None,
             email: Some(openerp_types::Email::new("alice@test.com")),
             avatar: None,
             active: true,
@@ -126,7 +127,8 @@ mod tests {
 
         let role = Role {
             id: openerp_types::Id::new("pms:admin"),
-            description: Some("PMS admin".into()),
+            name: "PMS Admin".into(),
+            description: Some("Full PMS access".into()),
             permissions: vec!["pms:device:read".into(), "pms:device:write".into()],
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),

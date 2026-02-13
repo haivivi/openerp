@@ -5,6 +5,7 @@ use openerp_types::*;
 pub struct User {
     pub id: Id,
     pub name: String,
+    pub description: Option<String>,
     pub email: Option<Email>,
     pub avatar: Option<Avatar>,
     pub active: bool,

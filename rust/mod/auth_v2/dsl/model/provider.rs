@@ -5,6 +5,7 @@ use openerp_types::*;
 pub struct Provider {
     pub id: Id,
     pub name: String,
+    pub description: Option<String>,
     pub provider_type: String,
     pub client_id: String,
     pub client_secret: Option<Secret>,

@@ -4,6 +4,7 @@ use openerp_types::*;
 #[model(module = "auth")]
 pub struct Role {
     pub id: Id,
+    pub name: String,
     pub description: Option<String>,
     #[ui(widget = "permission_picker")]
     pub permissions: Vec<String>,
