@@ -12,6 +12,7 @@ rust_library(
         "//rust/lib/kv",
         "//rust/lib/sql",
         "//rust/lib/search",
+        "@crates//:axum",
         "@crates//:serde",
         "@crates//:serde_json",
     ],

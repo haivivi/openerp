@@ -11,6 +11,7 @@
 //! }
 //! ```
 
+pub mod admin;
 pub mod kv;
 pub mod sql;
 pub mod search;
@@ -18,3 +19,4 @@ pub mod search;
 pub use kv::{KvStore, KvOps};
 pub use sql::{SqlStore, SqlOps};
 pub use search::{SearchStore, SearchOps};
+pub use admin::admin_kv_router;
