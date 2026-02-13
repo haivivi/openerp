@@ -108,18 +108,20 @@ describe('Login flow', () => {
     assert.match(userName, /root/, 'Shows root user');
   });
 
-  it('dashboard shows stats', async () => {
-    // Wait for stats to load.
+  it('dashboard loads module data from schema', async () => {
+    // Wait for schema to load and sidebar to appear.
     await page.waitForFunction(
-      () => document.getElementById('statUsers')?.textContent !== '-',
+      () => document.querySelectorAll('.sidebar .nav-item').length > 0,
       { timeout: 5000 },
     );
 
-    const users = await page.$eval('#statUsers', el => el.textContent);
-    const roles = await page.$eval('#statRoles', el => el.textContent);
-    // Stats should be numbers (possibly "0").
-    assert.match(users, /^\d+$/);
-    assert.match(roles, /^\d+$/);
+    // Should show module button(s) from schema.
+    const moduleButtons = await page.$$eval('.module-btn', els => els.map(e => e.textContent));
+    assert.ok(moduleButtons.length > 0, 'Module buttons rendered from schema');
+
+    // Sidebar should have nav items.
+    const navItems = await page.$$eval('.sidebar .nav-item', els => els.map(e => e.textContent));
+    assert.ok(navItems.length > 0, 'Sidebar nav items rendered');
   });
 
   it('logout returns to login page', async () => {

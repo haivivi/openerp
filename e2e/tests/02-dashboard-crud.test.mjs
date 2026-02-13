@@ -1,13 +1,12 @@
 /**
- * E2E Test: Dashboard CRUD operations (modal dialogs)
+ * E2E Test: Dashboard CRUD (schema-driven)
  *
- * Tests:
- * 1. Create a user via modal dialog
- * 2. Create a role via modal dialog
- * 3. Create a PMS model via modal dialog
- * 4. Stats update on Overview page
- * 5. Delete user
- * 6. Delete role
+ * Tests that the schema-driven dashboard can:
+ * 1. Load modules from /meta/schema
+ * 2. Navigate between resources via sidebar
+ * 3. Create a record via the generic create dialog
+ * 4. See it in the table
+ * 5. Delete a record
  */
 
 import { describe, it, before, after } from 'node:test';
@@ -21,43 +20,7 @@ import {
   cleanupTestData,
 } from './helpers.mjs';
 
-/** Wait for the toast to fully disappear before next action. */
-async function waitToastClear(page) {
-  await page.waitForFunction(
-    () => !document.querySelector('.toast.show'),
-    { timeout: 5000 },
-  ).catch(() => {});
-}
-
-/** Click a sidebar nav item to switch pages. */
-async function navigateTo(page, pageName) {
-  await page.evaluate((name) => {
-    const items = document.querySelectorAll('.nav-item[data-page]');
-    for (const item of items) {
-      if (item.dataset.page === name) { item.click(); break; }
-    }
-  }, pageName);
-  await page.waitForFunction(
-    (name) => document.getElementById('page-' + name)?.classList.contains('active'),
-    { timeout: 3000 },
-    pageName,
-  );
-  await new Promise(r => setTimeout(r, 500));
-}
-
-/** Open a dialog and wait for it to be visible. */
-async function openAndWaitDialog(page, type) {
-  await page.evaluate((t) => window.openDialog(t), type);
-  await page.waitForFunction(
-    (t) => document.getElementById('dlg-' + t)?.classList.contains('open'),
-    { timeout: 3000 },
-    type,
-  );
-  // Wait for focus animation.
-  await new Promise(r => setTimeout(r, 150));
-}
-
-describe('Dashboard CRUD', () => {
+describe('Dashboard CRUD (schema-driven)', () => {
   let browser;
   let page;
 
@@ -72,11 +35,10 @@ describe('Dashboard CRUD', () => {
     await cleanupTestData(token);
 
     await page.goto(`${BASE_URL}/dashboard`, { waitUntil: 'networkidle0' });
+
+    // Wait for schema to load and sidebar to render.
     await page.waitForFunction(
-      () => {
-        const el = document.getElementById('statUsers');
-        return el && el.textContent !== '\u2014' && el.textContent !== '-';
-      },
+      () => document.querySelectorAll('.sidebar .nav-item').length > 0,
       { timeout: 5000 },
     );
   });
@@ -89,126 +51,84 @@ describe('Dashboard CRUD', () => {
     if (browser) await browser.close();
   });
 
-  it('creates a user via modal dialog', async () => {
-    await navigateTo(page, 'users');
-    await waitToastClear(page);
-
-    // Open Add User dialog.
-    await openAndWaitDialog(page, 'user');
-
-    await page.type('#newUserName', 'E2E Test User');
-    await page.type('#newUserEmail', 'e2e@test.com');
-    await page.click('#btnUser');
-
-    // Wait for dialog to close and user to appear in the table.
-    await page.waitForFunction(
-      () => !document.getElementById('dlg-user')?.classList.contains('open'),
-      { timeout: 5000 },
-    );
-    await page.waitForFunction(
-      () => document.getElementById('usersBody')?.textContent.includes('E2E Test User'),
-      { timeout: 5000 },
-    );
-
-    const rows = await page.$$eval('#usersBody tr', trs => trs.map(tr => tr.textContent));
-    const found = rows.some(r => r.includes('E2E Test User') && r.includes('e2e@test.com'));
-    assert.ok(found, 'User "E2E Test User" appears in table');
+  it('loads modules from schema', async () => {
+    const modules = await page.$$eval('.module-btn', els => els.map(e => e.textContent));
+    assert.ok(modules.length >= 1, 'At least one module loaded');
+    assert.ok(modules.some(m => /auth/i.test(m)), 'Auth module present');
   });
 
-  it('creates a role via modal dialog', async () => {
-    await navigateTo(page, 'roles');
-    await waitToastClear(page);
+  it('shows sidebar resources for selected module', async () => {
+    const items = await page.$$eval('.sidebar .nav-item', els => els.map(e => e.textContent));
+    assert.ok(items.length >= 2, `Expected >= 2 sidebar items, got: ${items}`);
+    assert.ok(items.some(i => /user/i.test(i)), 'Users in sidebar');
+    assert.ok(items.some(i => /role/i.test(i)), 'Roles in sidebar');
+  });
 
-    await openAndWaitDialog(page, 'role');
-
-    await page.type('#newRoleId', 'e2e:tester');
-    await page.type('#newRoleDesc', 'E2E test role');
-
-    // Use permission chip picker: expand "pms" module, click "read" chip on "model" resource.
+  it('navigates to a resource and shows table', async () => {
+    // Click on Users in sidebar.
     await page.evaluate(() => {
-      // Open the pms module group.
-      const modules = document.querySelectorAll('.perm-module');
-      for (const m of modules) {
-        if (m.querySelector('.mod-name')?.textContent === 'pms') {
-          m.classList.add('open');
-          break;
-        }
+      const items = document.querySelectorAll('.sidebar .nav-item');
+      for (const item of items) {
+        if (/user/i.test(item.textContent)) { item.click(); break; }
       }
-      // Click pms:model:read and pms:model:list chips.
-      document.querySelector('.perm-chip[data-perm="pms:model:read"]')?.click();
-      document.querySelector('.perm-chip[data-perm="pms:model:list"]')?.click();
+    });
+    await new Promise(r => setTimeout(r, 500));
+
+    // Table should exist.
+    const table = await page.$('.table-card table');
+    assert.ok(table, 'Table rendered for resource');
+  });
+
+  it('creates a user via the generic create dialog', async () => {
+    // Ensure we're on Users page.
+    await page.evaluate(() => {
+      const items = document.querySelectorAll('.sidebar .nav-item');
+      for (const item of items) {
+        if (/user/i.test(item.textContent)) { item.click(); break; }
+      }
+    });
+    await new Promise(r => setTimeout(r, 500));
+
+    // Click "+ Add" button.
+    await page.evaluate(() => {
+      const btn = document.querySelector('.btn-sm-primary');
+      if (btn) btn.click();
     });
 
-    // Verify counter updated.
-    const count = await page.$eval('#permCount', el => el.textContent);
-    assert.match(count, /2/, 'Shows 2 selected');
-
-    await page.click('#btnRole');
-
+    // Wait for dialog to open.
     await page.waitForFunction(
-      () => !document.getElementById('dlg-role')?.classList.contains('open'),
-      { timeout: 5000 },
-    );
-    await page.waitForFunction(
-      () => document.getElementById('rolesBody')?.textContent.includes('e2e:tester'),
-      { timeout: 5000 },
+      () => document.getElementById('createDlg')?.classList.contains('open'),
+      { timeout: 3000 },
     );
 
-    const rows = await page.$$eval('#rolesBody tr', trs => trs.map(tr => tr.textContent));
-    const found = rows.some(r => r.includes('e2e:tester') && r.includes('pms:model:read'));
-    assert.ok(found, 'Role "e2e:tester" with pms:model:read appears in table');
+    // Fill in the name field (should be the first input).
+    const inputs = await page.$$('#dlgForm input');
+    assert.ok(inputs.length >= 1, 'Create dialog has input fields');
+
+    // Type name into the first input (which should be "name").
+    await inputs[0].type('E2E Test User');
+
+    // Submit.
+    await page.click('#dlgSubmit');
+
+    // Wait for dialog to close.
+    await page.waitForFunction(
+      () => !document.getElementById('createDlg')?.classList.contains('open'),
+      { timeout: 5000 },
+    );
+
+    // Verify user appears in table.
+    await new Promise(r => setTimeout(r, 500));
+    const tableText = await page.$eval('#resBody', el => el.textContent);
+    assert.ok(tableText.includes('E2E Test User'), 'Created user appears in table');
   });
 
-  it('creates a PMS model via modal dialog', async () => {
-    await navigateTo(page, 'models');
-    await waitToastClear(page);
-
-    await openAndWaitDialog(page, 'model');
-
-    await page.type('#newModelCode', '999');
-    await page.type('#newModelSeries', 'E2E');
-    await page.type('#newModelDisplay', 'E2E Test Model');
-    await page.click('#btnModel');
-
-    await page.waitForFunction(
-      () => !document.getElementById('dlg-model')?.classList.contains('open'),
-      { timeout: 5000 },
-    );
-    await page.waitForFunction(
-      () => document.getElementById('modelsBody')?.textContent.includes('999'),
-      { timeout: 5000 },
-    );
-
-    const rows = await page.$$eval('#modelsBody tr', trs => trs.map(tr => tr.textContent));
-    const found = rows.some(r => r.includes('999') && r.includes('E2E'));
-    assert.ok(found, 'Model with code 999 appears in table');
-  });
-
-  it('stats update after creating resources', async () => {
-    await navigateTo(page, 'overview');
-
-    await page.waitForFunction(
-      () => parseInt(document.getElementById('statUsers')?.textContent || '0', 10) >= 1,
-      { timeout: 5000 },
-    );
-
-    const users = parseInt(await page.$eval('#statUsers', el => el.textContent), 10);
-    const roles = parseInt(await page.$eval('#statRoles', el => el.textContent), 10);
-    const models = parseInt(await page.$eval('#statModels', el => el.textContent), 10);
-
-    assert.ok(users >= 1, `Expected >= 1 user, got ${users}`);
-    assert.ok(roles >= 1, `Expected >= 1 role, got ${roles}`);
-    assert.ok(models >= 1, `Expected >= 1 model, got ${models}`);
-  });
-
-  it('deletes a user via the UI', async () => {
-    await navigateTo(page, 'users');
-    await waitToastClear(page);
-
+  it('deletes a record via the table', async () => {
+    // Find and click delete button for our test user.
     page.once('dialog', async dialog => await dialog.accept());
 
     const deleted = await page.evaluate(() => {
-      const rows = document.querySelectorAll('#usersBody tr');
+      const rows = document.querySelectorAll('#resBody tr');
       for (const row of rows) {
         if (row.textContent.includes('E2E Test User')) {
           const btn = row.querySelector('.btn-ghost-destructive');
@@ -217,34 +137,11 @@ describe('Dashboard CRUD', () => {
       }
       return false;
     });
-    assert.ok(deleted, 'Found and clicked delete for E2E Test User');
+    assert.ok(deleted, 'Found and clicked delete button');
 
+    // Wait for the user to disappear.
     await page.waitForFunction(
-      () => !document.getElementById('usersBody')?.textContent.includes('E2E Test User'),
-      { timeout: 5000 },
-    );
-  });
-
-  it('deletes a role via the UI', async () => {
-    await navigateTo(page, 'roles');
-    await waitToastClear(page);
-
-    page.once('dialog', async dialog => await dialog.accept());
-
-    const deleted = await page.evaluate(() => {
-      const rows = document.querySelectorAll('#rolesBody tr');
-      for (const row of rows) {
-        if (row.textContent.includes('e2e:tester')) {
-          const btn = row.querySelector('.btn-ghost-destructive');
-          if (btn) { btn.click(); return true; }
-        }
-      }
-      return false;
-    });
-    assert.ok(deleted, 'Found and clicked delete for e2e:tester');
-
-    await page.waitForFunction(
-      () => !document.getElementById('rolesBody')?.textContent.includes('e2e:tester'),
+      () => !document.getElementById('resBody')?.textContent.includes('E2E Test User'),
       { timeout: 5000 },
     );
   });
