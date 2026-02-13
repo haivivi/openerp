@@ -13,6 +13,7 @@ rust_binary(
         "//rust/lib/blob",
         "//rust/lib/tsdb",
         "//rust/mod/auth",
+        "//rust/mod/auth/dsl:auth_dsl",
         "//rust/mod/pms",
         "//rust/mod/task",
         "@crates//:anyhow",

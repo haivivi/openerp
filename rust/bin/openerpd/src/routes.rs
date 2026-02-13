@@ -26,7 +26,8 @@ pub fn build_router(state: AppState, module_routes: Vec<(&str, Router)>) -> Rout
     // System endpoints (public, no state needed).
     let system_routes = Router::new()
         .route("/health", get(health))
-        .route("/version", get(version));
+        .route("/version", get(version))
+        .route("/meta/schema", get(schema_endpoint));
 
     // Start with the system and login routes (which need AppState).
     let mut app: Router<()> = Router::new()
@@ -69,5 +70,42 @@ async fn version() -> impl IntoResponse {
     axum::Json(serde_json::json!({
         "name": "openerpd",
         "version": env!("CARGO_PKG_VERSION"),
+    }))
+}
+
+/// Serve the DSL schema as JSON for the frontend.
+/// Collects embedded IR from all DSL-defined modules.
+async fn schema_endpoint() -> impl IntoResponse {
+    use auth_dsl::model as auth_models;
+
+    // Build schema from embedded IR consts.
+    let auth_module = serde_json::json!({
+        "id": "auth",
+        "label": "Authentication",
+        "icon": "shield",
+        "resources": [
+            serde_json::from_str::<serde_json::Value>(auth_models::User::__DSL_IR).unwrap_or_default(),
+            serde_json::from_str::<serde_json::Value>(auth_models::Role::__DSL_IR).unwrap_or_default(),
+            serde_json::from_str::<serde_json::Value>(auth_models::Group::__DSL_IR).unwrap_or_default(),
+            serde_json::from_str::<serde_json::Value>(auth_models::Policy::__DSL_IR).unwrap_or_default(),
+            serde_json::from_str::<serde_json::Value>(auth_models::Session::__DSL_IR).unwrap_or_default(),
+            serde_json::from_str::<serde_json::Value>(auth_models::Provider::__DSL_IR).unwrap_or_default(),
+        ],
+        "hierarchy": {
+            "nav": [
+                {"model": "User", "path": "/users", "label": "Users", "icon": "users"},
+                {"model": "Role", "path": "/roles", "label": "Roles", "icon": "shield"},
+                {"model": "Group", "path": "/groups", "label": "Groups", "icon": "layers"},
+                {"model": "Policy", "path": "/policies", "label": "Policies", "icon": "lock"},
+                {"model": "Session", "path": "/sessions", "label": "Sessions", "icon": "clock"},
+                {"model": "Provider", "path": "/providers", "label": "Providers", "icon": "globe"},
+            ]
+        },
+        "facets": ["data"]
+    });
+
+    axum::Json(serde_json::json!({
+        "name": "OpenERP",
+        "modules": [auth_module],
     }))
 }
