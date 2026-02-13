@@ -41,8 +41,8 @@ pub struct AuthModule {
 impl AuthModule {
     /// Create a new AuthModule.
     pub fn new(
-        sql: Box<dyn openerp_sql::SQLStore>,
-        kv: Box<dyn openerp_kv::KVStore>,
+        sql: Arc<dyn openerp_sql::SQLStore>,
+        kv: Arc<dyn openerp_kv::KVStore>,
         config: AuthConfig,
     ) -> Result<Self, openerp_core::ServiceError> {
         let service = AuthService::new(sql, kv, config)

@@ -17,10 +17,16 @@ pub struct PmsModule {
 }
 
 impl PmsModule {
-    pub fn new(service: PmsService) -> Self {
-        Self {
+    pub fn new(
+        sql: Arc<dyn openerp_sql::SQLStore>,
+        kv: Arc<dyn openerp_kv::KVStore>,
+        search: Arc<dyn openerp_search::SearchEngine>,
+        blob: Arc<dyn openerp_blob::BlobStore>,
+    ) -> Result<Self, openerp_core::ServiceError> {
+        let service = PmsService::new(sql, kv, search, blob)?;
+        Ok(Self {
             service: Arc::new(service),
-        }
+        })
     }
 }
 

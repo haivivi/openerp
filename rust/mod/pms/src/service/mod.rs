@@ -8,6 +8,7 @@ pub mod sn_service;
 pub mod device_info;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use serde::de::DeserializeOwned;
 use serde::Serialize;
@@ -20,18 +21,18 @@ use openerp_blob::BlobStore;
 
 /// PMS service — holds all storage backends and provides business logic.
 pub struct PmsService {
-    pub(crate) sql: Box<dyn SQLStore>,
-    pub(crate) kv: Box<dyn KVStore>,
-    pub(crate) search: Box<dyn SearchEngine>,
-    pub(crate) blob: Box<dyn BlobStore>,
+    pub(crate) sql: Arc<dyn SQLStore>,
+    pub(crate) kv: Arc<dyn KVStore>,
+    pub(crate) search: Arc<dyn SearchEngine>,
+    pub(crate) blob: Arc<dyn BlobStore>,
 }
 
 impl PmsService {
     pub fn new(
-        sql: Box<dyn SQLStore>,
-        kv: Box<dyn KVStore>,
-        search: Box<dyn SearchEngine>,
-        blob: Box<dyn BlobStore>,
+        sql: Arc<dyn SQLStore>,
+        kv: Arc<dyn KVStore>,
+        search: Arc<dyn SearchEngine>,
+        blob: Arc<dyn BlobStore>,
     ) -> Result<Self, ServiceError> {
         schema::init_schema(sql.as_ref())?;
         Ok(Self { sql, kv, search, blob })

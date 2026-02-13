@@ -83,8 +83,8 @@ impl Default for AuthConfig {
 
 /// The Auth service. Holds storage backends and configuration.
 pub struct AuthService {
-    pub(crate) sql: Box<dyn SQLStore>,
-    pub(crate) kv: Box<dyn KVStore>,
+    pub(crate) sql: Arc<dyn SQLStore>,
+    pub(crate) kv: Arc<dyn KVStore>,
     pub(crate) config: AuthConfig,
     pub(crate) group_cache: expansion::GroupCache,
 }
@@ -92,8 +92,8 @@ pub struct AuthService {
 impl AuthService {
     /// Create a new AuthService, initializing the DB schema.
     pub fn new(
-        sql: Box<dyn SQLStore>,
-        kv: Box<dyn KVStore>,
+        sql: Arc<dyn SQLStore>,
+        kv: Arc<dyn KVStore>,
         config: AuthConfig,
     ) -> Result<Arc<Self>, AuthError> {
         schema::init_schema(sql.as_ref())?;

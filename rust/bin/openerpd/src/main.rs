@@ -16,6 +16,7 @@ use std::sync::Arc;
 
 use clap::Parser;
 use jsonwebtoken::{DecodingKey, Validation};
+use openerp_core::Module;
 use tracing::info;
 
 use auth_middleware::JwtState;
@@ -65,7 +66,7 @@ async fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    // Initialize embedded stores.
+    // Initialize embedded stores (shared by all modules).
     let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
         openerp_kv::RedbStore::open(&core_config.resolve_db_path())
             .map_err(|e| anyhow::anyhow!("failed to open KV store: {}", e))?,
@@ -74,9 +75,56 @@ async fn main() -> anyhow::Result<()> {
         openerp_sql::SqliteStore::open(&core_config.resolve_sqlite_path())
             .map_err(|e| anyhow::anyhow!("failed to open SQL store: {}", e))?,
     );
+    let search: Arc<dyn openerp_search::SearchEngine> = Arc::new(
+        openerp_search::TantivyEngine::open(&data_dir.join("search"))
+            .map_err(|e| anyhow::anyhow!("failed to open search engine: {}", e))?,
+    );
+    let blob: Arc<dyn openerp_blob::BlobStore> = Arc::new(
+        openerp_blob::FileStore::open(&data_dir.join("blob"))
+            .map_err(|e| anyhow::anyhow!("failed to open blob store: {}", e))?,
+    );
+    let tsdb: Arc<dyn openerp_tsdb::TsDb> = Arc::new(
+        openerp_tsdb::WalEngine::open(&data_dir.join("tsdb"))
+            .map_err(|e| anyhow::anyhow!("failed to open TSDB: {}", e))?,
+    );
 
     // Bootstrap: ensure auth:root role exists.
     bootstrap::ensure_root_role(&kv)?;
+
+    // ── Initialize modules ──
+
+    let auth_config = auth::service::AuthConfig {
+        jwt_secret: server_config.jwt.secret.clone(),
+        ..Default::default()
+    };
+    let auth_module = auth::AuthModule::new(
+        Arc::clone(&sql),
+        Arc::clone(&kv),
+        auth_config,
+    )?;
+    info!("Auth module initialized");
+
+    let pms_module = pms::PmsModule::new(
+        Arc::clone(&sql),
+        Arc::clone(&kv),
+        Arc::clone(&search),
+        Arc::clone(&blob),
+    )?;
+    info!("PMS module initialized");
+
+    let task_module = task::TaskModule::new(
+        Arc::clone(&sql),
+        Arc::clone(&kv),
+        Arc::clone(&tsdb),
+    )?;
+    info!("Task module initialized");
+
+    // Collect module routes.
+    let module_routes = vec![
+        (auth_module.name(), auth_module.routes()),
+        (pms_module.name(), pms_module.routes()),
+        (task_module.name(), task_module.routes()),
+    ];
 
     // Build JWT state for middleware.
     let jwt_state = Arc::new(JwtState {
@@ -95,7 +143,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Build router.
-    let app = routes::build_router(app_state);
+    let app = routes::build_router(app_state, module_routes);
 
     // Start server.
     let listener = tokio::net::TcpListener::bind(&cli.listen).await?;

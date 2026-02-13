@@ -2,7 +2,6 @@
 
 use std::sync::Arc;
 
-use axum::extract::State;
 use axum::response::{Html, IntoResponse};
 use axum::routing::get;
 use axum::Router;
@@ -21,32 +20,34 @@ pub struct AppState {
 }
 
 /// Build the complete router with all routes.
-pub fn build_router(state: AppState) -> Router {
+pub fn build_router(state: AppState, module_routes: Vec<(&str, Router)>) -> Router {
     let jwt_state = state.jwt_state.clone();
 
-    // System endpoints (public).
+    // System endpoints (public, no state needed).
     let system_routes = Router::new()
-        .route("/", get(index_page))
         .route("/health", get(health))
         .route("/version", get(version));
 
-    // Auth login endpoints (public).
-    let auth_login_routes = login::routes(state.clone());
+    // Start with the system and login routes (which need AppState).
+    let mut app: Router<()> = Router::new()
+        .route("/", get(index_page))
+        .merge(login::routes(state.clone()))
+        .with_state(state);
 
-    // Module routes — will be added as modules are wired up.
-    // Each module's routes are nested under /{module_name}.
-    let module_routes = Router::new();
+    // Merge stateless system routes.
+    app = app.merge(system_routes);
 
-    // Combine everything.
-    Router::new()
-        .merge(system_routes)
-        .merge(auth_login_routes)
-        .merge(module_routes)
-        .layer(middleware::from_fn_with_state(
-            jwt_state,
-            auth_middleware::auth_middleware,
-        ))
-        .with_state(state)
+    // Mount each module's routes under /{module_name}.
+    // Module routes are already Router<()> (they called .with_state() internally).
+    for (name, router) in module_routes {
+        app = app.nest(&format!("/{}", name), router);
+    }
+
+    // Apply JWT auth middleware to all routes.
+    app.layer(middleware::from_fn_with_state(
+        jwt_state,
+        auth_middleware::auth_middleware,
+    ))
 }
 
 async fn index_page() -> impl IntoResponse {
