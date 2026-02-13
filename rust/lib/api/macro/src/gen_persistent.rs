@@ -44,11 +44,23 @@ pub fn expand_persistent(attr: TokenStream, mut item: ItemStruct) -> syn::Result
 
     let doc_attrs: Vec<_> = item.attrs.iter().filter(|a| a.path().is_ident("doc")).collect();
 
-    // Strip #[auto(...)] from fields — it's only for the parser.
+    // Strip #[auto(...)] from fields and add #[serde(default)] to auto-fill fields.
+    let auto_field_names: Vec<String> = ir
+        .fields
+        .iter()
+        .filter(|f| f.auto.is_some())
+        .map(|f| f.name.clone())
+        .collect();
+
     let mut clean_fields = item.fields.clone();
     if let syn::Fields::Named(ref mut named) = clean_fields {
         for field in named.named.iter_mut() {
+            let field_name = field.ident.as_ref().map(|i| i.to_string()).unwrap_or_default();
             field.attrs.retain(|a| !a.path().is_ident("auto"));
+            // Add #[serde(default)] to auto-fill fields so deserialization doesn't require them.
+            if auto_field_names.contains(&field_name) {
+                field.attrs.push(syn::parse_quote!(#[serde(default)]));
+            }
         }
     }
 

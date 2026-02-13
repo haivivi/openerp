@@ -1,6 +1,6 @@
 //! Integration tests for DSL proc macros.
 
-use openerp_dsl_macro::{model, persistent};
+use openerp_dsl_macro::{model, persistent, facet};
 
 // ── Definitions (at crate level so they're visible to tests) ──
 
@@ -34,6 +34,16 @@ pub struct UserDB {
     pub created_at: String,
     #[auto(update_timestamp)]
     pub updated_at: String,
+}
+
+// ── Facet definition ──
+
+#[facet(path = "/data", auth = "jwt", model = "User")]
+pub struct DataUser {
+    #[readonly]
+    pub id: String,
+    pub name: String,
+    pub email: Option<String>,
 }
 
 // ── Tests ──
@@ -162,5 +172,92 @@ mod tests {
         assert_eq!(ir.store, openerp_ir::StoreType::Kv);
         assert_eq!(ir.key.fields, vec!["id"]);
         assert_eq!(ir.indexes.len(), 1);
+    }
+
+    #[test]
+    fn facet_ir_metadata() {
+        let ir: openerp_ir::FacetIR =
+            serde_json::from_str(DataUser::__DSL_FACET_IR).unwrap();
+        assert_eq!(ir.facet, "data");
+        assert_eq!(ir.model, "User");
+        assert_eq!(ir.auth, openerp_ir::AuthMethod::Jwt);
+        assert_eq!(ir.fields.len(), 3);
+        assert!(ir.crud);
+    }
+
+    #[tokio::test]
+    async fn facet_router_crud() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("router_test.redb")).unwrap(),
+        );
+        let store = Arc::new(UserStore::new(kv));
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+
+        let router = data_user_router(store.clone(), auth, "auth");
+
+        // POST /users — create
+        let body = serde_json::json!({
+            "name": "Alice",
+            "email": "alice@test.com",
+            "password_hash": "h1",
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/users")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&body).unwrap()))
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let resp_body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        let user_id = created["id"].as_str().unwrap().to_string();
+        assert_eq!(created["name"], "Alice");
+
+        // GET /users — list
+        let req = Request::builder()
+            .uri("/users")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let resp_body = axum::body::to_bytes(resp.into_body(), 1024 * 1024)
+            .await
+            .unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&resp_body).unwrap();
+        assert_eq!(list["total"], 1);
+
+        // GET /users/:id — get
+        let req = Request::builder()
+            .uri(&format!("/users/{}", user_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // DELETE /users/:id
+        let req = Request::builder()
+            .method("DELETE")
+            .uri(&format!("/users/{}", user_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Verify deleted.
+        let req = Request::builder()
+            .uri(&format!("/users/{}", user_id))
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }

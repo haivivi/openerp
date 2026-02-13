@@ -11,10 +11,13 @@ rust_test(
         "//rust/lib/api/ir",
         "//rust/lib/core",
         "//rust/lib/kv",
+        "@crates//:axum",
         "@crates//:serde",
         "@crates//:serde_json",
+        "@crates//:tokio",
         "@crates//:uuid",
         "@crates//:chrono",
         "@crates//:tempfile",
+        "@crates//:tower",
     ],
 )
