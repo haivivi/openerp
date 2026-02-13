@@ -246,7 +246,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
   function buildResourcePage(res){
     const c=document.getElementById('content');
     const navInfo=currentModule.hierarchy.nav.find(n=>n.model===res.name);
-    const basePath='/'+currentModule.id+'/'+pluralize(toSnake(res.name));
+    const basePath='/admin/'+currentModule.id+'/'+pluralize(toSnake(res.name));
 
     c.innerHTML='<div class="section-header"><h2>'+(navInfo?.label||res.name)+'</h2>'
       +'<button class="btn-sm-primary" onclick="openCreateDlg()">+ Add</button></div>'
@@ -269,18 +269,18 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
       const body=document.getElementById('resBody');
       const items=d.items||d;
       if(!items||!items.length){body.innerHTML='<tr><td class="empty-cell" colspan="99">No data</td></tr>';return}
-      const pk=res.key.fields[0];
+      const pk=(res.key&&res.key.fields&&res.key.fields[0])||'id';
       body.innerHTML=items.map(item=>{
         let row='<tr>';
         for(const f of cols){
           let v=item[f.name]??item[toCamel(f.name)]??'\u2014';
-          const w=f.ui_widget||'Text';
+          const w=(f.widget||'text').toLowerCase();
           if(typeof v==='boolean'){row+='<td>'+(v?'\u2705':'\u274c')+'</td>';continue}
           if(Array.isArray(v)){row+='<td>'+v.map(x=>'<span class="badge badge-outline" style="margin:1px">'+x+'</span>').join(' ')+'</td>';continue}
           if(typeof v==='object')v=JSON.stringify(v);
           if(f.name===pk||f.name==='id')row+='<td class="mono">'+short(String(v))+'</td>';
-          else if(w==='Email')row+='<td><a href="mailto:'+v+'" style="color:var(--card-fg);text-decoration:underline">'+v+'</a></td>';
-          else if(w==='Url'||w==='ImageUpload')row+='<td><a href="'+v+'" target="_blank" style="color:var(--card-fg);text-decoration:underline">'+short(String(v))+'</a></td>';
+          else if(w==='email')row+='<td><a href="mailto:'+v+'" style="color:var(--card-fg);text-decoration:underline">'+v+'</a></td>';
+          else if(w==='url'||w==='image')row+='<td><a href="'+v+'" target="_blank" style="color:var(--card-fg);text-decoration:underline">'+short(String(v))+'</a></td>';
           else row+='<td>'+String(v)+'</td>';
         }
         const id=item[pk]??item[toCamel(pk)]??item.id;
@@ -292,64 +292,65 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 
   // ── Widget rendering ──
   function renderWidget(f){
-    const w=f.ui_widget||'Text';
+    const raw=f.widget||'text';
+    const w=raw.toLowerCase();
     const isOpt=f.ty&&(f.ty==='Option'||f.ty.Option);
     const label=f.name.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
     const req=isOpt?'':' *';
 
     switch(w){
-      case 'Switch':
+      case 'switch':
         return '<div class="field" style="flex-direction:row;align-items:center;gap:10px">'
           +'<label style="margin:0">'+label+'</label>'
           +'<label class="switch"><input type="checkbox" name="'+f.name+'" data-type="bool"><span class="slider"></span></label>'
           +'</div>';
-      case 'Textarea':case 'Markdown':
+      case 'textarea':case 'markdown':
         return '<div class="field"><label>'+label+req+'</label>'
           +'<textarea name="'+f.name+'" rows="3" placeholder="'+f.name+'" style="width:100%;min-height:60px;padding:8px 10px;background:transparent;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);color:var(--card-fg);font-size:13px;font-family:inherit;resize:vertical"'
           +(isOpt?'':' required')+'></textarea></div>';
-      case 'Number':
+      case 'number':
         return '<div class="field"><label>'+label+req+'</label>'
           +'<input type="number" name="'+f.name+'" placeholder="0"'+(!isOpt?' required':'')+'></div>';
-      case 'Email':
+      case 'email':
         return '<div class="field"><label>'+label+req+'</label>'
           +'<input type="email" name="'+f.name+'" placeholder="user@example.com"'+(!isOpt?' required':'')+'></div>';
-      case 'Url':
+      case 'url':
         return '<div class="field"><label>'+label+req+'</label>'
           +'<input type="url" name="'+f.name+'" placeholder="https://..."'+(!isOpt?' required':'')+'></div>';
-      case 'Password':
+      case 'password':
         return '<div class="field"><label>'+label+req+'</label>'
           +'<input type="password" name="'+f.name+'" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022"'+(!isOpt?' required':'')+'></div>';
-      case 'ImageUpload':
+      case 'image':
         return '<div class="field"><label>'+label+req+'</label>'
           +'<input type="url" name="'+f.name+'" placeholder="Image URL"'+(!isOpt?' required':'')+'>'
           +'<span style="font-size:11px;color:var(--muted-fg)">Enter image URL or upload endpoint</span></div>';
-      case 'DateTime':case 'Date':
+      case 'datetime':case 'date':
         return '<div class="field"><label>'+label+req+'</label>'
           +'<input type="datetime-local" name="'+f.name+'" data-type="datetime"'+(!isOpt?' required':'')+'></div>';
-      case 'Tags':
+      case 'tags':
         return '<div class="field"><label>'+label+req+'</label>'
           +'<input name="'+f.name+'" placeholder="Comma-separated values" data-type="tags"'+(!isOpt?' required':'')+'>'
           +'<span style="font-size:11px;color:var(--muted-fg)">Separate multiple values with commas</span></div>';
-      case 'Color':
+      case 'color':
         return '<div class="field" style="flex-direction:row;align-items:center;gap:10px">'
           +'<label style="margin:0">'+label+'</label>'
           +'<input type="color" name="'+f.name+'" style="width:40px;height:32px;padding:2px;cursor:pointer"></div>';
-      case 'Code':
+      case 'code':
         return '<div class="field"><label>'+label+req+'</label>'
           +'<textarea name="'+f.name+'" rows="4" placeholder="JSON" data-type="json" style="width:100%;min-height:80px;padding:8px 10px;background:transparent;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);color:var(--card-fg);font-size:12px;font-family:monospace;resize:vertical"'
           +(isOpt?'':' required')+'></textarea></div>';
-      case 'Select':
+      case 'select':
         return '<div class="field"><label>'+label+req+'</label>'
           +'<select name="'+f.name+'" data-type="select">'
           +'<option value="">Select...</option></select></div>';
-      case 'PermissionPicker':
+      case 'permission_picker':
         return '<div class="field"><label>'+label+req+'</label>'
           +'<div class="perm-picker" data-field="'+f.name+'"></div>'
           +'<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted-fg);margin-top:4px">'
           +'<span class="perm-count" data-for="'+f.name+'">0 selected</span>'
           +'<button type="button" style="background:none;border:none;color:var(--destructive);font-size:11px;cursor:pointer" onclick="clearPerms(\''+f.name+'\')">Clear all</button>'
           +'</div></div>';
-      case 'Hidden':case 'ReadOnly':
+      case 'hidden':case 'hidden':case 'readonly':case 'readonly':
         return '';// Don't show
       default:// Text
         return '<div class="field"><label>'+label+req+'</label>'
@@ -425,8 +426,9 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     const form=document.getElementById('dlgForm');
     document.getElementById('dlgTitle').textContent='Create '+currentResource.name;
     const editableFields=currentResource.fields.filter(f=>{
-      const w=f.ui_widget||'Text';
-      return w!=='Hidden'&&w!=='ReadOnly'&&f.name!=='id'&&!f.name.endsWith('_at');
+      const w=f.widget||'Text';
+      const wl=(f.widget||'text').toLowerCase();
+      return wl!=='hidden'&&wl!=='readonly'&&f.name!=='id'&&!f.name.endsWith('_at');
     });
     form.innerHTML=editableFields.map(renderWidget).join('');
     dlg.classList.add('open');
@@ -454,7 +456,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
       const perms=getSelectedPerms(fieldName);
       if(perms.length>0)data[fieldName]=perms;
     }
-    const basePath='/'+currentModule.id+'/'+pluralize(toSnake(currentResource.name));
+    const basePath='/admin/'+currentModule.id+'/'+pluralize(toSnake(currentResource.name));
     try{
       await api('POST',basePath,data);
       closeCreateDlg();toast(currentResource.name+' created');
