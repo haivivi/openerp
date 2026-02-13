@@ -24,6 +24,8 @@ pub struct ResourceDef {
     pub path: String,
     /// Icon name.
     pub icon: String,
+    /// Short description (from hierarchy doc comments).
+    pub description: String,
     /// Model IR (from __dsl_ir()).
     pub ir: Value,
     /// Permissions for this resource (CRUD + custom actions).
@@ -51,7 +53,7 @@ impl ResourceDef {
         let path = pluralize(&name);
         let icon = default_icon(&name);
         let permissions = Self::crud_permissions(module, &name);
-        Self { name, label, path, icon, ir, permissions }
+        Self { name, label, path, icon, description: String::new(), ir, permissions }
     }
 
     /// Add custom action permissions.
@@ -65,6 +67,12 @@ impl ResourceDef {
         self.icon = icon.to_string();
         self
     }
+
+    /// Set description (from hierarchy doc comment).
+    pub fn with_desc(mut self, desc: &str) -> Self {
+        self.description = desc.to_string();
+        self
+    }
 }
 
 fn pluralize(s: &str) -> String {
@@ -74,6 +82,26 @@ fn pluralize(s: &str) -> String {
         format!("{}ies", &s[..s.len() - 1])
     } else {
         format!("{}s", s)
+    }
+}
+
+/// Generate a human-readable description for a CRUD action.
+fn action_description(action: &str, resource_label: &str) -> String {
+    match action {
+        "create" => format!("Create {}", resource_label.trim_end_matches('s')),
+        "read" => format!("View {} details", resource_label.trim_end_matches('s')),
+        "update" => format!("Edit {}", resource_label.trim_end_matches('s')),
+        "delete" => format!("Delete {}", resource_label.trim_end_matches('s')),
+        "list" => format!("List all {}", resource_label),
+        other => format!("{} {}", capitalize(other), resource_label.trim_end_matches('s')),
+    }
+}
+
+fn capitalize(s: &str) -> String {
+    let mut c = s.chars();
+    match c.next() {
+        None => String::new(),
+        Some(f) => f.to_uppercase().collect::<String>() + c.as_str(),
     }
 }
 
@@ -102,17 +130,21 @@ pub fn build_schema(app_name: &str, modules: Vec<ModuleDef>) -> Value {
     let module_values: Vec<Value> = modules
         .iter()
         .map(|m| {
-            // Collect permissions per module.
+            // Collect permissions per module with descriptions.
             let mut mod_perms = serde_json::Map::new();
             for r in &m.resources {
+                let actions: Vec<Value> = r.permissions.iter().map(|p| {
+                    let action = p.rsplit(':').next().unwrap_or(p);
+                    let desc = action_description(action, &r.label);
+                    json!({ "perm": p, "action": action, "desc": desc })
+                }).collect();
                 mod_perms.insert(
                     r.name.to_string(),
-                    Value::Array(
-                        r.permissions
-                            .iter()
-                            .map(|p| Value::String(p.clone()))
-                            .collect(),
-                    ),
+                    json!({
+                        "label": r.label,
+                        "description": r.description,
+                        "actions": actions
+                    }),
                 );
             }
             all_permissions
@@ -157,7 +189,8 @@ mod tests {
                 label: "Authentication",
                 icon: "shield",
                 resources: vec![
-                    ResourceDef::from_ir("auth", json!({"name": "User", "module": "auth", "resource": "user", "fields": []})),
+                    ResourceDef::from_ir("auth", json!({"name": "User", "module": "auth", "resource": "user", "fields": []}))
+                        .with_desc("User identity management"),
                 ],
             }],
         );
@@ -166,8 +199,11 @@ mod tests {
         assert_eq!(schema["modules"][0]["id"], "auth");
         assert_eq!(schema["modules"][0]["hierarchy"]["nav"][0]["label"], "Users");
 
-        let perms = &schema["permissions"]["auth"]["user"];
-        assert_eq!(perms.as_array().unwrap().len(), 5);
+        let user_perms = &schema["permissions"]["auth"]["user"];
+        assert_eq!(user_perms["description"], "User identity management");
+        assert_eq!(user_perms["actions"].as_array().unwrap().len(), 5);
+        assert_eq!(user_perms["actions"][0]["action"], "create");
+        assert!(user_perms["actions"][0]["desc"].as_str().unwrap().contains("User"));
     }
 
     #[test]

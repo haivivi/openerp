@@ -89,17 +89,18 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 .toast.show{opacity:1;transform:translateY(0)}
 
 /* ─── Permission dialog ─── */
-.perm-mod-item{padding:8px 10px;font-size:13px;font-weight:500;cursor:pointer;border-radius:calc(var(--radius) - 2px);transition:background .1s;text-transform:capitalize;display:flex;align-items:center}
+.perm-mod-item{padding:8px 10px;font-size:13px;font-weight:500;cursor:pointer;border-radius:calc(var(--radius) - 2px);transition:background .1s;text-transform:capitalize;display:flex;align-items:center;gap:4px}
 .perm-mod-item:hover{background:var(--accent)}
 .perm-mod-item.active{background:var(--accent);color:var(--card-fg)}
-.perm-tab{padding:8px 14px;font-size:13px;cursor:pointer;border-bottom:2px solid transparent;transition:all .1s;color:var(--muted-fg)}
+.perm-tab{padding:8px 14px;font-size:13px;cursor:pointer;border-bottom:2px solid transparent;transition:all .1s;color:var(--muted-fg);white-space:nowrap}
 .perm-tab:hover{color:var(--card-fg)}
 .perm-tab.active{color:var(--card-fg);border-bottom-color:var(--primary)}
-.perm-res-group{margin-bottom:8px}
-.perm-res-header{padding:4px 0;font-weight:500;text-transform:capitalize}
-.perm-row{padding:2px 0}
-.perm-cb-label{display:flex;align-items:center;gap:6px;font-size:13px;cursor:pointer;user-select:none}
-.perm-cb-label input[type="checkbox"]{width:14px;height:14px;accent-color:var(--primary);cursor:pointer}
+.perm-res-group{margin-bottom:12px;border-bottom:1px solid var(--border);padding-bottom:8px}
+.perm-res-group:last-child{border-bottom:none}
+.perm-res-header{padding:4px 0;font-weight:500;font-size:13px}
+.perm-row{padding:3px 0}
+.perm-cb-label{display:flex;align-items:center;gap:8px;font-size:13px;cursor:pointer;user-select:none}
+.perm-cb-label input[type="checkbox"]{width:14px;height:14px;accent-color:var(--primary);cursor:pointer;flex-shrink:0}
 
 /* ─── Switch toggle ─── */
 .switch{position:relative;display:inline-block;width:36px;height:20px}
@@ -440,7 +441,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
       const item=document.createElement('div');
       item.className='perm-mod-item'+(mod===permActiveMod?' active':'');
       item.dataset.mod=mod;
-      item.innerHTML=mod+'<span style="margin-left:auto;font-size:11px;color:var(--muted-fg)">'+(cnt||'')+'</span>';
+      item.innerHTML='<span>'+mod+'</span><span style="margin-left:auto;font-size:11px;color:var(--muted-fg)">'+(cnt||'')+'</span>';
       item.addEventListener('click',()=>{permActiveMod=mod;buildPermDlg()});
       modMenu.appendChild(item);
     }
@@ -456,39 +457,45 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
       tabBar.appendChild(t);
     }
 
-    // Content (right)
+    // Content (right) — new format: { resource: { label, description, actions: [{perm, action, desc}] } }
     const content=document.getElementById('permContent');
     content.innerHTML='';
     const resources=schema.permissions[permActiveMod]||{};
     const tab=PERM_TABS.find(t=>t.id===permActiveTab);
 
-    for(const[res,perms] of Object.entries(resources)){
-      const matching=perms.filter(p=>{
-        const action=p.split(':').pop();
-        if(tab.actions===null)return!STANDARD_ACTIONS.includes(action);
-        return tab.actions.includes(action);
+    for(const[res,info] of Object.entries(resources)){
+      const actions=info.actions||[];
+      const matching=actions.filter(a=>{
+        if(tab.actions===null)return!STANDARD_ACTIONS.includes(a.action);
+        return tab.actions.includes(a.action);
       });
       if(!matching.length)continue;
 
       const resDiv=document.createElement('div');resDiv.className='perm-res-group';
-      // Resource header with select-all
+
+      // Resource header: name + description + select-all
+      const allChecked=matching.every(a=>permSelected.has(a.perm));
       const header=document.createElement('div');header.className='perm-res-header';
-      const allChecked=matching.every(p=>permSelected.has(p));
-      header.innerHTML='<label class="perm-cb-label"><input type="checkbox" '+(allChecked?'checked':'')+'>'+res.replace(/_/g,' ')+'</label>';
+      const resLabel=info.label||res.replace(/_/g,' ');
+      const resDesc=info.description?'<span style="font-weight:400;color:var(--muted-fg);font-size:12px;margin-left:8px">'+info.description+'</span>':'';
+      header.innerHTML='<label class="perm-cb-label"><input type="checkbox" '+(allChecked?'checked':'')+'>'+resLabel+resDesc+'</label>';
       header.querySelector('input').addEventListener('change',function(){
-        matching.forEach(p=>{if(this.checked)permSelected.add(p);else permSelected.delete(p)});
+        matching.forEach(a=>{if(this.checked)permSelected.add(a.perm);else permSelected.delete(a.perm)});
         buildPermDlg();
       });
       resDiv.appendChild(header);
 
-      // Individual permissions
-      for(const p of matching){
-        const action=p.split(':').pop();
+      // Individual permissions — one per line: checkbox + perm path + description
+      for(const a of matching){
         const row=document.createElement('div');row.className='perm-row';
-        const checked=permSelected.has(p);
-        row.innerHTML='<label class="perm-cb-label" style="padding-left:20px"><input type="checkbox" data-perm="'+p+'" '+(checked?'checked':'')+'>'+action+'</label>';
+        const checked=permSelected.has(a.perm);
+        row.innerHTML='<label class="perm-cb-label" style="padding-left:20px">'
+          +'<input type="checkbox" data-perm="'+a.perm+'" '+(checked?'checked':'')+'>'
+          +'<span class="mono" style="min-width:180px;font-size:12px">'+a.perm+'</span>'
+          +'<span style="color:var(--muted-fg);font-size:12px">'+a.desc+'</span>'
+          +'</label>';
         row.querySelector('input').addEventListener('change',function(){
-          if(this.checked)permSelected.add(p);else permSelected.delete(p);
+          if(this.checked)permSelected.add(a.perm);else permSelected.delete(a.perm);
           buildPermDlg();
         });
         resDiv.appendChild(row);
@@ -502,7 +509,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 
   function countModPerms(mod){
     let n=0;
-    for(const p of permSelected){if(p.startsWith(mod+':'))n++}
+    for(const p of permSelected){if(p.startsWith(mod+':'))n++;}
     return n;
   }
 

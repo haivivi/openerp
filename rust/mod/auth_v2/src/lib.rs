@@ -63,12 +63,18 @@ pub fn schema_def() -> openerp_store::ModuleDef {
         label: "Authentication",
         icon: "shield",
         resources: vec![
-            ResourceDef::from_ir("auth", User::__dsl_ir()),
-            ResourceDef::from_ir("auth", Role::__dsl_ir()),
-            ResourceDef::from_ir("auth", Group::__dsl_ir()),
-            ResourceDef::from_ir("auth", Policy::__dsl_ir()),
-            ResourceDef::from_ir("auth", Session::__dsl_ir()),
-            ResourceDef::from_ir("auth", Provider::__dsl_ir()),
+            ResourceDef::from_ir("auth", User::__dsl_ir())
+                .with_desc("User identity and account management"),
+            ResourceDef::from_ir("auth", Role::__dsl_ir())
+                .with_desc("Permission roles for access control"),
+            ResourceDef::from_ir("auth", Group::__dsl_ir())
+                .with_desc("Organizational groups and hierarchy"),
+            ResourceDef::from_ir("auth", Policy::__dsl_ir())
+                .with_desc("Access control policies (who-what-how)"),
+            ResourceDef::from_ir("auth", Session::__dsl_ir())
+                .with_desc("Login sessions and JWT tracking"),
+            ResourceDef::from_ir("auth", Provider::__dsl_ir())
+                .with_desc("OAuth provider configuration"),
         ],
     }
 }
