@@ -12,5 +12,7 @@
 //! ```
 
 pub mod kv;
+pub mod sql;
 
 pub use kv::{KvStore, KvOps};
+pub use sql::{SqlStore, SqlOps};
