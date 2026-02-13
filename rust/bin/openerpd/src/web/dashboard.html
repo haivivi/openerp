@@ -353,7 +353,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
         for(const f of mainCols){
           let v=item[f.name]??item[toCamel(f.name)]??'\u2014';
           const w=(f.widget||'text').toLowerCase();
-          if(typeof v==='boolean'){row+='<td>'+(v?'\u2705':'\u274c')+'</td>';continue}
+          if(typeof v==='boolean'){row+='<td>'+(v?'<i data-lucide="check" style="width:16px;height:16px;color:var(--success)"></i>':'<i data-lucide="x" style="width:16px;height:16px;color:var(--muted-fg)"></i>')+'</td>';continue}
           if(Array.isArray(v)){row+='<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">'+v.slice(0,3).map(x=>'<span class="badge badge-outline" style="margin:1px;font-size:10px">'+esc(x)+'</span>').join(' ')+(v.length>3?' +' +(v.length-3):'')+'</td>';continue}
           if(v===null||v===undefined||v==='\u2014'){row+='<td style="color:var(--muted-fg)">\u2014</td>';continue}
           if(typeof v==='object')v=JSON.stringify(v);
@@ -368,6 +368,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
         row+='<td><button class="btn-ghost-destructive" onclick="deleteResource(\''+basePath+'\',\''+id+'\')">Delete</button></td>';
         return row+'</tr>';
       }).join('');
+      lucide.createIcons();
     }catch(e){toast(e.message)}
   }
 
