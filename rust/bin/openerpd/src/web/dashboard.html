@@ -463,44 +463,29 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     const resources=schema.permissions[permActiveMod]||{};
     const tab=PERM_TABS.find(t=>t.id===permActiveTab);
 
+    // Flat list: one permission per line, no grouping headers.
     for(const[res,info] of Object.entries(resources)){
       const actions=info.actions||[];
+      const resLabel=(info.label||res).replace(/s$/,''); // singular: Users->User
       const matching=actions.filter(a=>{
         if(tab.actions===null)return!STANDARD_ACTIONS.includes(a.action);
         return tab.actions.includes(a.action);
       });
-      if(!matching.length)continue;
 
-      const resDiv=document.createElement('div');resDiv.className='perm-res-group';
-
-      // Resource header: name + description + select-all
-      const allChecked=matching.every(a=>permSelected.has(a.perm));
-      const header=document.createElement('div');header.className='perm-res-header';
-      const resLabel=info.label||res.replace(/_/g,' ');
-      const resDesc=info.description?'<span style="font-weight:400;color:var(--muted-fg);font-size:12px;margin-left:8px">'+info.description+'</span>':'';
-      header.innerHTML='<label class="perm-cb-label"><input type="checkbox" '+(allChecked?'checked':'')+'>'+resLabel+resDesc+'</label>';
-      header.querySelector('input').addEventListener('change',function(){
-        matching.forEach(a=>{if(this.checked)permSelected.add(a.perm);else permSelected.delete(a.perm)});
-        buildPermDlg();
-      });
-      resDiv.appendChild(header);
-
-      // Individual permissions — one per line: checkbox + perm path + description
       for(const a of matching){
         const row=document.createElement('div');row.className='perm-row';
         const checked=permSelected.has(a.perm);
-        row.innerHTML='<label class="perm-cb-label" style="padding-left:20px">'
+        row.innerHTML='<label class="perm-cb-label">'
           +'<input type="checkbox" data-perm="'+a.perm+'" '+(checked?'checked':'')+'>'
-          +'<span class="mono" style="min-width:180px;font-size:12px">'+a.perm+'</span>'
+          +'<span class="mono" style="min-width:160px;font-size:12px">'+resLabel+'.'+a.action+'</span>'
           +'<span style="color:var(--muted-fg);font-size:12px">'+a.desc+'</span>'
           +'</label>';
         row.querySelector('input').addEventListener('change',function(){
           if(this.checked)permSelected.add(a.perm);else permSelected.delete(a.perm);
           buildPermDlg();
         });
-        resDiv.appendChild(row);
+        content.appendChild(row);
       }
-      content.appendChild(resDiv);
     }
 
     // Update count
