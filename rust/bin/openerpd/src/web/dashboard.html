@@ -159,20 +159,20 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 
 <!-- Permission picker dialog -->
 <div class="dialog-overlay" id="permDlg">
-  <div class="dialog" style="max-width:640px;display:flex;flex-direction:column;padding:0">
-    <div style="padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+  <div class="dialog" style="max-width:640px;height:480px;display:flex;flex-direction:column;padding:0;overflow:hidden">
+    <div style="padding:12px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-shrink:0">
       <h2 style="font-size:16px;font-weight:600;margin:0">Select Permissions</h2>
       <div style="display:flex;align-items:center;gap:12px">
         <span id="permDlgCount" style="font-size:13px;color:var(--muted-fg)">0 selected</span>
         <button class="btn-sm-secondary" type="button" onclick="closePermDlg()" style="height:30px;font-size:12px">Done</button>
       </div>
     </div>
-    <div style="display:flex;flex:1;min-height:0;height:360px">
-      <!-- Left: module menu -->
-      <div id="permModMenu" style="width:120px;border-right:1px solid var(--border);overflow-y:auto;padding:4px"></div>
-      <!-- Right: tabs + content -->
-      <div style="flex:1;display:flex;flex-direction:column;min-width:0">
-        <div id="permTabBar" style="display:flex;border-bottom:1px solid var(--border);padding:0 8px"></div>
+    <div style="display:flex;flex:1;min-height:0;overflow:hidden">
+      <!-- Left: module menu (fixed width, own scroll) -->
+      <div id="permModMenu" style="width:110px;min-width:110px;border-right:1px solid var(--border);overflow-y:auto;padding:4px"></div>
+      <!-- Right: tabs (fixed) + content (scrolls) -->
+      <div style="flex:1;display:flex;flex-direction:column;min-width:0;overflow:hidden">
+        <div id="permTabBar" style="display:flex;border-bottom:1px solid var(--border);padding:0 8px;flex-shrink:0"></div>
         <div id="permContent" style="flex:1;overflow-y:auto;padding:8px 12px"></div>
       </div>
     </div>
