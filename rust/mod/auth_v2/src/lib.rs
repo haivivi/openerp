@@ -48,6 +48,7 @@ pub fn admin_router(
 }
 
 /// Build schema definition for this module.
+/// Auto-derived from #[model] IR — no hand-written field lists.
 pub fn schema_def() -> openerp_store::ModuleDef {
     use openerp_store::ResourceDef;
     openerp_store::ModuleDef {
@@ -55,36 +56,12 @@ pub fn schema_def() -> openerp_store::ModuleDef {
         label: "Authentication",
         icon: "shield",
         resources: vec![
-            ResourceDef {
-                name: "user", label: "Users", path: "users", icon: "users",
-                ir: User::__dsl_ir(),
-                permissions: ResourceDef::crud_permissions("auth", "user"),
-            },
-            ResourceDef {
-                name: "role", label: "Roles", path: "roles", icon: "shield",
-                ir: Role::__dsl_ir(),
-                permissions: ResourceDef::crud_permissions("auth", "role"),
-            },
-            ResourceDef {
-                name: "group", label: "Groups", path: "groups", icon: "layers",
-                ir: Group::__dsl_ir(),
-                permissions: ResourceDef::crud_permissions("auth", "group"),
-            },
-            ResourceDef {
-                name: "policy", label: "Policies", path: "policies", icon: "lock",
-                ir: Policy::__dsl_ir(),
-                permissions: ResourceDef::crud_permissions("auth", "policy"),
-            },
-            ResourceDef {
-                name: "session", label: "Sessions", path: "sessions", icon: "clock",
-                ir: Session::__dsl_ir(),
-                permissions: ResourceDef::crud_permissions("auth", "session"),
-            },
-            ResourceDef {
-                name: "provider", label: "Providers", path: "providers", icon: "globe",
-                ir: Provider::__dsl_ir(),
-                permissions: ResourceDef::crud_permissions("auth", "provider"),
-            },
+            ResourceDef::from_ir("auth", User::__dsl_ir()),
+            ResourceDef::from_ir("auth", Role::__dsl_ir()),
+            ResourceDef::from_ir("auth", Group::__dsl_ir()),
+            ResourceDef::from_ir("auth", Policy::__dsl_ir()),
+            ResourceDef::from_ir("auth", Session::__dsl_ir()),
+            ResourceDef::from_ir("auth", Provider::__dsl_ir()),
         ],
     }
 }
