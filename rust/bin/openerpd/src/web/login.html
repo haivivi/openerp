@@ -66,12 +66,13 @@
 
   @media(max-width:900px){.left{display:none}.right{width:100%;min-width:0}}
 </style>
+<script src="https://unpkg.com/lucide@latest"></script>
 </head>
 <body>
 
 <div class="left">
   <div class="brand">
-    <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+    <i data-lucide="layers" style="width:24px;height:24px"></i>
     OpenERP
   </div>
   <div class="quote">
@@ -119,6 +120,7 @@
     }catch(ex){err.textContent=ex.message;err.style.display='block'}finally{btn.disabled=false;btn.textContent='Sign In'}
   });
 })();
+lucide.createIcons();
 </script>
 </body>
 </html>
