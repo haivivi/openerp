@@ -104,8 +104,57 @@ async fn schema_endpoint() -> impl IntoResponse {
         "facets": ["data"]
     });
 
+    // Collect all permissions from all modules.
+    let mut all_permissions = serde_json::Map::new();
+
+    // Auth module permissions (from resource CRUD).
+    let auth_resources = ["user", "role", "group", "policy", "session", "provider"];
+    let crud_actions = ["create", "read", "update", "delete", "list"];
+    let mut auth_perms = serde_json::Map::new();
+    for res in &auth_resources {
+        let actions: Vec<serde_json::Value> = crud_actions.iter()
+            .map(|a| serde_json::Value::String(format!("auth:{}:{}", res, a)))
+            .collect();
+        auth_perms.insert(res.to_string(), serde_json::Value::Array(actions));
+    }
+    all_permissions.insert("auth".into(), serde_json::Value::Object(auth_perms));
+
+    // PMS module permissions.
+    let pms_resources = [
+        ("model", vec!["create", "read", "update", "delete", "list"]),
+        ("device", vec!["create", "read", "update", "delete", "list", "provision", "activate"]),
+        ("batch", vec!["create", "read", "update", "delete", "list", "provision"]),
+        ("firmware", vec!["create", "read", "update", "delete", "list", "upload"]),
+        ("license", vec!["create", "read", "update", "delete", "list"]),
+        ("license_import", vec!["create", "read", "list", "import"]),
+        ("segment", vec!["create", "read", "update", "delete", "list"]),
+    ];
+    let mut pms_perms = serde_json::Map::new();
+    for (res, actions) in &pms_resources {
+        let perms: Vec<serde_json::Value> = actions.iter()
+            .map(|a| serde_json::Value::String(format!("pms:{}:{}", res, a)))
+            .collect();
+        pms_perms.insert(res.to_string(), serde_json::Value::Array(perms));
+    }
+    all_permissions.insert("pms".into(), serde_json::Value::Object(pms_perms));
+
+    // Task module permissions.
+    let task_resources = [
+        ("task", vec!["create", "read", "list", "claim", "progress", "complete", "fail", "cancel", "poll", "log"]),
+        ("task_type", vec!["create", "read", "update", "delete", "list"]),
+    ];
+    let mut task_perms = serde_json::Map::new();
+    for (res, actions) in &task_resources {
+        let perms: Vec<serde_json::Value> = actions.iter()
+            .map(|a| serde_json::Value::String(format!("task:{}:{}", res, a)))
+            .collect();
+        task_perms.insert(res.to_string(), serde_json::Value::Array(perms));
+    }
+    all_permissions.insert("task".into(), serde_json::Value::Object(task_perms));
+
     axum::Json(serde_json::json!({
         "name": "OpenERP",
         "modules": [auth_module],
+        "permissions": all_permissions,
     }))
 }

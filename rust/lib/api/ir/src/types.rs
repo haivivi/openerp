@@ -162,6 +162,9 @@ pub enum UiWidget {
     Hidden,
     /// Read-only display (not editable).
     ReadOnly,
+    /// Permission picker — shows all registered permissions grouped by module/resource.
+    /// Used for Role.permissions field.
+    PermissionPicker,
 }
 
 impl UiWidget {

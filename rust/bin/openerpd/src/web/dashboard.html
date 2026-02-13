@@ -342,6 +342,13 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
         return '<div class="field"><label>'+label+req+'</label>'
           +'<select name="'+f.name+'" data-type="select">'
           +'<option value="">Select...</option></select></div>';
+      case 'PermissionPicker':
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<div class="perm-picker" data-field="'+f.name+'"></div>'
+          +'<div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted-fg);margin-top:4px">'
+          +'<span class="perm-count" data-for="'+f.name+'">0 selected</span>'
+          +'<button type="button" style="background:none;border:none;color:var(--destructive);font-size:11px;cursor:pointer" onclick="clearPerms(\''+f.name+'\')">Clear all</button>'
+          +'</div></div>';
       case 'Hidden':case 'ReadOnly':
         return '';// Don't show
       default:// Text
@@ -349,6 +356,67 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
           +'<input name="'+f.name+'" placeholder="'+f.name+'"'+(!isOpt?' required':'')+'></div>';
     }
   }
+
+  // ── Permission picker logic ──
+  function buildPermPicker(container,fieldName){
+    if(!schema||!schema.permissions)return;
+    container.innerHTML='';
+    container.style.cssText='border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);max-height:240px;overflow-y:auto';
+    for(const[mod,resources] of Object.entries(schema.permissions)){
+      const mDiv=document.createElement('div');
+      mDiv.style.cssText='border-bottom:1px solid var(--border)';
+      // Module header
+      const mHead=document.createElement('div');
+      mHead.style.cssText='display:flex;align-items:center;gap:6px;padding:6px 10px;cursor:pointer;font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.04em;color:var(--muted-fg)';
+      mHead.innerHTML='\u25B6 '+mod+' <span class="perm-mod-count" data-mod="'+mod+'" style="margin-left:auto;font-weight:400;font-size:11px"></span>';
+      mHead.addEventListener('click',()=>{mBody.style.display=mBody.style.display==='none'?'block':'none';mHead.innerHTML=(mBody.style.display==='none'?'\u25B6':'\u25BC')+' '+mod+' <span class="perm-mod-count" data-mod="'+mod+'" style="margin-left:auto;font-weight:400;font-size:11px">'+getModCount(mod,fieldName)+'</span>'});
+      mDiv.appendChild(mHead);
+      // Module body
+      const mBody=document.createElement('div');mBody.style.display='none';mBody.style.padding='2px 10px 6px';
+      for(const[res,perms] of Object.entries(resources)){
+        const rLabel=document.createElement('div');
+        rLabel.style.cssText='font-size:11px;color:var(--muted-fg);margin:4px 0 2px;cursor:pointer;user-select:none';
+        rLabel.textContent=res.replace(/_/g,' ');
+        rLabel.addEventListener('click',()=>{
+          const chips=rLabel.nextElementSibling.querySelectorAll('.pc');
+          const allOn=[...chips].every(c=>c.classList.contains('on'));
+          chips.forEach(c=>{allOn?c.classList.remove('on'):c.classList.add('on')});
+          updatePermCount(fieldName);
+        });
+        mBody.appendChild(rLabel);
+        const wrap=document.createElement('div');wrap.style.cssText='display:flex;flex-wrap:wrap;gap:3px';
+        for(const p of perms){
+          const action=p.split(':').pop();
+          const chip=document.createElement('span');
+          chip.className='pc';chip.dataset.perm=p;chip.dataset.field=fieldName;
+          chip.style.cssText='display:inline-block;height:22px;line-height:22px;padding:0 7px;border:1px solid var(--border);border-radius:3px;font-size:11px;cursor:pointer;transition:all .1s;user-select:none;color:var(--muted-fg)';
+          chip.textContent=action;
+          chip.addEventListener('click',()=>{chip.classList.toggle('on');updatePermCount(fieldName)});
+          chip.addEventListener('mouseenter',()=>{if(!chip.classList.contains('on'))chip.style.borderColor='var(--ring)';chip.style.color='var(--card-fg)'});
+          chip.addEventListener('mouseleave',()=>{if(!chip.classList.contains('on')){chip.style.borderColor='var(--border)';chip.style.color='var(--muted-fg)'}});
+          wrap.appendChild(chip);
+        }
+        mBody.appendChild(wrap);
+      }
+      mDiv.appendChild(mBody);
+      container.appendChild(mDiv);
+    }
+  }
+  function updatePermCount(fieldName){
+    const chips=document.querySelectorAll('.pc.on[data-field="'+fieldName+'"]');
+    const el=document.querySelector('.perm-count[data-for="'+fieldName+'"]');
+    if(el)el.innerHTML='<strong>'+chips.length+'</strong> selected';
+    // Update on chips style
+    document.querySelectorAll('.pc[data-field="'+fieldName+'"]').forEach(c=>{
+      if(c.classList.contains('on')){c.style.background='var(--primary)';c.style.color='var(--primary-fg)';c.style.borderColor='var(--primary)'}
+      else{c.style.background='transparent';c.style.color='var(--muted-fg)';c.style.borderColor='var(--border)'}
+    });
+  }
+  function getModCount(mod,fieldName){
+    return document.querySelectorAll('.pc.on[data-field="'+fieldName+'"][data-perm^="'+mod+':"]').length||'';
+  }
+  function getSelectedPerms(fieldName){return[...document.querySelectorAll('.pc.on[data-field="'+fieldName+'"]')].map(c=>c.dataset.perm)}
+  window.clearPerms=function(fieldName){document.querySelectorAll('.pc.on[data-field="'+fieldName+'"]').forEach(c=>c.classList.remove('on'));updatePermCount(fieldName)};
 
   // ── Create dialog ──
   window.openCreateDlg=function(){
@@ -362,6 +430,8 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     });
     form.innerHTML=editableFields.map(renderWidget).join('');
     dlg.classList.add('open');
+    // Initialize any permission pickers in the form.
+    form.querySelectorAll('.perm-picker').forEach(p=>{buildPermPicker(p,p.dataset.field)});
     setTimeout(()=>{const inp=form.querySelector('input,textarea');if(inp)inp.focus()},100);
   };
   window.closeCreateDlg=function(){document.getElementById('createDlg').classList.remove('open')};
@@ -377,6 +447,12 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
       if(dtype==='json'){const v=el.value.trim();if(v)try{data[name]=JSON.parse(v)}catch(e){data[name]=v};continue}
       const v=el.value.trim();
       if(v)data[name]=v;
+    }
+    // Collect permission pickers.
+    for(const picker of form.querySelectorAll('.perm-picker')){
+      const fieldName=picker.dataset.field;
+      const perms=getSelectedPerms(fieldName);
+      if(perms.length>0)data[fieldName]=perms;
     }
     const basePath='/'+currentModule.id+'/'+pluralize(toSnake(currentResource.name));
     try{

@@ -22,7 +22,14 @@ pub fn expand_model(attr: TokenStream, mut item: ItemStruct) -> syn::Result<Toke
 
     let struct_name = &item.ident;
     let vis = &item.vis;
-    let fields = &item.fields;
+
+    // Strip #[ui(...)] from fields — only used by the parser.
+    let mut clean_fields = item.fields.clone();
+    if let syn::Fields::Named(ref mut named) = clean_fields {
+        for field in named.named.iter_mut() {
+            field.attrs.retain(|a| !a.path().is_ident("ui"));
+        }
+    }
 
     // Collect non-DSL attributes to re-emit (skip model, key).
     let pass_through_attrs: Vec<_> = item
@@ -42,7 +49,7 @@ pub fn expand_model(attr: TokenStream, mut item: ItemStruct) -> syn::Result<Toke
         #(#pass_through_attrs)*
         #[derive(Debug, Clone, serde::Serialize, serde::Deserialize, PartialEq)]
         #[serde(rename_all = "camelCase")]
-        #vis struct #struct_name #fields
+        #vis struct #struct_name #clean_fields
 
         impl #struct_name {
             /// Embedded IR metadata (JSON). Used by codegen and other macros.

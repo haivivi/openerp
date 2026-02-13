@@ -158,6 +158,7 @@ fn parse_ui_widget(
                         "code" => UiWidget::Code,
                         "hidden" => UiWidget::Hidden,
                         "readonly" => UiWidget::ReadOnly,
+                        "permission_picker" => UiWidget::PermissionPicker,
                         other => {
                             return Err(syn::Error::new_spanned(
                                 attr,

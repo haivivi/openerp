@@ -24,6 +24,7 @@ pub struct User {
 pub struct Role {
     pub id: Id,
     pub description: Option<String>,
+    #[ui(widget = "permission_picker")]
     pub permissions: Vec<String>,
     pub service: Option<String>,
     pub created_at: Option<DateTime>,
