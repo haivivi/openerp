@@ -1,0 +1,15 @@
+load("@rules_rust//rust:defs.bzl", "rust_proc_macro")
+
+rust_proc_macro(
+    name = "macro",
+    crate_name = "openerp_macro",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@crates//:syn",
+        "@crates//:quote",
+        "@crates//:proc-macro2",
+        "@crates//:serde_json",
+    ],
+)
