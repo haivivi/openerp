@@ -136,12 +136,13 @@ async fn main() -> anyhow::Result<()> {
     ];
     info!("Auth v2 admin router mounted at /admin/auth/");
 
-    // ── Schema (auto-generated from DSL) ──
+    // ── Schema (auto-generated from DSL + UI overrides) ──
 
-    let schema_json = openerp_store::build_schema(
+    let mut schema_json = openerp_store::build_schema(
         "OpenERP",
         vec![auth_v2::schema_def()],
     );
+    openerp_store::apply_overrides(&mut schema_json, &auth_v2::ui_overrides());
 
     // Build JWT state for middleware.
     let jwt_state = Arc::new(JwtState {

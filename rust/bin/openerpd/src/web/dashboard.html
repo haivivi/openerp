@@ -329,9 +329,12 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
   function renderWidget(f){
     const raw=f.widget||'text';
     const w=raw.toLowerCase();
-    const isOpt=f.ty&&(f.ty==='Option'||f.ty.Option);
+    const isOpt=f.ty&&(f.ty.startsWith('Option'));
     const label=f.name.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
     const req=isOpt?'':' *';
+    // Read params from schema (set by dsl/ui/ overrides).
+    const ph=f.placeholder||f.name;
+    const rows=f.rows||3;
 
     switch(w){
       case 'switch':
@@ -341,23 +344,23 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
           +'</div>';
       case 'textarea':case 'markdown':
         return '<div class="field"><label>'+label+req+'</label>'
-          +'<textarea name="'+f.name+'" rows="3" placeholder="'+f.name+'" style="width:100%;min-height:60px;padding:8px 10px;background:transparent;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);color:var(--card-fg);font-size:13px;font-family:inherit;resize:vertical"'
+          +'<textarea name="'+f.name+'" rows="'+rows+'" placeholder="'+ph+'" style="width:100%;min-height:60px;padding:8px 10px;background:transparent;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);color:var(--card-fg);font-size:13px;font-family:inherit;resize:vertical"'
           +(isOpt?'':' required')+'></textarea></div>';
       case 'number':
         return '<div class="field"><label>'+label+req+'</label>'
-          +'<input type="number" name="'+f.name+'" placeholder="0"'+(!isOpt?' required':'')+'></div>';
+          +'<input type="number" name="'+f.name+'" placeholder="'+(f.placeholder||'0')+'"'+(!isOpt?' required':'')+'></div>';
       case 'email':
         return '<div class="field"><label>'+label+req+'</label>'
-          +'<input type="email" name="'+f.name+'" placeholder="user@example.com"'+(!isOpt?' required':'')+'></div>';
+          +'<input type="email" name="'+f.name+'" placeholder="'+(f.placeholder||'user@example.com')+'"'+(!isOpt?' required':'')+'></div>';
       case 'url':
         return '<div class="field"><label>'+label+req+'</label>'
-          +'<input type="url" name="'+f.name+'" placeholder="https://..."'+(!isOpt?' required':'')+'></div>';
+          +'<input type="url" name="'+f.name+'" placeholder="'+(f.placeholder||'https://')+'"'+(!isOpt?' required':'')+'></div>';
       case 'password':
         return '<div class="field"><label>'+label+req+'</label>'
-          +'<input type="password" name="'+f.name+'" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022"'+(!isOpt?' required':'')+'></div>';
+          +'<input type="password" name="'+f.name+'" placeholder="'+(f.placeholder||'\u2022\u2022\u2022\u2022\u2022\u2022')+'"'+(!isOpt?' required':'')+'></div>';
       case 'image':
         return '<div class="field"><label>'+label+req+'</label>'
-          +'<input type="url" name="'+f.name+'" placeholder="Image URL"'+(!isOpt?' required':'')+'>'
+          +'<input type="url" name="'+f.name+'" placeholder="'+(f.placeholder||'Image URL')+'"'+(!isOpt?' required':'')+'>'
           +'<span style="font-size:11px;color:var(--muted-fg)">Enter image URL or upload endpoint</span></div>';
       case 'datetime':case 'date':
         return '<div class="field"><label>'+label+req+'</label>'

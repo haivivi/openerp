@@ -4,9 +4,11 @@
 //! KvStore impls + hooks in this file.
 //! Custom handlers in `src/handlers/`.
 
-// DSL model definitions.
+// DSL definitions.
 #[path = "../dsl/model/mod.rs"]
 pub mod model;
+#[path = "../dsl/ui/mod.rs"]
+pub mod ui_defs;
 
 pub mod handlers;
 mod store_impls;
@@ -45,6 +47,11 @@ pub fn admin_router(
     ));
 
     router
+}
+
+/// Get UI widget overrides defined in dsl/ui/.
+pub fn ui_overrides() -> Vec<openerp_store::WidgetOverride> {
+    ui_defs::overrides()
 }
 
 /// Build schema definition for this module.
