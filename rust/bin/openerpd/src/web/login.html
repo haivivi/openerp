@@ -136,6 +136,12 @@
 </div>
 <script>
 (function() {
+  // If already logged in, redirect to dashboard.
+  if (localStorage.getItem('openerp_token')) {
+    window.location.href = '/dashboard';
+    return;
+  }
+
   const form = document.getElementById('loginForm');
   const errorMsg = document.getElementById('errorMsg');
   const successMsg = document.getElementById('successMsg');
@@ -168,10 +174,10 @@
       successMsg.textContent = 'Login successful! Redirecting...';
       successMsg.style.display = 'block';
 
-      // Redirect to dashboard (or reload).
+      // Redirect to dashboard.
       setTimeout(function() {
-        window.location.reload();
-      }, 500);
+        window.location.href = '/dashboard';
+      }, 300);
     } catch (err) {
       errorMsg.textContent = err.message;
       errorMsg.style.display = 'block';

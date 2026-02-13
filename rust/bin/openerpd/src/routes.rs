@@ -31,6 +31,7 @@ pub fn build_router(state: AppState, module_routes: Vec<(&str, Router)>) -> Rout
     // Start with the system and login routes (which need AppState).
     let mut app: Router<()> = Router::new()
         .route("/", get(index_page))
+        .route("/dashboard", get(dashboard_page))
         .merge(login::routes(state.clone()))
         .with_state(state);
 
@@ -52,6 +53,10 @@ pub fn build_router(state: AppState, module_routes: Vec<(&str, Router)>) -> Rout
 
 async fn index_page() -> impl IntoResponse {
     Html(include_str!("web/login.html"))
+}
+
+async fn dashboard_page() -> impl IntoResponse {
+    Html(include_str!("web/dashboard.html"))
 }
 
 async fn health() -> impl IntoResponse {

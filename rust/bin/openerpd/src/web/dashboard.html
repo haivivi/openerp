@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenERP — Dashboard</title>
+<style>
+  :root {
+    --bg: #0f172a;
+    --card: #1e293b;
+    --border: #334155;
+    --primary: #3b82f6;
+    --primary-hover: #2563eb;
+    --text: #f1f5f9;
+    --text-muted: #94a3b8;
+    --error: #ef4444;
+    --success: #22c55e;
+    --warning: #f59e0b;
+    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: var(--font);
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+  }
+
+  /* Top bar */
+  .topbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0 24px;
+    height: 56px;
+    background: var(--card);
+    border-bottom: 1px solid var(--border);
+  }
+  .topbar-brand {
+    font-size: 18px;
+    font-weight: 700;
+    letter-spacing: -0.5px;
+  }
+  .topbar-brand span { color: var(--primary); }
+  .topbar-right {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+  }
+  .topbar-user {
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .topbar-user strong { color: var(--text); }
+  .btn-sm {
+    padding: 6px 14px;
+    background: transparent;
+    color: var(--text-muted);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .btn-sm:hover {
+    background: var(--border);
+    color: var(--text);
+  }
+
+  /* Main content */
+  .main {
+    max-width: 1200px;
+    margin: 0 auto;
+    padding: 24px;
+  }
+
+  /* Stats grid */
+  .stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 16px;
+    margin-bottom: 32px;
+  }
+  .stat-card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+  }
+  .stat-card .label {
+    font-size: 12px;
+    font-weight: 500;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .stat-card .value {
+    font-size: 32px;
+    font-weight: 700;
+    margin-top: 4px;
+  }
+  .stat-card .sub {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 2px;
+  }
+
+  /* Module sections */
+  .section {
+    margin-bottom: 32px;
+  }
+  .section-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 12px;
+  }
+  .section-header h2 {
+    font-size: 16px;
+    font-weight: 600;
+  }
+  .badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    text-transform: uppercase;
+  }
+  .badge-blue { background: rgba(59,130,246,0.15); color: var(--primary); }
+  .badge-green { background: rgba(34,197,94,0.15); color: var(--success); }
+  .badge-yellow { background: rgba(245,158,11,0.15); color: var(--warning); }
+  .badge-red { background: rgba(239,68,68,0.15); color: var(--error); }
+
+  /* Table */
+  .table-wrap {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    overflow: hidden;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th {
+    text-align: left;
+    padding: 10px 16px;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(0,0,0,0.15);
+  }
+  td {
+    padding: 10px 16px;
+    border-bottom: 1px solid var(--border);
+  }
+  tr:last-child td { border-bottom: none; }
+  tr:hover td { background: rgba(255,255,255,0.02); }
+  .empty-row td {
+    text-align: center;
+    color: var(--text-muted);
+    padding: 24px;
+  }
+  .mono {
+    font-family: 'SF Mono', 'Fira Code', monospace;
+    font-size: 12px;
+  }
+
+  /* Create form */
+  .create-bar {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .create-bar input {
+    flex: 1;
+    padding: 8px 12px;
+    background: var(--bg);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    color: var(--text);
+    font-size: 13px;
+    outline: none;
+  }
+  .create-bar input:focus { border-color: var(--primary); }
+  .btn-primary {
+    padding: 8px 16px;
+    background: var(--primary);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn-primary:hover { background: var(--primary-hover); }
+  .btn-danger {
+    padding: 4px 10px;
+    background: transparent;
+    color: var(--error);
+    border: 1px solid rgba(239,68,68,0.3);
+    border-radius: 4px;
+    font-size: 12px;
+    cursor: pointer;
+  }
+  .btn-danger:hover { background: rgba(239,68,68,0.1); }
+
+  /* Toast */
+  .toast {
+    position: fixed;
+    bottom: 24px;
+    right: 24px;
+    padding: 12px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+    opacity: 0;
+    transform: translateY(10px);
+    transition: all 0.3s;
+    z-index: 100;
+  }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast-success { background: var(--success); color: #000; }
+  .toast-error { background: var(--error); color: #fff; }
+
+  /* Loading */
+  .loading { color: var(--text-muted); text-align: center; padding: 40px; }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-brand">Open<span>ERP</span></div>
+  <div class="topbar-right">
+    <div class="topbar-user" id="userInfo">Loading...</div>
+    <button class="btn-sm" id="logoutBtn">Logout</button>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Stats -->
+  <div class="stats" id="statsGrid">
+    <div class="stat-card"><div class="label">Users</div><div class="value" id="statUsers">-</div><div class="sub">Auth module</div></div>
+    <div class="stat-card"><div class="label">Roles</div><div class="value" id="statRoles">-</div><div class="sub">Auth module</div></div>
+    <div class="stat-card"><div class="label">Devices</div><div class="value" id="statDevices">-</div><div class="sub">PMS module</div></div>
+    <div class="stat-card"><div class="label">Models</div><div class="value" id="statModels">-</div><div class="sub">PMS module</div></div>
+    <div class="stat-card"><div class="label">Tasks</div><div class="value" id="statTasks">-</div><div class="sub">Task module</div></div>
+  </div>
+
+  <!-- Auth: Users -->
+  <div class="section" id="sectionUsers">
+    <div class="section-header">
+      <h2>Users</h2>
+      <span class="badge badge-blue">AUTH</span>
+    </div>
+    <div class="create-bar">
+      <input type="text" id="newUserName" placeholder="Name">
+      <input type="text" id="newUserEmail" placeholder="Email">
+      <button class="btn-primary" onclick="createUser()">+ User</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Created</th><th></th></tr></thead>
+        <tbody id="usersBody"><tr class="empty-row"><td colspan="5">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Auth: Roles -->
+  <div class="section" id="sectionRoles">
+    <div class="section-header">
+      <h2>Roles</h2>
+      <span class="badge badge-blue">AUTH</span>
+    </div>
+    <div class="create-bar">
+      <input type="text" id="newRoleId" placeholder="Role ID (e.g. pms:viewer)">
+      <input type="text" id="newRoleDesc" placeholder="Description">
+      <input type="text" id="newRolePerms" placeholder="Permissions (comma-separated)">
+      <button class="btn-primary" onclick="createRole()">+ Role</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>Description</th><th>Permissions</th><th></th></tr></thead>
+        <tbody id="rolesBody"><tr class="empty-row"><td colspan="4">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- PMS: Models -->
+  <div class="section" id="sectionModels">
+    <div class="section-header">
+      <h2>Product Models</h2>
+      <span class="badge badge-green">PMS</span>
+    </div>
+    <div class="create-bar">
+      <input type="number" id="newModelCode" placeholder="Code (e.g. 200)" style="max-width:120px">
+      <input type="text" id="newModelSeries" placeholder="Series name">
+      <input type="text" id="newModelDisplay" placeholder="Display name">
+      <button class="btn-primary" onclick="createModel()">+ Model</button>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>Code</th><th>Series</th><th>Display Name</th><th>Description</th><th></th></tr></thead>
+        <tbody id="modelsBody"><tr class="empty-row"><td colspan="5">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Task: Tasks -->
+  <div class="section" id="sectionTasks">
+    <div class="section-header">
+      <h2>Tasks</h2>
+      <span class="badge badge-yellow">TASK</span>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Created</th></tr></thead>
+        <tbody id="tasksBody"><tr class="empty-row"><td colspan="5">Loading...</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+(function() {
+  const token = localStorage.getItem('openerp_token');
+  if (!token) {
+    window.location.href = '/';
+    return;
+  }
+
+  const headers = {
+    'Authorization': 'Bearer ' + token,
+    'Content-Type': 'application/json',
+  };
+
+  // ── Helpers ──
+
+  function toast(msg, type) {
+    const el = document.getElementById('toast');
+    el.textContent = msg;
+    el.className = 'toast toast-' + type + ' show';
+    setTimeout(() => el.classList.remove('show'), 3000);
+  }
+
+  async function api(method, path, body) {
+    const opts = { method, headers };
+    if (body) opts.body = JSON.stringify(body);
+    const resp = await fetch(path, opts);
+    if (resp.status === 401) {
+      localStorage.removeItem('openerp_token');
+      window.location.href = '/';
+      return;
+    }
+    if (resp.status === 204) return null;
+    const data = await resp.json();
+    if (!resp.ok) throw new Error(data.error || 'Request failed');
+    return data;
+  }
+
+  function shortId(id) {
+    if (!id) return '-';
+    return id.length > 12 ? id.slice(0, 12) + '...' : id;
+  }
+
+  function fmtTime(ts) {
+    if (!ts) return '-';
+    return new Date(ts).toLocaleString();
+  }
+
+  function statusBadge(status) {
+    const colors = {
+      'PENDING': 'yellow', 'RUNNING': 'blue', 'COMPLETED': 'green',
+      'FAILED': 'red', 'CANCELLED': 'red', 'CLAIMED': 'blue',
+    };
+    return '<span class="badge badge-' + (colors[status] || 'blue') + '">' + status + '</span>';
+  }
+
+  // ── Decode JWT for user info ──
+  try {
+    const payload = JSON.parse(atob(token.split('.')[1]));
+    document.getElementById('userInfo').innerHTML =
+      'Signed in as <strong>' + payload.sub + '</strong>' +
+      (payload.roles && payload.roles.length ? ' <span class="badge badge-blue">' + payload.roles[0] + '</span>' : '');
+  } catch(e) {
+    document.getElementById('userInfo').textContent = 'Signed in';
+  }
+
+  // ── Logout ──
+  document.getElementById('logoutBtn').addEventListener('click', function() {
+    localStorage.removeItem('openerp_token');
+    window.location.href = '/';
+  });
+
+  // ── Load data ──
+
+  async function loadStats() {
+    try {
+      const [users, roles, devices, models, tasks] = await Promise.all([
+        api('GET', '/auth/users'),
+        api('GET', '/auth/roles'),
+        api('GET', '/pms/devices'),
+        api('GET', '/pms/models'),
+        api('GET', '/task/tasks'),
+      ]);
+      document.getElementById('statUsers').textContent = users.total;
+      document.getElementById('statRoles').textContent = roles.total;
+      document.getElementById('statDevices').textContent = devices.total;
+      document.getElementById('statModels').textContent = models.total;
+      document.getElementById('statTasks').textContent = tasks.total;
+    } catch(e) {
+      console.error('stats error', e);
+    }
+  }
+
+  async function loadUsers() {
+    try {
+      const data = await api('GET', '/auth/users');
+      const body = document.getElementById('usersBody');
+      if (!data.items.length) {
+        body.innerHTML = '<tr class="empty-row"><td colspan="5">No users yet</td></tr>';
+        return;
+      }
+      body.innerHTML = data.items.map(u =>
+        '<tr>' +
+        '<td class="mono">' + shortId(u.id) + '</td>' +
+        '<td>' + (u.name || '-') + '</td>' +
+        '<td>' + (u.email || '-') + '</td>' +
+        '<td>' + fmtTime(u.created_at) + '</td>' +
+        '<td><button class="btn-danger" onclick="deleteUser(\'' + u.id + '\')">Delete</button></td>' +
+        '</tr>'
+      ).join('');
+    } catch(e) { console.error('users error', e); }
+  }
+
+  async function loadRoles() {
+    try {
+      const data = await api('GET', '/auth/roles');
+      const body = document.getElementById('rolesBody');
+      if (!data.items.length) {
+        body.innerHTML = '<tr class="empty-row"><td colspan="4">No roles yet</td></tr>';
+        return;
+      }
+      body.innerHTML = data.items.map(r =>
+        '<tr>' +
+        '<td class="mono">' + r.id + '</td>' +
+        '<td>' + (r.description || '-') + '</td>' +
+        '<td class="mono">' + (r.permissions || []).join(', ') + '</td>' +
+        '<td><button class="btn-danger" onclick="deleteRole(\'' + r.id + '\')">Delete</button></td>' +
+        '</tr>'
+      ).join('');
+    } catch(e) { console.error('roles error', e); }
+  }
+
+  async function loadModels() {
+    try {
+      const data = await api('GET', '/pms/models');
+      const body = document.getElementById('modelsBody');
+      if (!data.items.length) {
+        body.innerHTML = '<tr class="empty-row"><td colspan="5">No models yet</td></tr>';
+        return;
+      }
+      body.innerHTML = data.items.map(m =>
+        '<tr>' +
+        '<td class="mono">' + m.code + '</td>' +
+        '<td>' + (m.seriesName || '-') + '</td>' +
+        '<td>' + (m.displayName || '-') + '</td>' +
+        '<td>' + (m.description || '-') + '</td>' +
+        '<td><button class="btn-danger" onclick="deleteModel(' + m.code + ')">Delete</button></td>' +
+        '</tr>'
+      ).join('');
+    } catch(e) { console.error('models error', e); }
+  }
+
+  async function loadTasks() {
+    try {
+      const data = await api('GET', '/task/tasks');
+      const body = document.getElementById('tasksBody');
+      if (!data.items.length) {
+        body.innerHTML = '<tr class="empty-row"><td colspan="5">No tasks yet</td></tr>';
+        return;
+      }
+      body.innerHTML = data.items.map(t =>
+        '<tr>' +
+        '<td class="mono">' + shortId(t.id) + '</td>' +
+        '<td>' + (t.type || '-') + '</td>' +
+        '<td>' + statusBadge(t.status) + '</td>' +
+        '<td>' + (t.success || 0) + '/' + (t.total || 0) + '</td>' +
+        '<td>' + fmtTime(t.createdAt) + '</td>' +
+        '</tr>'
+      ).join('');
+    } catch(e) { console.error('tasks error', e); }
+  }
+
+  // ── Create actions (exposed to global scope) ──
+
+  window.createUser = async function() {
+    const name = document.getElementById('newUserName').value.trim();
+    const email = document.getElementById('newUserEmail').value.trim();
+    if (!name) return toast('Name required', 'error');
+    try {
+      await api('POST', '/auth/users', { name, email: email || undefined });
+      document.getElementById('newUserName').value = '';
+      document.getElementById('newUserEmail').value = '';
+      toast('User created', 'success');
+      loadUsers();
+      loadStats();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.createRole = async function() {
+    const id = document.getElementById('newRoleId').value.trim();
+    const desc = document.getElementById('newRoleDesc').value.trim();
+    const permsStr = document.getElementById('newRolePerms').value.trim();
+    if (!id) return toast('Role ID required', 'error');
+    const permissions = permsStr ? permsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
+    if (!permissions.length) return toast('At least one permission required', 'error');
+    try {
+      await api('POST', '/auth/roles', { id, description: desc, permissions });
+      document.getElementById('newRoleId').value = '';
+      document.getElementById('newRoleDesc').value = '';
+      document.getElementById('newRolePerms').value = '';
+      toast('Role created', 'success');
+      loadRoles();
+      loadStats();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.createModel = async function() {
+    const code = parseInt(document.getElementById('newModelCode').value);
+    const series = document.getElementById('newModelSeries').value.trim();
+    const display = document.getElementById('newModelDisplay').value.trim();
+    if (!code || !series) return toast('Code and series required', 'error');
+    try {
+      await api('POST', '/pms/models', { code, series_name: series, display_name: display || series });
+      document.getElementById('newModelCode').value = '';
+      document.getElementById('newModelSeries').value = '';
+      document.getElementById('newModelDisplay').value = '';
+      toast('Model created', 'success');
+      loadModels();
+      loadStats();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.deleteUser = async function(id) {
+    if (!confirm('Delete user?')) return;
+    try {
+      await api('DELETE', '/auth/users/' + id);
+      toast('User deleted', 'success');
+      loadUsers();
+      loadStats();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.deleteRole = async function(id) {
+    if (!confirm('Delete role?')) return;
+    try {
+      await api('DELETE', '/auth/roles/' + id);
+      toast('Role deleted', 'success');
+      loadRoles();
+      loadStats();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  window.deleteModel = async function(code) {
+    if (!confirm('Delete model?')) return;
+    try {
+      await api('DELETE', '/pms/models/' + code);
+      toast('Model deleted', 'success');
+      loadModels();
+      loadStats();
+    } catch(e) { toast(e.message, 'error'); }
+  };
+
+  // ── Initial load ──
+  loadStats();
+  loadUsers();
+  loadRoles();
+  loadModels();
+  loadTasks();
+})();
+</script>
+</body>
+</html>

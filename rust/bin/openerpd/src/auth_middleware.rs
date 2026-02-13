@@ -112,7 +112,7 @@ pub async fn auth_middleware(
 fn is_public_path(path: &str) -> bool {
     matches!(
         path,
-        "/" | "/health" | "/version"
+        "/" | "/dashboard" | "/health" | "/version"
     ) || path.starts_with("/auth/login")
       || path.starts_with("/auth/providers")
       || path.starts_with("/auth/oauth/")
