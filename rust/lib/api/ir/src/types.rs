@@ -103,6 +103,104 @@ pub enum HttpMethod {
     Delete,
 }
 
+/// UI widget hint — tells the frontend what input component to render.
+///
+/// Default mapping from Rust types:
+///   String         → Text
+///   bool           → Switch
+///   u32/u64/i32/i64 → Number
+///   Vec<String>    → Tags
+///   Enum(name)     → Select
+///   Option<T>      → same widget as T, but optional
+///
+/// Custom newtypes override via `#[ui(widget = "...")]`:
+///   Avatar         → ImageUpload
+///   Url            → UrlInput
+///   Email          → EmailInput
+///   Password       → PasswordInput
+///   Markdown       → MarkdownEditor
+///   Color          → ColorPicker
+///   DateTime       → DateTimePicker
+///   Json           → CodeEditor
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum UiWidget {
+    /// Single-line text input (default for String).
+    Text,
+    /// Multi-line text area.
+    Textarea,
+    /// Numeric input with step buttons.
+    Number,
+    /// Toggle switch (default for bool).
+    Switch,
+    /// Checkbox.
+    Checkbox,
+    /// Dropdown select (default for Enum types).
+    Select,
+    /// Multi-select / tag input (default for Vec<String>).
+    Tags,
+    /// Email input with validation.
+    Email,
+    /// URL input with validation.
+    Url,
+    /// Password input (masked).
+    Password,
+    /// Image upload / avatar picker.
+    ImageUpload,
+    /// File upload.
+    FileUpload,
+    /// Date picker.
+    Date,
+    /// Date + time picker.
+    DateTime,
+    /// Color picker.
+    Color,
+    /// Markdown editor.
+    Markdown,
+    /// Code/JSON editor.
+    Code,
+    /// Hidden field (not shown in form).
+    Hidden,
+    /// Read-only display (not editable).
+    ReadOnly,
+}
+
+impl UiWidget {
+    /// Infer the default widget from a Rust field type.
+    pub fn from_field_type(ty: &FieldType) -> Self {
+        match ty {
+            FieldType::String => UiWidget::Text,
+            FieldType::Bool => UiWidget::Switch,
+            FieldType::U32 | FieldType::U64 | FieldType::I32 | FieldType::I64 | FieldType::F64 => {
+                UiWidget::Number
+            }
+            FieldType::Option(inner) => Self::from_field_type(inner),
+            FieldType::Vec(inner) => match inner.as_ref() {
+                FieldType::String => UiWidget::Tags,
+                _ => UiWidget::Code, // Vec of complex types -> JSON editor
+            },
+            FieldType::Enum(_) => UiWidget::Select,
+            FieldType::Struct(_) => UiWidget::Code,
+            FieldType::Json => UiWidget::Code,
+        }
+    }
+
+    /// Infer widget from a well-known newtype name.
+    pub fn from_type_name(name: &str) -> Option<Self> {
+        match name {
+            "Avatar" | "ImageUrl" => Some(UiWidget::ImageUpload),
+            "Url" | "Link" => Some(UiWidget::Url),
+            "Email" | "EmailAddress" => Some(UiWidget::Email),
+            "Password" | "PasswordHash" => Some(UiWidget::Password),
+            "Markdown" | "RichText" => Some(UiWidget::Markdown),
+            "Color" | "HexColor" => Some(UiWidget::Color),
+            "DateTime" | "Timestamp" => Some(UiWidget::DateTime),
+            "Date" => Some(UiWidget::Date),
+            "Code" | "JsonData" => Some(UiWidget::Code),
+            _ => None,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -110,6 +110,7 @@ mod tests {
                     name: "id".into(),
                     ty: FieldType::String,
                     doc: None,
+                    ui_widget: None,
                     reference: None,
                     serde_rename: None,
                 }],

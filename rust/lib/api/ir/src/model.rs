@@ -4,7 +4,7 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::types::{FieldType, HttpMethod};
+use crate::types::{FieldType, HttpMethod, UiWidget};
 
 /// A field in a model struct.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -14,6 +14,10 @@ pub struct FieldDef {
 
     /// Field type.
     pub ty: FieldType,
+
+    /// UI widget hint for frontend rendering.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ui_widget: Option<UiWidget>,
 
     /// Documentation comment, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -217,6 +221,7 @@ mod tests {
                     name: "id".into(),
                     ty: FieldType::String,
                     doc: None,
+                    ui_widget: None,
                     reference: None,
                     serde_rename: None,
                 },
@@ -224,6 +229,7 @@ mod tests {
                     name: "name".into(),
                     ty: FieldType::String,
                     doc: None,
+                    ui_widget: None,
                     reference: None,
                     serde_rename: None,
                 },
@@ -231,6 +237,7 @@ mod tests {
                     name: "email".into(),
                     ty: FieldType::Option(Box::new(FieldType::String)),
                     doc: None,
+                    ui_widget: None,
                     reference: None,
                     serde_rename: None,
                 },
@@ -275,6 +282,7 @@ mod tests {
                     name: "model".into(),
                     ty: FieldType::U32,
                     doc: None,
+                    ui_widget: None,
                     reference: None,
                     serde_rename: None,
                 },
@@ -282,6 +290,7 @@ mod tests {
                     name: "semver".into(),
                     ty: FieldType::String,
                     doc: None,
+                    ui_widget: None,
                     reference: None,
                     serde_rename: None,
                 },

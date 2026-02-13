@@ -88,6 +88,14 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 .toast{position:fixed;bottom:20px;right:20px;padding:10px 16px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:0 4px 12px oklch(0 0 0/.4);border:1px solid var(--border);background:var(--card);color:var(--card-fg);opacity:0;transform:translateY(8px);transition:all .2s;z-index:999;pointer-events:none}
 .toast.show{opacity:1;transform:translateY(0)}
 
+/* ─── Switch toggle ─── */
+.switch{position:relative;display:inline-block;width:36px;height:20px}
+.switch input{opacity:0;width:0;height:0}
+.slider{position:absolute;cursor:pointer;inset:0;background:var(--muted);border-radius:20px;transition:.2s}
+.slider::before{content:'';position:absolute;width:16px;height:16px;left:2px;bottom:2px;background:var(--card-fg);border-radius:50%;transition:.2s}
+.switch input:checked+.slider{background:var(--success)}
+.switch input:checked+.slider::before{transform:translateX(16px)}
+
 /* ─── Badge ─── */
 .badge{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:9999px;font-size:11px;font-weight:500}
 .badge-outline{border:1px solid var(--border);color:var(--card-fg)}
@@ -266,8 +274,13 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
         let row='<tr>';
         for(const f of cols){
           let v=item[f.name]??item[toCamel(f.name)]??'\u2014';
+          const w=f.ui_widget||'Text';
+          if(typeof v==='boolean'){row+='<td>'+(v?'\u2705':'\u274c')+'</td>';continue}
+          if(Array.isArray(v)){row+='<td>'+v.map(x=>'<span class="badge badge-outline" style="margin:1px">'+x+'</span>').join(' ')+'</td>';continue}
           if(typeof v==='object')v=JSON.stringify(v);
           if(f.name===pk||f.name==='id')row+='<td class="mono">'+short(String(v))+'</td>';
+          else if(w==='Email')row+='<td><a href="mailto:'+v+'" style="color:var(--card-fg);text-decoration:underline">'+v+'</a></td>';
+          else if(w==='Url'||w==='ImageUpload')row+='<td><a href="'+v+'" target="_blank" style="color:var(--card-fg);text-decoration:underline">'+short(String(v))+'</a></td>';
           else row+='<td>'+String(v)+'</td>';
         }
         const id=item[pk]??item[toCamel(pk)]??item.id;
@@ -277,33 +290,93 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     }catch(e){toast(e.message)}
   }
 
+  // ── Widget rendering ──
+  function renderWidget(f){
+    const w=f.ui_widget||'Text';
+    const isOpt=f.ty&&(f.ty==='Option'||f.ty.Option);
+    const label=f.name.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+    const req=isOpt?'':' *';
+
+    switch(w){
+      case 'Switch':
+        return '<div class="field" style="flex-direction:row;align-items:center;gap:10px">'
+          +'<label style="margin:0">'+label+'</label>'
+          +'<label class="switch"><input type="checkbox" name="'+f.name+'" data-type="bool"><span class="slider"></span></label>'
+          +'</div>';
+      case 'Textarea':case 'Markdown':
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<textarea name="'+f.name+'" rows="3" placeholder="'+f.name+'" style="width:100%;min-height:60px;padding:8px 10px;background:transparent;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);color:var(--card-fg);font-size:13px;font-family:inherit;resize:vertical"'
+          +(isOpt?'':' required')+'></textarea></div>';
+      case 'Number':
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<input type="number" name="'+f.name+'" placeholder="0"'+(!isOpt?' required':'')+'></div>';
+      case 'Email':
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<input type="email" name="'+f.name+'" placeholder="user@example.com"'+(!isOpt?' required':'')+'></div>';
+      case 'Url':
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<input type="url" name="'+f.name+'" placeholder="https://..."'+(!isOpt?' required':'')+'></div>';
+      case 'Password':
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<input type="password" name="'+f.name+'" placeholder="\u2022\u2022\u2022\u2022\u2022\u2022"'+(!isOpt?' required':'')+'></div>';
+      case 'ImageUpload':
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<input type="url" name="'+f.name+'" placeholder="Image URL"'+(!isOpt?' required':'')+'>'
+          +'<span style="font-size:11px;color:var(--muted-fg)">Enter image URL or upload endpoint</span></div>';
+      case 'DateTime':case 'Date':
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<input type="datetime-local" name="'+f.name+'" data-type="datetime"'+(!isOpt?' required':'')+'></div>';
+      case 'Tags':
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<input name="'+f.name+'" placeholder="Comma-separated values" data-type="tags"'+(!isOpt?' required':'')+'>'
+          +'<span style="font-size:11px;color:var(--muted-fg)">Separate multiple values with commas</span></div>';
+      case 'Color':
+        return '<div class="field" style="flex-direction:row;align-items:center;gap:10px">'
+          +'<label style="margin:0">'+label+'</label>'
+          +'<input type="color" name="'+f.name+'" style="width:40px;height:32px;padding:2px;cursor:pointer"></div>';
+      case 'Code':
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<textarea name="'+f.name+'" rows="4" placeholder="JSON" data-type="json" style="width:100%;min-height:80px;padding:8px 10px;background:transparent;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);color:var(--card-fg);font-size:12px;font-family:monospace;resize:vertical"'
+          +(isOpt?'':' required')+'></textarea></div>';
+      case 'Select':
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<select name="'+f.name+'" data-type="select">'
+          +'<option value="">Select...</option></select></div>';
+      case 'Hidden':case 'ReadOnly':
+        return '';// Don't show
+      default:// Text
+        return '<div class="field"><label>'+label+req+'</label>'
+          +'<input name="'+f.name+'" placeholder="'+f.name+'"'+(!isOpt?' required':'')+'></div>';
+    }
+  }
+
   // ── Create dialog ──
   window.openCreateDlg=function(){
     if(!currentResource)return;
     const dlg=document.getElementById('createDlg');
     const form=document.getElementById('dlgForm');
     document.getElementById('dlgTitle').textContent='Create '+currentResource.name;
-    // Build form fields from schema
-    const editableFields=currentResource.fields.filter(f=>!f.name.endsWith('_at')&&f.name!=='id');
-    form.innerHTML='';
-    for(const f of editableFields){
-      const div=document.createElement('div');div.className='field';
-      const isOpt=f.ty&&(f.ty==='Option'||f.ty.Option);
-      div.innerHTML='<label>'+f.name+(isOpt?'':' *')+'</label>'
-        +'<input name="'+f.name+'" placeholder="'+f.name+'"'+(isOpt?'':' required')+'>';
-      form.appendChild(div);
-    }
+    const editableFields=currentResource.fields.filter(f=>{
+      const w=f.ui_widget||'Text';
+      return w!=='Hidden'&&w!=='ReadOnly'&&f.name!=='id'&&!f.name.endsWith('_at');
+    });
+    form.innerHTML=editableFields.map(renderWidget).join('');
     dlg.classList.add('open');
-    setTimeout(()=>{const inp=form.querySelector('input');if(inp)inp.focus()},100);
+    setTimeout(()=>{const inp=form.querySelector('input,textarea');if(inp)inp.focus()},100);
   };
   window.closeCreateDlg=function(){document.getElementById('createDlg').classList.remove('open')};
   window.submitCreate=async function(){
     if(!currentResource||!currentModule)return;
     const form=document.getElementById('dlgForm');
     const data={};
-    for(const input of form.querySelectorAll('input')){
-      const v=input.value.trim();
-      if(v)data[input.name]=v;
+    for(const el of form.querySelectorAll('input,textarea,select')){
+      const name=el.name;if(!name)continue;
+      const dtype=el.dataset.type;
+      if(dtype==='bool'){data[name]=el.checked;continue}
+      if(dtype==='tags'){const v=el.value.trim();if(v)data[name]=v.split(',').map(s=>s.trim()).filter(Boolean);continue}
+      if(dtype==='json'){const v=el.value.trim();if(v)try{data[name]=JSON.parse(v)}catch(e){data[name]=v};continue}
+      const v=el.value.trim();
+      if(v)data[name]=v;
     }
     const basePath='/'+currentModule.id+'/'+pluralize(toSnake(currentResource.name));
     try{

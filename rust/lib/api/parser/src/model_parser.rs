@@ -3,7 +3,7 @@
 //! Reads a struct annotated with `#[model(module = "auth")]` and `#[key(id)]`
 //! and produces a `ModelIR`.
 
-use openerp_ir::{FieldDef, FieldRef, KeyDef, ModelIR};
+use openerp_ir::{FieldDef, FieldRef, KeyDef, ModelIR, UiWidget};
 use syn::{Fields, ItemStruct};
 
 use crate::util;
@@ -107,16 +107,116 @@ fn parse_struct_fields(fields: &Fields) -> syn::Result<Vec<FieldDef>> {
         let reference = parse_field_ref(&field.attrs)?;
         let serde_rename = util::extract_serde_rename(&field.attrs);
         let doc = extract_doc_comment(&field.attrs);
+        let ui_widget = parse_ui_widget(&field.attrs, &ty, &name)?;
 
         result.push(FieldDef {
             name,
             ty,
+            ui_widget,
             doc,
             reference,
             serde_rename,
         });
     }
     Ok(result)
+}
+
+/// Determine the UI widget for a field.
+///
+/// Priority:
+/// 1. Explicit `#[ui(widget = "switch")]` attribute
+/// 2. Well-known field name heuristics (email, avatar, password, etc.)
+/// 3. Default from Rust type (bool -> Switch, Vec<String> -> Tags, etc.)
+fn parse_ui_widget(
+    attrs: &[syn::Attribute],
+    ty: &openerp_ir::FieldType,
+    field_name: &str,
+) -> syn::Result<Option<UiWidget>> {
+    // 1. Check for explicit #[ui(widget = "...")] attribute.
+    for attr in attrs {
+        if crate::util::attr_is(attr, "ui") {
+            let kvs = crate::util::parse_kv_attrs(attr)?;
+            for (k, v) in kvs {
+                if k == "widget" {
+                    let widget = match v.as_str() {
+                        "text" => UiWidget::Text,
+                        "textarea" => UiWidget::Textarea,
+                        "number" => UiWidget::Number,
+                        "switch" => UiWidget::Switch,
+                        "checkbox" => UiWidget::Checkbox,
+                        "select" => UiWidget::Select,
+                        "tags" => UiWidget::Tags,
+                        "email" => UiWidget::Email,
+                        "url" => UiWidget::Url,
+                        "password" => UiWidget::Password,
+                        "image_upload" => UiWidget::ImageUpload,
+                        "file_upload" => UiWidget::FileUpload,
+                        "date" => UiWidget::Date,
+                        "datetime" => UiWidget::DateTime,
+                        "color" => UiWidget::Color,
+                        "markdown" => UiWidget::Markdown,
+                        "code" => UiWidget::Code,
+                        "hidden" => UiWidget::Hidden,
+                        "readonly" => UiWidget::ReadOnly,
+                        other => {
+                            return Err(syn::Error::new_spanned(
+                                attr,
+                                format!("unknown ui widget: '{}'", other),
+                            ))
+                        }
+                    };
+                    return Ok(Some(widget));
+                }
+            }
+        }
+    }
+
+    // 2. Well-known field name heuristics.
+    let name_lower = field_name.to_lowercase();
+    let by_name = match name_lower.as_str() {
+        "email" => Some(UiWidget::Email),
+        "avatar" | "avatar_url" | "image" | "photo" => Some(UiWidget::ImageUpload),
+        "password" | "password_hash" => Some(UiWidget::Password),
+        "description" | "notes" | "bio" | "content" | "release_notes" => Some(UiWidget::Textarea),
+        "url" | "link" | "redirect_url" | "auth_url" | "token_url" | "userinfo_url" => {
+            Some(UiWidget::Url)
+        }
+        "color" | "hex_color" => Some(UiWidget::Color),
+        _ if name_lower.ends_with("_url") => Some(UiWidget::Url),
+        _ if name_lower.ends_with("_at") => Some(UiWidget::DateTime),
+        _ => None,
+    };
+    if let Some(w) = by_name {
+        return Ok(Some(w));
+    }
+
+    // 3. Check if the type name is a well-known newtype.
+    match ty {
+        openerp_ir::FieldType::Enum(name) | openerp_ir::FieldType::Struct(name) => {
+            if let Some(w) = UiWidget::from_type_name(name) {
+                return Ok(Some(w));
+            }
+        }
+        openerp_ir::FieldType::Option(inner) => {
+            if let openerp_ir::FieldType::Enum(name) | openerp_ir::FieldType::Struct(name) =
+                inner.as_ref()
+            {
+                if let Some(w) = UiWidget::from_type_name(name) {
+                    return Ok(Some(w));
+                }
+            }
+        }
+        _ => {}
+    }
+
+    // 4. Default from Rust type — only emit for non-text types (text is the implicit default).
+    let default_widget = UiWidget::from_field_type(ty);
+    if default_widget != UiWidget::Text {
+        return Ok(Some(default_widget));
+    }
+
+    // Return None = frontend uses Text as default.
+    Ok(None)
 }
 
 /// Parse `#[ref(ModelName)]` or `#[ref(ModelName, get = "...", list = "...", ...)]`
