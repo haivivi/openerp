@@ -7,7 +7,11 @@
 
 pub mod model_parser;
 pub mod db_parser;
+pub mod hierarchy_parser;
+pub mod facet_parser;
 pub mod util;
 
 pub use model_parser::parse_model;
 pub use db_parser::parse_persistent;
+pub use hierarchy_parser::{build_hierarchy, resource_node, parse_module_attrs};
+pub use facet_parser::parse_facet;
