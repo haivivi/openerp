@@ -1,7 +1,7 @@
 //! `#[model]` macro expansion.
 
 use proc_macro2::TokenStream;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, ToTokens};
 use syn::{Fields, ItemStruct, Lit};
 
 pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
@@ -29,11 +29,24 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
     };
 
     // Strip #[ui(...)] and #[permission(...)] from field output.
+    // Add #[serde(default)] to all fields for flexible deserialization
+    // (hooks fill required fields like id, timestamps after deserialization).
     let mut clean_fields = named.clone();
     for field in clean_fields.named.iter_mut() {
         field
             .attrs
             .retain(|a| !a.path().is_ident("ui") && !a.path().is_ident("permission"));
+        // Add #[serde(default)] if not already present.
+        let has_serde_default = field.attrs.iter().any(|a| {
+            if a.path().is_ident("serde") {
+                a.meta.to_token_stream().to_string().contains("default")
+            } else {
+                false
+            }
+        });
+        if !has_serde_default {
+            field.attrs.push(syn::parse_quote!(#[serde(default)]));
+        }
     }
 
     // Generate Field consts and IR data for each field.
