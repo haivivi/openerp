@@ -20,14 +20,28 @@ pub struct AppState {
 }
 
 /// Build the complete router with all routes.
-pub fn build_router(state: AppState, module_routes: Vec<(&str, Router)>) -> Router {
+pub fn build_router(
+    state: AppState,
+    module_routes: Vec<(&str, Router)>,
+    admin_routes: Vec<(&str, Router)>,
+    schema_json: serde_json::Value,
+) -> Router {
     let jwt_state = state.jwt_state.clone();
 
     // System endpoints (public, no state needed).
     let system_routes = Router::new()
         .route("/health", get(health))
-        .route("/version", get(version))
-        .route("/meta/schema", get(schema_endpoint));
+        .route("/version", get(version));
+
+    // Schema endpoint — serves the DSL-generated schema JSON.
+    let schema = schema_json.clone();
+    let schema_route = Router::new().route(
+        "/meta/schema",
+        get(move || {
+            let s = schema.clone();
+            async move { axum::Json(s) }
+        }),
+    );
 
     // Start with the system and login routes (which need AppState).
     let mut app: Router<()> = Router::new()
@@ -38,11 +52,16 @@ pub fn build_router(state: AppState, module_routes: Vec<(&str, Router)>) -> Rout
 
     // Merge stateless system routes.
     app = app.merge(system_routes);
+    app = app.merge(schema_route);
 
-    // Mount each module's routes under /{module_name}.
-    // Module routes are already Router<()> (they called .with_state() internally).
+    // Mount old module routes (auth, pms, task — will be replaced over time).
     for (name, router) in module_routes {
         app = app.nest(&format!("/{}", name), router);
+    }
+
+    // Mount admin routes from DSL modules.
+    for (name, router) in admin_routes {
+        app = app.nest(&format!("/admin/{}", name), router);
     }
 
     // Apply JWT auth middleware to all routes.
@@ -70,91 +89,5 @@ async fn version() -> impl IntoResponse {
     axum::Json(serde_json::json!({
         "name": "openerpd",
         "version": env!("CARGO_PKG_VERSION"),
-    }))
-}
-
-/// Serve the DSL schema as JSON for the frontend.
-/// Collects embedded IR from all DSL-defined modules.
-async fn schema_endpoint() -> impl IntoResponse {
-    use auth_dsl::model as auth_models;
-
-    // Build schema from embedded IR consts.
-    let auth_module = serde_json::json!({
-        "id": "auth",
-        "label": "Authentication",
-        "icon": "shield",
-        "resources": [
-            serde_json::from_str::<serde_json::Value>(auth_models::User::__DSL_IR).unwrap_or_default(),
-            serde_json::from_str::<serde_json::Value>(auth_models::Role::__DSL_IR).unwrap_or_default(),
-            serde_json::from_str::<serde_json::Value>(auth_models::Group::__DSL_IR).unwrap_or_default(),
-            serde_json::from_str::<serde_json::Value>(auth_models::Policy::__DSL_IR).unwrap_or_default(),
-            serde_json::from_str::<serde_json::Value>(auth_models::Session::__DSL_IR).unwrap_or_default(),
-            serde_json::from_str::<serde_json::Value>(auth_models::Provider::__DSL_IR).unwrap_or_default(),
-        ],
-        "hierarchy": {
-            "nav": [
-                {"model": "User", "path": "/users", "label": "Users", "icon": "users"},
-                {"model": "Role", "path": "/roles", "label": "Roles", "icon": "shield"},
-                {"model": "Group", "path": "/groups", "label": "Groups", "icon": "layers"},
-                {"model": "Policy", "path": "/policies", "label": "Policies", "icon": "lock"},
-                {"model": "Session", "path": "/sessions", "label": "Sessions", "icon": "clock"},
-                {"model": "Provider", "path": "/providers", "label": "Providers", "icon": "globe"},
-            ]
-        },
-        "facets": ["data"]
-    });
-
-    // Collect all permissions from all modules.
-    let mut all_permissions = serde_json::Map::new();
-
-    // Auth module permissions (from resource CRUD).
-    let auth_resources = ["user", "role", "group", "policy", "session", "provider"];
-    let crud_actions = ["create", "read", "update", "delete", "list"];
-    let mut auth_perms = serde_json::Map::new();
-    for res in &auth_resources {
-        let actions: Vec<serde_json::Value> = crud_actions.iter()
-            .map(|a| serde_json::Value::String(format!("auth:{}:{}", res, a)))
-            .collect();
-        auth_perms.insert(res.to_string(), serde_json::Value::Array(actions));
-    }
-    all_permissions.insert("auth".into(), serde_json::Value::Object(auth_perms));
-
-    // PMS module permissions.
-    let pms_resources = [
-        ("model", vec!["create", "read", "update", "delete", "list"]),
-        ("device", vec!["create", "read", "update", "delete", "list", "provision", "activate"]),
-        ("batch", vec!["create", "read", "update", "delete", "list", "provision"]),
-        ("firmware", vec!["create", "read", "update", "delete", "list", "upload"]),
-        ("license", vec!["create", "read", "update", "delete", "list"]),
-        ("license_import", vec!["create", "read", "list", "import"]),
-        ("segment", vec!["create", "read", "update", "delete", "list"]),
-    ];
-    let mut pms_perms = serde_json::Map::new();
-    for (res, actions) in &pms_resources {
-        let perms: Vec<serde_json::Value> = actions.iter()
-            .map(|a| serde_json::Value::String(format!("pms:{}:{}", res, a)))
-            .collect();
-        pms_perms.insert(res.to_string(), serde_json::Value::Array(perms));
-    }
-    all_permissions.insert("pms".into(), serde_json::Value::Object(pms_perms));
-
-    // Task module permissions.
-    let task_resources = [
-        ("task", vec!["create", "read", "list", "claim", "progress", "complete", "fail", "cancel", "poll", "log"]),
-        ("task_type", vec!["create", "read", "update", "delete", "list"]),
-    ];
-    let mut task_perms = serde_json::Map::new();
-    for (res, actions) in &task_resources {
-        let perms: Vec<serde_json::Value> = actions.iter()
-            .map(|a| serde_json::Value::String(format!("task:{}:{}", res, a)))
-            .collect();
-        task_perms.insert(res.to_string(), serde_json::Value::Array(perms));
-    }
-    all_permissions.insert("task".into(), serde_json::Value::Object(task_perms));
-
-    axum::Json(serde_json::json!({
-        "name": "OpenERP",
-        "modules": [auth_module],
-        "permissions": all_permissions,
     }))
 }

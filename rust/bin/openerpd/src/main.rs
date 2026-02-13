@@ -91,7 +91,7 @@ async fn main() -> anyhow::Result<()> {
     // Bootstrap: ensure auth:root role exists.
     bootstrap::ensure_root_role(&kv)?;
 
-    // ── Initialize modules ──
+    // ── Initialize old modules (will be replaced by DSL versions) ──
 
     let auth_config = auth::service::AuthConfig {
         jwt_secret: server_config.jwt.secret.clone(),
@@ -102,7 +102,7 @@ async fn main() -> anyhow::Result<()> {
         Arc::clone(&kv),
         auth_config,
     )?;
-    info!("Auth module initialized");
+    info!("Auth module initialized (legacy)");
 
     let pms_module = pms::PmsModule::new(
         Arc::clone(&sql),
@@ -119,12 +119,29 @@ async fn main() -> anyhow::Result<()> {
     )?;
     info!("Task module initialized");
 
-    // Collect module routes.
+    // Legacy module routes (old API, kept for compatibility).
     let module_routes = vec![
         (auth_module.name(), auth_module.routes()),
         (pms_module.name(), pms_module.routes()),
         (task_module.name(), task_module.routes()),
     ];
+
+    // ── DSL-based modules (new admin API) ──
+
+    let authenticator: Arc<dyn openerp_core::Authenticator> =
+        Arc::new(openerp_core::AllowAll); // TODO: use AuthChecker once JWT middleware injects roles
+
+    let admin_routes: Vec<(&str, axum::Router)> = vec![
+        ("auth", auth_v2::admin_router(Arc::clone(&kv), authenticator.clone())),
+    ];
+    info!("Auth v2 admin router mounted at /admin/auth/");
+
+    // ── Schema (auto-generated from DSL) ──
+
+    let schema_json = openerp_store::build_schema(
+        "OpenERP",
+        vec![auth_v2::schema_def()],
+    );
 
     // Build JWT state for middleware.
     let jwt_state = Arc::new(JwtState {
@@ -143,7 +160,7 @@ async fn main() -> anyhow::Result<()> {
     };
 
     // Build router.
-    let app = routes::build_router(app_state, module_routes);
+    let app = routes::build_router(app_state, module_routes, admin_routes, schema_json);
 
     // Start server.
     let listener = tokio::net::TcpListener::bind(&cli.listen).await?;

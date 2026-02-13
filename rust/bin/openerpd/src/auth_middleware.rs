@@ -113,7 +113,8 @@ fn is_public_path(path: &str) -> bool {
     matches!(
         path,
         "/" | "/dashboard" | "/health" | "/version" | "/meta/schema"
-    ) || path.starts_with("/auth/login")
+    ) || path.starts_with("/admin/") // Admin routes have their own Authenticator
+      || path.starts_with("/auth/login")
       || path.starts_with("/auth/providers")
       || path.starts_with("/auth/oauth/")
       || path.starts_with("/auth/token/refresh")
