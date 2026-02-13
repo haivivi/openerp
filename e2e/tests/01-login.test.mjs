@@ -103,8 +103,9 @@ describe('Login flow', () => {
 
   it('dashboard shows signed-in user info', async () => {
     // We're already on the dashboard from the previous test.
-    const userInfo = await page.$eval('#userInfo', el => el.textContent);
-    assert.match(userInfo, /root/, 'Shows root user');
+    // New UI uses sidebar with #userName element.
+    const userName = await page.$eval('#userName', el => el.textContent);
+    assert.match(userName, /root/, 'Shows root user');
   });
 
   it('dashboard shows stats', async () => {

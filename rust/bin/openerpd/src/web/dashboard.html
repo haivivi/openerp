@@ -5,588 +5,362 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpenERP — Dashboard</title>
 <style>
-  :root {
-    --bg: #0f172a;
-    --card: #1e293b;
-    --border: #334155;
-    --primary: #3b82f6;
-    --primary-hover: #2563eb;
-    --text: #f1f5f9;
-    --text-muted: #94a3b8;
-    --error: #ef4444;
-    --success: #22c55e;
-    --warning: #f59e0b;
-    --font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  }
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  body {
-    font-family: var(--font);
-    background: var(--bg);
-    color: var(--text);
-    min-height: 100vh;
-  }
+*,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:oklch(.145 0 0);--card:oklch(.178 0 0);--card-fg:oklch(.985 0 0);
+  --popover:oklch(.178 0 0);--popover-fg:oklch(.985 0 0);
+  --border:oklch(.274 0 0);--input:oklch(.274 0 0);
+  --primary:oklch(.985 0 0);--primary-fg:oklch(.205 0 0);
+  --secondary:oklch(.274 0 0);--secondary-fg:oklch(.985 0 0);
+  --muted:oklch(.274 0 0);--muted-fg:oklch(.556 0 0);
+  --accent:oklch(.274 0 0);--accent-fg:oklch(.985 0 0);
+  --destructive:oklch(.577 .245 27.325);--destructive-fg:oklch(.985 0 0);
+  --success:oklch(.696 .17 162.48);
+  --warning:oklch(.769 .189 70.08);
+  --chart-1:oklch(.646 .222 41.116);--chart-2:oklch(.6 .21 261);
+  --ring:oklch(.708 0 0);--radius:.625rem;
+  --sidebar-w:256px;
+  --font:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif
+}
+body{font-family:var(--font);background:var(--bg);color:var(--card-fg);min-height:100vh;display:flex;font-size:14px;line-height:1.5}
 
-  /* Top bar */
-  .topbar {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 0 24px;
-    height: 56px;
-    background: var(--card);
-    border-bottom: 1px solid var(--border);
-  }
-  .topbar-brand {
-    font-size: 18px;
-    font-weight: 700;
-    letter-spacing: -0.5px;
-  }
-  .topbar-brand span { color: var(--primary); }
-  .topbar-right {
-    display: flex;
-    align-items: center;
-    gap: 16px;
-  }
-  .topbar-user {
-    font-size: 13px;
-    color: var(--text-muted);
-  }
-  .topbar-user strong { color: var(--text); }
-  .btn-sm {
-    padding: 6px 14px;
-    background: transparent;
-    color: var(--text-muted);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    font-size: 13px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  .btn-sm:hover {
-    background: var(--border);
-    color: var(--text);
-  }
+/* ─── Sidebar ─── */
+.sidebar{width:var(--sidebar-w);min-width:var(--sidebar-w);border-right:1px solid var(--border);display:flex;flex-direction:column;height:100vh;position:sticky;top:0;overflow-y:auto}
+.sidebar-header{padding:16px 16px 8px;display:flex;align-items:center;gap:10px}
+.sidebar-header .logo{font-size:15px;font-weight:600;letter-spacing:-.02em;display:flex;align-items:center;gap:8px}
+.sidebar-header .logo svg{width:20px;height:20px;fill:currentColor;opacity:.9}
+.sidebar-label{padding:20px 16px 6px;font-size:11px;font-weight:500;color:var(--muted-fg);text-transform:uppercase;letter-spacing:.06em}
+.sidebar-nav{padding:0 8px;display:flex;flex-direction:column;gap:1px}
+.nav-item{display:flex;align-items:center;gap:10px;padding:8px 12px;border-radius:calc(var(--radius) - 2px);font-size:14px;color:var(--muted-fg);cursor:pointer;transition:background .1s,color .1s;text-decoration:none;user-select:none}
+.nav-item:hover{background:var(--accent);color:var(--accent-fg)}
+.nav-item.active{background:var(--accent);color:var(--accent-fg);font-weight:500}
+.nav-item svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;flex-shrink:0}
+.sidebar-spacer{flex:1}
+.sidebar-footer{padding:12px 16px;border-top:1px solid var(--border)}
+.user-pill{display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:calc(var(--radius) - 2px);cursor:pointer;transition:background .1s}
+.user-pill:hover{background:var(--accent)}
+.user-avatar{width:32px;height:32px;border-radius:calc(var(--radius) - 2px);background:var(--accent);display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:600;color:var(--muted-fg);flex-shrink:0}
+.user-info{overflow:hidden}
+.user-name{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.user-role{font-size:12px;color:var(--muted-fg);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
-  /* Main content */
-  .main {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 24px;
-  }
+/* ─── Main ─── */
+.main{flex:1;display:flex;flex-direction:column;min-width:0}
+.topbar{height:52px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;flex-shrink:0}
+.topbar h1{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.topbar-actions{display:flex;align-items:center;gap:8px}
+.btn-outline{height:32px;padding:0 12px;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);background:transparent;color:var(--card-fg);font-size:13px;cursor:pointer;transition:background .1s;display:inline-flex;align-items:center;gap:6px}
+.btn-outline:hover{background:var(--accent)}
+.btn-outline svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 
-  /* Stats grid */
-  .stats {
-    display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-    gap: 16px;
-    margin-bottom: 32px;
-  }
-  .stat-card {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    padding: 20px;
-  }
-  .stat-card .label {
-    font-size: 12px;
-    font-weight: 500;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-  }
-  .stat-card .value {
-    font-size: 32px;
-    font-weight: 700;
-    margin-top: 4px;
-  }
-  .stat-card .sub {
-    font-size: 12px;
-    color: var(--text-muted);
-    margin-top: 2px;
-  }
+.content{flex:1;overflow-y:auto;padding:24px}
 
-  /* Module sections */
-  .section {
-    margin-bottom: 32px;
-  }
-  .section-header {
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    margin-bottom: 12px;
-  }
-  .section-header h2 {
-    font-size: 16px;
-    font-weight: 600;
-  }
-  .badge {
-    display: inline-block;
-    padding: 2px 8px;
-    border-radius: 4px;
-    font-size: 11px;
-    font-weight: 600;
-    text-transform: uppercase;
-  }
-  .badge-blue { background: rgba(59,130,246,0.15); color: var(--primary); }
-  .badge-green { background: rgba(34,197,94,0.15); color: var(--success); }
-  .badge-yellow { background: rgba(245,158,11,0.15); color: var(--warning); }
-  .badge-red { background: rgba(239,68,68,0.15); color: var(--error); }
+/* ─── Stats cards ─── */
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.stat-card .label{font-size:13px;font-weight:500;color:var(--muted-fg);margin-bottom:4px}
+.stat-card .value{font-size:28px;font-weight:700;letter-spacing:-.02em;line-height:1.1}
+.stat-card .sub{font-size:12px;color:var(--muted-fg);margin-top:4px}
 
-  /* Table */
-  .table-wrap {
-    background: var(--card);
-    border: 1px solid var(--border);
-    border-radius: 10px;
-    overflow: hidden;
-  }
-  table {
-    width: 100%;
-    border-collapse: collapse;
-    font-size: 13px;
-  }
-  th {
-    text-align: left;
-    padding: 10px 16px;
-    font-size: 11px;
-    font-weight: 600;
-    color: var(--text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    border-bottom: 1px solid var(--border);
-    background: rgba(0,0,0,0.15);
-  }
-  td {
-    padding: 10px 16px;
-    border-bottom: 1px solid var(--border);
-  }
-  tr:last-child td { border-bottom: none; }
-  tr:hover td { background: rgba(255,255,255,0.02); }
-  .empty-row td {
-    text-align: center;
-    color: var(--text-muted);
-    padding: 24px;
-  }
-  .mono {
-    font-family: 'SF Mono', 'Fira Code', monospace;
-    font-size: 12px;
-  }
+/* ─── Section ─── */
+.section{margin-bottom:28px}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.section-header h2{font-size:16px;font-weight:600;letter-spacing:-.01em}
 
-  /* Create form */
-  .create-bar {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 12px;
-  }
-  .create-bar input {
-    flex: 1;
-    padding: 8px 12px;
-    background: var(--bg);
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    color: var(--text);
-    font-size: 13px;
-    outline: none;
-  }
-  .create-bar input:focus { border-color: var(--primary); }
-  .btn-primary {
-    padding: 8px 16px;
-    background: var(--primary);
-    color: white;
-    border: none;
-    border-radius: 6px;
-    font-size: 13px;
-    font-weight: 600;
-    cursor: pointer;
-    white-space: nowrap;
-  }
-  .btn-primary:hover { background: var(--primary-hover); }
-  .btn-danger {
-    padding: 4px 10px;
-    background: transparent;
-    color: var(--error);
-    border: 1px solid rgba(239,68,68,0.3);
-    border-radius: 4px;
-    font-size: 12px;
-    cursor: pointer;
-  }
-  .btn-danger:hover { background: rgba(239,68,68,0.1); }
+/* ─── Badges ─── */
+.badge{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:9999px;font-size:11px;font-weight:500;letter-spacing:.01em}
+.badge-outline{border:1px solid var(--border);color:var(--card-fg)}
+.badge-blue{background:oklch(.6 .21 261/.15);color:oklch(.7 .17 261)}
+.badge-green{background:oklch(.696 .17 162.48/.15);color:var(--success)}
+.badge-amber{background:oklch(.769 .189 70.08/.15);color:var(--warning)}
+.badge-red{background:oklch(.577 .245 27.325/.15);color:var(--destructive)}
 
-  /* Toast */
-  .toast {
-    position: fixed;
-    bottom: 24px;
-    right: 24px;
-    padding: 12px 20px;
-    border-radius: 8px;
-    font-size: 13px;
-    font-weight: 500;
-    box-shadow: 0 10px 25px rgba(0,0,0,0.3);
-    opacity: 0;
-    transform: translateY(10px);
-    transition: all 0.3s;
-    z-index: 100;
-  }
-  .toast.show { opacity: 1; transform: translateY(0); }
-  .toast-success { background: var(--success); color: #000; }
-  .toast-error { background: var(--error); color: #fff; }
+/* ─── Table ─── */
+.table-card{border:1px solid var(--border);border-radius:var(--radius);overflow:hidden}
+table{width:100%;border-collapse:collapse}
+thead tr{border-bottom:1px solid var(--border)}
+th{text-align:left;padding:10px 16px;font-size:13px;font-weight:500;color:var(--muted-fg);background:transparent}
+td{padding:10px 16px;border-bottom:1px solid var(--border);font-size:13px}
+tr:last-child td{border-bottom:none}
+tbody tr{transition:background .1s}
+tbody tr:hover{background:oklch(.2 0 0/.4)}
+.empty-cell{text-align:center;color:var(--muted-fg);padding:32px 16px}
+.mono{font-family:'SF Mono',SFMono-Regular,ui-monospace,'DejaVu Sans Mono',Menlo,Consolas,monospace;font-size:12px}
 
-  /* Loading */
-  .loading { color: var(--text-muted); text-align: center; padding: 40px; }
+/* ─── Create toolbar ─── */
+.create-bar{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.create-bar input{
+  flex:1;min-width:120px;height:36px;padding:0 12px;
+  background:transparent;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);
+  color:var(--card-fg);font-size:13px;outline:none;transition:box-shadow .15s,border-color .15s;
+}
+.create-bar input::placeholder{color:var(--muted-fg)}
+.create-bar input:focus{border-color:var(--ring);box-shadow:0 0 0 3px oklch(.708 0 0/.12)}
+.btn-sm-primary{
+  height:36px;padding:0 14px;border:none;border-radius:calc(var(--radius) - 2px);
+  background:var(--primary);color:var(--primary-fg);font-size:13px;font-weight:500;
+  cursor:pointer;white-space:nowrap;transition:opacity .15s;display:inline-flex;align-items:center;gap:5px;
+}
+.btn-sm-primary:hover{opacity:.9}
+.btn-ghost-destructive{
+  height:28px;padding:0 8px;border:none;border-radius:calc(var(--radius) - 4px);
+  background:transparent;color:var(--destructive);font-size:12px;cursor:pointer;transition:background .1s;
+}
+.btn-ghost-destructive:hover{background:oklch(.577 .245 27.325/.1)}
+
+/* ─── Toast ─── */
+.toast{position:fixed;bottom:20px;right:20px;padding:10px 16px;border-radius:var(--radius);font-size:13px;font-weight:500;box-shadow:0 4px 12px oklch(0 0 0/.4);border:1px solid var(--border);background:var(--card);color:var(--card-fg);opacity:0;transform:translateY(8px);transition:all .2s;z-index:999;display:flex;align-items:center;gap:8px;pointer-events:none}
+.toast.show{opacity:1;transform:translateY(0);pointer-events:auto}
+.toast-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.toast-success .toast-dot{background:var(--success)}
+.toast-error .toast-dot{background:var(--destructive)}
+
+/* ─── Page sections (hidden by default) ─── */
+.page{display:none}.page.active{display:block}
+
+@media(max-width:768px){.sidebar{display:none}.content{padding:16px}}
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <div class="topbar-brand">Open<span>ERP</span></div>
-  <div class="topbar-right">
-    <div class="topbar-user" id="userInfo">Loading...</div>
-    <button class="btn-sm" id="logoutBtn">Logout</button>
+<!-- Sidebar -->
+<aside class="sidebar">
+  <div class="sidebar-header">
+    <div class="logo">
+      <svg viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
+      OpenERP
+    </div>
   </div>
-</div>
 
+  <div class="sidebar-label">Platform</div>
+  <nav class="sidebar-nav">
+    <a class="nav-item active" data-page="overview">
+      <svg viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg>
+      Overview
+    </a>
+    <a class="nav-item" data-page="users">
+      <svg viewBox="0 0 24 24"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+      Users
+    </a>
+    <a class="nav-item" data-page="roles">
+      <svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+      Roles
+    </a>
+  </nav>
+
+  <div class="sidebar-label">Modules</div>
+  <nav class="sidebar-nav">
+    <a class="nav-item" data-page="models">
+      <svg viewBox="0 0 24 24"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+      Product Models
+    </a>
+    <a class="nav-item" data-page="devices">
+      <svg viewBox="0 0 24 24"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+      Devices
+    </a>
+    <a class="nav-item" data-page="tasks">
+      <svg viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      Tasks
+    </a>
+  </nav>
+
+  <div class="sidebar-spacer"></div>
+  <div class="sidebar-footer">
+    <div class="user-pill" id="userPill">
+      <div class="user-avatar" id="userAvatar">R</div>
+      <div class="user-info">
+        <div class="user-name" id="userName">root</div>
+        <div class="user-role" id="userRoleBadge">auth:root</div>
+      </div>
+    </div>
+  </div>
+</aside>
+
+<!-- Main content -->
 <div class="main">
-  <!-- Stats -->
-  <div class="stats" id="statsGrid">
-    <div class="stat-card"><div class="label">Users</div><div class="value" id="statUsers">-</div><div class="sub">Auth module</div></div>
-    <div class="stat-card"><div class="label">Roles</div><div class="value" id="statRoles">-</div><div class="sub">Auth module</div></div>
-    <div class="stat-card"><div class="label">Devices</div><div class="value" id="statDevices">-</div><div class="sub">PMS module</div></div>
-    <div class="stat-card"><div class="label">Models</div><div class="value" id="statModels">-</div><div class="sub">PMS module</div></div>
-    <div class="stat-card"><div class="label">Tasks</div><div class="value" id="statTasks">-</div><div class="sub">Task module</div></div>
-  </div>
-
-  <!-- Auth: Users -->
-  <div class="section" id="sectionUsers">
-    <div class="section-header">
-      <h2>Users</h2>
-      <span class="badge badge-blue">AUTH</span>
-    </div>
-    <div class="create-bar">
-      <input type="text" id="newUserName" placeholder="Name">
-      <input type="text" id="newUserEmail" placeholder="Email">
-      <button class="btn-primary" onclick="createUser()">+ User</button>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Created</th><th></th></tr></thead>
-        <tbody id="usersBody"><tr class="empty-row"><td colspan="5">Loading...</td></tr></tbody>
-      </table>
+  <div class="topbar">
+    <h1 id="pageTitle">Overview</h1>
+    <div class="topbar-actions">
+      <button class="btn-outline" id="logoutBtn">
+        <svg viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+        Logout
+      </button>
     </div>
   </div>
 
-  <!-- Auth: Roles -->
-  <div class="section" id="sectionRoles">
-    <div class="section-header">
-      <h2>Roles</h2>
-      <span class="badge badge-blue">AUTH</span>
-    </div>
-    <div class="create-bar">
-      <input type="text" id="newRoleId" placeholder="Role ID (e.g. pms:viewer)">
-      <input type="text" id="newRoleDesc" placeholder="Description">
-      <input type="text" id="newRolePerms" placeholder="Permissions (comma-separated)">
-      <button class="btn-primary" onclick="createRole()">+ Role</button>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>ID</th><th>Description</th><th>Permissions</th><th></th></tr></thead>
-        <tbody id="rolesBody"><tr class="empty-row"><td colspan="4">Loading...</td></tr></tbody>
-      </table>
-    </div>
-  </div>
+  <div class="content">
+    <!-- Overview page -->
+    <div class="page active" id="page-overview">
+      <div class="stats" id="statsGrid">
+        <div class="stat-card"><div class="label">Total Users</div><div class="value" id="statUsers">&mdash;</div><div class="sub">Auth module</div></div>
+        <div class="stat-card"><div class="label">Roles</div><div class="value" id="statRoles">&mdash;</div><div class="sub">Auth module</div></div>
+        <div class="stat-card"><div class="label">Product Models</div><div class="value" id="statModels">&mdash;</div><div class="sub">PMS module</div></div>
+        <div class="stat-card"><div class="label">Devices</div><div class="value" id="statDevices">&mdash;</div><div class="sub">PMS module</div></div>
+        <div class="stat-card"><div class="label">Tasks</div><div class="value" id="statTasks">&mdash;</div><div class="sub">Task module</div></div>
+      </div>
 
-  <!-- PMS: Models -->
-  <div class="section" id="sectionModels">
-    <div class="section-header">
-      <h2>Product Models</h2>
-      <span class="badge badge-green">PMS</span>
+      <div class="section">
+        <div class="section-header"><h2>Recent Tasks</h2><span class="badge badge-outline">TASK</span></div>
+        <div class="table-card"><table><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Created</th></tr></thead>
+        <tbody id="overviewTasksBody"><tr><td class="empty-cell" colspan="5">No tasks</td></tr></tbody></table></div>
+      </div>
     </div>
-    <div class="create-bar">
-      <input type="number" id="newModelCode" placeholder="Code (e.g. 200)" style="max-width:120px">
-      <input type="text" id="newModelSeries" placeholder="Series name">
-      <input type="text" id="newModelDisplay" placeholder="Display name">
-      <button class="btn-primary" onclick="createModel()">+ Model</button>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>Code</th><th>Series</th><th>Display Name</th><th>Description</th><th></th></tr></thead>
-        <tbody id="modelsBody"><tr class="empty-row"><td colspan="5">Loading...</td></tr></tbody>
-      </table>
-    </div>
-  </div>
 
-  <!-- Task: Tasks -->
-  <div class="section" id="sectionTasks">
-    <div class="section-header">
-      <h2>Tasks</h2>
-      <span class="badge badge-yellow">TASK</span>
+    <!-- Users page -->
+    <div class="page" id="page-users">
+      <div class="create-bar">
+        <input type="text" id="newUserName" placeholder="Name">
+        <input type="text" id="newUserEmail" placeholder="Email">
+        <button class="btn-sm-primary" onclick="createUser()">+ Add User</button>
+      </div>
+      <div class="table-card"><table><thead><tr><th>ID</th><th>Name</th><th>Email</th><th>Created</th><th style="width:80px"></th></tr></thead>
+      <tbody id="usersBody"><tr><td class="empty-cell" colspan="5">Loading&hellip;</td></tr></tbody></table></div>
     </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Created</th></tr></thead>
-        <tbody id="tasksBody"><tr class="empty-row"><td colspan="5">Loading...</td></tr></tbody>
-      </table>
+
+    <!-- Roles page -->
+    <div class="page" id="page-roles">
+      <div class="create-bar">
+        <input type="text" id="newRoleId" placeholder="Role ID (e.g. pms:viewer)">
+        <input type="text" id="newRoleDesc" placeholder="Description">
+        <input type="text" id="newRolePerms" placeholder="Permissions (comma-separated)">
+        <button class="btn-sm-primary" onclick="createRole()">+ Add Role</button>
+      </div>
+      <div class="table-card"><table><thead><tr><th>ID</th><th>Description</th><th>Permissions</th><th style="width:80px"></th></tr></thead>
+      <tbody id="rolesBody"><tr><td class="empty-cell" colspan="4">Loading&hellip;</td></tr></tbody></table></div>
+    </div>
+
+    <!-- Models page -->
+    <div class="page" id="page-models">
+      <div class="create-bar">
+        <input type="number" id="newModelCode" placeholder="Code" style="max-width:100px">
+        <input type="text" id="newModelSeries" placeholder="Series name">
+        <input type="text" id="newModelDisplay" placeholder="Display name">
+        <button class="btn-sm-primary" onclick="createModel()">+ Add Model</button>
+      </div>
+      <div class="table-card"><table><thead><tr><th>Code</th><th>Series</th><th>Display Name</th><th>Description</th><th style="width:80px"></th></tr></thead>
+      <tbody id="modelsBody"><tr><td class="empty-cell" colspan="5">Loading&hellip;</td></tr></tbody></table></div>
+    </div>
+
+    <!-- Devices page -->
+    <div class="page" id="page-devices">
+      <div class="table-card"><table><thead><tr><th>SN</th><th>Model</th><th>Status</th><th>Batch</th><th>Created</th></tr></thead>
+      <tbody id="devicesBody"><tr><td class="empty-cell" colspan="5">No devices</td></tr></tbody></table></div>
+    </div>
+
+    <!-- Tasks page -->
+    <div class="page" id="page-tasks">
+      <div class="table-card"><table><thead><tr><th>ID</th><th>Type</th><th>Status</th><th>Progress</th><th>Created</th></tr></thead>
+      <tbody id="tasksBody"><tr><td class="empty-cell" colspan="5">Loading&hellip;</td></tr></tbody></table></div>
     </div>
   </div>
 </div>
 
-<div class="toast" id="toast"></div>
+<div class="toast" id="toast"><span class="toast-dot"></span><span id="toastMsg"></span></div>
 
 <script>
-(function() {
-  const token = localStorage.getItem('openerp_token');
-  if (!token) {
-    window.location.href = '/';
-    return;
-  }
-
-  const headers = {
-    'Authorization': 'Bearer ' + token,
-    'Content-Type': 'application/json',
-  };
+(function(){
+  const token=localStorage.getItem('openerp_token');
+  if(!token){window.location.href='/';return}
+  const H={'Authorization':'Bearer '+token,'Content-Type':'application/json'};
 
   // ── Helpers ──
+  function toast(msg,type){const t=document.getElementById('toast');t.className='toast toast-'+type+' show';document.getElementById('toastMsg').textContent=msg;setTimeout(()=>t.classList.remove('show'),3000)}
+  async function api(m,p,b){const o={method:m,headers:H};if(b)o.body=JSON.stringify(b);const r=await fetch(p,o);if(r.status===401){localStorage.removeItem('openerp_token');window.location.href='/';return}if(r.status===204)return null;const d=await r.json();if(!r.ok)throw new Error(d.error||'Request failed');return d}
+  function short(id){return id&&id.length>10?id.slice(0,10)+'\u2026':id||'\u2014'}
+  function fmtT(ts){if(!ts)return'\u2014';const d=new Date(ts);return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}
+  function statusBadge(s){const m={PENDING:'amber',RUNNING:'blue',COMPLETED:'green',FAILED:'red',CANCELLED:'red',CLAIMED:'blue'};return'<span class="badge badge-'+(m[s]||'outline')+'">'+s+'</span>'}
 
-  function toast(msg, type) {
-    const el = document.getElementById('toast');
-    el.textContent = msg;
-    el.className = 'toast toast-' + type + ' show';
-    setTimeout(() => el.classList.remove('show'), 3000);
-  }
+  // ── JWT decode ──
+  try{const p=JSON.parse(atob(token.split('.')[1]));document.getElementById('userName').textContent=p.sub;document.getElementById('userAvatar').textContent=(p.sub||'?')[0].toUpperCase();if(p.roles&&p.roles[0])document.getElementById('userRoleBadge').textContent=p.roles[0]}catch(e){}
 
-  async function api(method, path, body) {
-    const opts = { method, headers };
-    if (body) opts.body = JSON.stringify(body);
-    const resp = await fetch(path, opts);
-    if (resp.status === 401) {
-      localStorage.removeItem('openerp_token');
-      window.location.href = '/';
-      return;
-    }
-    if (resp.status === 204) return null;
-    const data = await resp.json();
-    if (!resp.ok) throw new Error(data.error || 'Request failed');
-    return data;
-  }
-
-  function shortId(id) {
-    if (!id) return '-';
-    return id.length > 12 ? id.slice(0, 12) + '...' : id;
-  }
-
-  function fmtTime(ts) {
-    if (!ts) return '-';
-    return new Date(ts).toLocaleString();
-  }
-
-  function statusBadge(status) {
-    const colors = {
-      'PENDING': 'yellow', 'RUNNING': 'blue', 'COMPLETED': 'green',
-      'FAILED': 'red', 'CANCELLED': 'red', 'CLAIMED': 'blue',
-    };
-    return '<span class="badge badge-' + (colors[status] || 'blue') + '">' + status + '</span>';
-  }
-
-  // ── Decode JWT for user info ──
-  try {
-    const payload = JSON.parse(atob(token.split('.')[1]));
-    document.getElementById('userInfo').innerHTML =
-      'Signed in as <strong>' + payload.sub + '</strong>' +
-      (payload.roles && payload.roles.length ? ' <span class="badge badge-blue">' + payload.roles[0] + '</span>' : '');
-  } catch(e) {
-    document.getElementById('userInfo').textContent = 'Signed in';
-  }
-
-  // ── Logout ──
-  document.getElementById('logoutBtn').addEventListener('click', function() {
-    localStorage.removeItem('openerp_token');
-    window.location.href = '/';
+  // ── Sidebar navigation ──
+  const navItems=document.querySelectorAll('.nav-item[data-page]');
+  const pages=document.querySelectorAll('.page');
+  const pageTitle=document.getElementById('pageTitle');
+  navItems.forEach(item=>{
+    item.addEventListener('click',function(e){
+      e.preventDefault();
+      const pg=this.dataset.page;
+      navItems.forEach(n=>n.classList.remove('active'));this.classList.add('active');
+      pages.forEach(p=>p.classList.remove('active'));
+      document.getElementById('page-'+pg).classList.add('active');
+      pageTitle.textContent=this.textContent.trim();
+      loadPage(pg);
+    });
   });
 
-  // ── Load data ──
+  // ── Logout ──
+  document.getElementById('logoutBtn').addEventListener('click',()=>{localStorage.removeItem('openerp_token');window.location.href='/'});
 
-  async function loadStats() {
-    try {
-      const [users, roles, devices, models, tasks] = await Promise.all([
-        api('GET', '/auth/users'),
-        api('GET', '/auth/roles'),
-        api('GET', '/pms/devices'),
-        api('GET', '/pms/models'),
-        api('GET', '/task/tasks'),
-      ]);
-      document.getElementById('statUsers').textContent = users.total;
-      document.getElementById('statRoles').textContent = roles.total;
-      document.getElementById('statDevices').textContent = devices.total;
-      document.getElementById('statModels').textContent = models.total;
-      document.getElementById('statTasks').textContent = tasks.total;
-    } catch(e) {
-      console.error('stats error', e);
-    }
+  // ── Data loaders ──
+  async function loadStats(){
+    try{const[u,r,d,m,t]=await Promise.all([api('GET','/auth/users'),api('GET','/auth/roles'),api('GET','/pms/devices'),api('GET','/pms/models'),api('GET','/task/tasks')]);
+    document.getElementById('statUsers').textContent=u.total;document.getElementById('statRoles').textContent=r.total;document.getElementById('statDevices').textContent=d.total;document.getElementById('statModels').textContent=m.total;document.getElementById('statTasks').textContent=t.total}catch(e){console.error(e)}
+  }
+  async function loadOverviewTasks(){
+    try{const d=await api('GET','/task/tasks');const b=document.getElementById('overviewTasksBody');
+    if(!d.items.length){b.innerHTML='<tr><td class="empty-cell" colspan="5">No tasks yet</td></tr>';return}
+    b.innerHTML=d.items.slice(0,5).map(t=>'<tr><td class="mono">'+short(t.id)+'</td><td>'+t.type+'</td><td>'+statusBadge(t.status)+'</td><td>'+(t.success||0)+'/'+(t.total||0)+'</td><td>'+fmtT(t.createdAt)+'</td></tr>').join('')}catch(e){}
+  }
+  async function loadUsers(){
+    try{const d=await api('GET','/auth/users');const b=document.getElementById('usersBody');
+    if(!d.items.length){b.innerHTML='<tr><td class="empty-cell" colspan="5">No users yet</td></tr>';return}
+    b.innerHTML=d.items.map(u=>'<tr><td class="mono">'+short(u.id)+'</td><td>'+u.name+'</td><td>'+(u.email||'\u2014')+'</td><td>'+fmtT(u.created_at)+'</td><td><button class="btn-ghost-destructive" onclick="deleteUser(\''+u.id+'\')">Delete</button></td></tr>').join('')}catch(e){}
+  }
+  async function loadRoles(){
+    try{const d=await api('GET','/auth/roles');const b=document.getElementById('rolesBody');
+    if(!d.items.length){b.innerHTML='<tr><td class="empty-cell" colspan="4">No roles yet</td></tr>';return}
+    b.innerHTML=d.items.map(r=>'<tr><td class="mono">'+r.id+'</td><td>'+(r.description||'\u2014')+'</td><td class="mono" style="font-size:11px">'+(r.permissions||[]).join(', ')+'</td><td><button class="btn-ghost-destructive" onclick="deleteRole(\''+r.id+'\')">Delete</button></td></tr>').join('')}catch(e){}
+  }
+  async function loadModels(){
+    try{const d=await api('GET','/pms/models');const b=document.getElementById('modelsBody');
+    if(!d.items.length){b.innerHTML='<tr><td class="empty-cell" colspan="5">No models yet</td></tr>';return}
+    b.innerHTML=d.items.map(m=>'<tr><td class="mono">'+m.code+'</td><td>'+m.seriesName+'</td><td>'+(m.displayName||'\u2014')+'</td><td>'+(m.description||'\u2014')+'</td><td><button class="btn-ghost-destructive" onclick="deleteModel('+m.code+')">Delete</button></td></tr>').join('')}catch(e){}
+  }
+  async function loadDevices(){
+    try{const d=await api('GET','/pms/devices');const b=document.getElementById('devicesBody');
+    if(!d.items.length){b.innerHTML='<tr><td class="empty-cell" colspan="5">No devices yet</td></tr>';return}
+    b.innerHTML=d.items.map(v=>'<tr><td class="mono">'+v.sn+'</td><td>'+(v.model||'\u2014')+'</td><td>'+statusBadge(v.status||'UNKNOWN')+'</td><td class="mono">'+short(v.batchId)+'</td><td>'+fmtT(v.createAt)+'</td></tr>').join('')}catch(e){}
+  }
+  async function loadTasks(){
+    try{const d=await api('GET','/task/tasks');const b=document.getElementById('tasksBody');
+    if(!d.items.length){b.innerHTML='<tr><td class="empty-cell" colspan="5">No tasks yet</td></tr>';return}
+    b.innerHTML=d.items.map(t=>'<tr><td class="mono">'+short(t.id)+'</td><td>'+t.type+'</td><td>'+statusBadge(t.status)+'</td><td>'+(t.success||0)+'/'+(t.total||0)+'</td><td>'+fmtT(t.createdAt)+'</td></tr>').join('')}catch(e){}
   }
 
-  async function loadUsers() {
-    try {
-      const data = await api('GET', '/auth/users');
-      const body = document.getElementById('usersBody');
-      if (!data.items.length) {
-        body.innerHTML = '<tr class="empty-row"><td colspan="5">No users yet</td></tr>';
-        return;
-      }
-      body.innerHTML = data.items.map(u =>
-        '<tr>' +
-        '<td class="mono">' + shortId(u.id) + '</td>' +
-        '<td>' + (u.name || '-') + '</td>' +
-        '<td>' + (u.email || '-') + '</td>' +
-        '<td>' + fmtTime(u.created_at) + '</td>' +
-        '<td><button class="btn-danger" onclick="deleteUser(\'' + u.id + '\')">Delete</button></td>' +
-        '</tr>'
-      ).join('');
-    } catch(e) { console.error('users error', e); }
+  function loadPage(pg){
+    if(pg==='overview'){loadStats();loadOverviewTasks()}
+    else if(pg==='users')loadUsers();
+    else if(pg==='roles')loadRoles();
+    else if(pg==='models')loadModels();
+    else if(pg==='devices')loadDevices();
+    else if(pg==='tasks')loadTasks();
   }
 
-  async function loadRoles() {
-    try {
-      const data = await api('GET', '/auth/roles');
-      const body = document.getElementById('rolesBody');
-      if (!data.items.length) {
-        body.innerHTML = '<tr class="empty-row"><td colspan="4">No roles yet</td></tr>';
-        return;
-      }
-      body.innerHTML = data.items.map(r =>
-        '<tr>' +
-        '<td class="mono">' + r.id + '</td>' +
-        '<td>' + (r.description || '-') + '</td>' +
-        '<td class="mono">' + (r.permissions || []).join(', ') + '</td>' +
-        '<td><button class="btn-danger" onclick="deleteRole(\'' + r.id + '\')">Delete</button></td>' +
-        '</tr>'
-      ).join('');
-    } catch(e) { console.error('roles error', e); }
-  }
-
-  async function loadModels() {
-    try {
-      const data = await api('GET', '/pms/models');
-      const body = document.getElementById('modelsBody');
-      if (!data.items.length) {
-        body.innerHTML = '<tr class="empty-row"><td colspan="5">No models yet</td></tr>';
-        return;
-      }
-      body.innerHTML = data.items.map(m =>
-        '<tr>' +
-        '<td class="mono">' + m.code + '</td>' +
-        '<td>' + (m.seriesName || '-') + '</td>' +
-        '<td>' + (m.displayName || '-') + '</td>' +
-        '<td>' + (m.description || '-') + '</td>' +
-        '<td><button class="btn-danger" onclick="deleteModel(' + m.code + ')">Delete</button></td>' +
-        '</tr>'
-      ).join('');
-    } catch(e) { console.error('models error', e); }
-  }
-
-  async function loadTasks() {
-    try {
-      const data = await api('GET', '/task/tasks');
-      const body = document.getElementById('tasksBody');
-      if (!data.items.length) {
-        body.innerHTML = '<tr class="empty-row"><td colspan="5">No tasks yet</td></tr>';
-        return;
-      }
-      body.innerHTML = data.items.map(t =>
-        '<tr>' +
-        '<td class="mono">' + shortId(t.id) + '</td>' +
-        '<td>' + (t.type || '-') + '</td>' +
-        '<td>' + statusBadge(t.status) + '</td>' +
-        '<td>' + (t.success || 0) + '/' + (t.total || 0) + '</td>' +
-        '<td>' + fmtTime(t.createdAt) + '</td>' +
-        '</tr>'
-      ).join('');
-    } catch(e) { console.error('tasks error', e); }
-  }
-
-  // ── Create actions (exposed to global scope) ──
-
-  window.createUser = async function() {
-    const name = document.getElementById('newUserName').value.trim();
-    const email = document.getElementById('newUserEmail').value.trim();
-    if (!name) return toast('Name required', 'error');
-    try {
-      await api('POST', '/auth/users', { name, email: email || undefined });
-      document.getElementById('newUserName').value = '';
-      document.getElementById('newUserEmail').value = '';
-      toast('User created', 'success');
-      loadUsers();
-      loadStats();
-    } catch(e) { toast(e.message, 'error'); }
+  // ── Create / Delete ──
+  window.createUser=async function(){
+    const n=document.getElementById('newUserName').value.trim(),e=document.getElementById('newUserEmail').value.trim();
+    if(!n){toast('Name is required','error');return}
+    try{await api('POST','/auth/users',{name:n,email:e||undefined});document.getElementById('newUserName').value='';document.getElementById('newUserEmail').value='';toast('User created','success');loadUsers();loadStats()}catch(ex){toast(ex.message,'error')}
   };
-
-  window.createRole = async function() {
-    const id = document.getElementById('newRoleId').value.trim();
-    const desc = document.getElementById('newRoleDesc').value.trim();
-    const permsStr = document.getElementById('newRolePerms').value.trim();
-    if (!id) return toast('Role ID required', 'error');
-    const permissions = permsStr ? permsStr.split(',').map(s => s.trim()).filter(Boolean) : [];
-    if (!permissions.length) return toast('At least one permission required', 'error');
-    try {
-      await api('POST', '/auth/roles', { id, description: desc, permissions });
-      document.getElementById('newRoleId').value = '';
-      document.getElementById('newRoleDesc').value = '';
-      document.getElementById('newRolePerms').value = '';
-      toast('Role created', 'success');
-      loadRoles();
-      loadStats();
-    } catch(e) { toast(e.message, 'error'); }
+  window.createRole=async function(){
+    const id=document.getElementById('newRoleId').value.trim(),desc=document.getElementById('newRoleDesc').value.trim(),ps=document.getElementById('newRolePerms').value.trim();
+    if(!id){toast('Role ID is required','error');return}
+    const perms=ps?ps.split(',').map(s=>s.trim()).filter(Boolean):[];
+    if(!perms.length){toast('At least one permission required','error');return}
+    try{await api('POST','/auth/roles',{id,description:desc,permissions:perms});document.getElementById('newRoleId').value='';document.getElementById('newRoleDesc').value='';document.getElementById('newRolePerms').value='';toast('Role created','success');loadRoles();loadStats()}catch(ex){toast(ex.message,'error')}
   };
-
-  window.createModel = async function() {
-    const code = parseInt(document.getElementById('newModelCode').value);
-    const series = document.getElementById('newModelSeries').value.trim();
-    const display = document.getElementById('newModelDisplay').value.trim();
-    if (!code || !series) return toast('Code and series required', 'error');
-    try {
-      await api('POST', '/pms/models', { code, series_name: series, display_name: display || series });
-      document.getElementById('newModelCode').value = '';
-      document.getElementById('newModelSeries').value = '';
-      document.getElementById('newModelDisplay').value = '';
-      toast('Model created', 'success');
-      loadModels();
-      loadStats();
-    } catch(e) { toast(e.message, 'error'); }
+  window.createModel=async function(){
+    const c=parseInt(document.getElementById('newModelCode').value),s=document.getElementById('newModelSeries').value.trim(),d=document.getElementById('newModelDisplay').value.trim();
+    if(!c||!s){toast('Code and series required','error');return}
+    try{await api('POST','/pms/models',{code:c,series_name:s,display_name:d||s});document.getElementById('newModelCode').value='';document.getElementById('newModelSeries').value='';document.getElementById('newModelDisplay').value='';toast('Model created','success');loadModels();loadStats()}catch(ex){toast(ex.message,'error')}
   };
-
-  window.deleteUser = async function(id) {
-    if (!confirm('Delete user?')) return;
-    try {
-      await api('DELETE', '/auth/users/' + id);
-      toast('User deleted', 'success');
-      loadUsers();
-      loadStats();
-    } catch(e) { toast(e.message, 'error'); }
-  };
-
-  window.deleteRole = async function(id) {
-    if (!confirm('Delete role?')) return;
-    try {
-      await api('DELETE', '/auth/roles/' + id);
-      toast('Role deleted', 'success');
-      loadRoles();
-      loadStats();
-    } catch(e) { toast(e.message, 'error'); }
-  };
-
-  window.deleteModel = async function(code) {
-    if (!confirm('Delete model?')) return;
-    try {
-      await api('DELETE', '/pms/models/' + code);
-      toast('Model deleted', 'success');
-      loadModels();
-      loadStats();
-    } catch(e) { toast(e.message, 'error'); }
-  };
+  window.deleteUser=async function(id){if(!confirm('Delete this user?'))return;try{await api('DELETE','/auth/users/'+id);toast('User deleted','success');loadUsers();loadStats()}catch(ex){toast(ex.message,'error')}};
+  window.deleteRole=async function(id){if(!confirm('Delete this role?'))return;try{await api('DELETE','/auth/roles/'+id);toast('Role deleted','success');loadRoles();loadStats()}catch(ex){toast(ex.message,'error')}};
+  window.deleteModel=async function(c){if(!confirm('Delete this model?'))return;try{await api('DELETE','/pms/models/'+c);toast('Model deleted','success');loadModels();loadStats()}catch(ex){toast(ex.message,'error')}};
 
   // ── Initial load ──
-  loadStats();
-  loadUsers();
-  loadRoles();
-  loadModels();
-  loadTasks();
+  loadStats();loadOverviewTasks();
 })();
 </script>
 </body>
