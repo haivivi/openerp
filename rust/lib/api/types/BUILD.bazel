@@ -1,0 +1,20 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "types",
+    crate_name = "openerp_types",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@crates//:serde",
+    ],
+)
+
+rust_test(
+    name = "types_test",
+    crate = ":types",
+    deps = [
+        "@crates//:serde_json",
+    ],
+)

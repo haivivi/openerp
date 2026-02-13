@@ -184,18 +184,30 @@ impl UiWidget {
         }
     }
 
-    /// Infer widget from a well-known newtype name.
+    /// Infer widget from a well-known newtype name (openerp_types::*).
     pub fn from_type_name(name: &str) -> Option<Self> {
         match name {
-            "Avatar" | "ImageUrl" => Some(UiWidget::ImageUpload),
-            "Url" | "Link" => Some(UiWidget::Url),
+            // Identity
+            "Id" => Some(UiWidget::ReadOnly),
+            // Contact
             "Email" | "EmailAddress" => Some(UiWidget::Email),
-            "Password" | "PasswordHash" => Some(UiWidget::Password),
+            "Phone" => Some(UiWidget::Text), // Could be a tel input
+            // URLs
+            "Url" | "Link" => Some(UiWidget::Url),
+            "Avatar" | "ImageUrl" => Some(UiWidget::ImageUpload),
+            // Secrets
+            "Password" => Some(UiWidget::Password),
+            "PasswordHash" | "Secret" => Some(UiWidget::Hidden),
+            // Text
+            "Text" => Some(UiWidget::Textarea),
             "Markdown" | "RichText" => Some(UiWidget::Markdown),
-            "Color" | "HexColor" => Some(UiWidget::Color),
+            "Code" | "JsonData" => Some(UiWidget::Code),
+            // Date/time
             "DateTime" | "Timestamp" => Some(UiWidget::DateTime),
             "Date" => Some(UiWidget::Date),
-            "Code" | "JsonData" => Some(UiWidget::Code),
+            // Misc
+            "Color" | "HexColor" => Some(UiWidget::Color),
+            "SemVer" => Some(UiWidget::Text),
             _ => None,
         }
     }

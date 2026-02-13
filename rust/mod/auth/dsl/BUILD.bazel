@@ -11,6 +11,7 @@ rust_library(
     ],
     deps = [
         "//rust/lib/api/ir",
+        "//rust/lib/api/types",
         "//rust/lib/core",
         "//rust/lib/kv",
         "@crates//:axum",
