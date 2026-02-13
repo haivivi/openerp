@@ -1,0 +1,24 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "store",
+    crate_name = "openerp_store",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//rust/lib/api/types",
+        "//rust/lib/core",
+        "//rust/lib/kv",
+        "@crates//:serde",
+        "@crates//:serde_json",
+    ],
+)
+
+rust_test(
+    name = "store_test",
+    crate = ":store",
+    deps = [
+        "@crates//:tempfile",
+    ],
+)
