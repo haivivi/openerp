@@ -101,9 +101,9 @@ describe('Dashboard CRUD (schema-driven)', () => {
       { timeout: 3000 },
     );
 
-    // Fill in the name field by its name attribute.
-    const nameInput = await page.$('#dlgForm input[name="name"]');
-    assert.ok(nameInput, 'Name input exists in create dialog');
+    // Fill in the display_name field.
+    const nameInput = await page.$('#dlgForm input[name="display_name"]');
+    assert.ok(nameInput, 'Display name input exists in create dialog');
     await nameInput.type('E2E Test User');
 
     // Submit.
@@ -138,7 +138,7 @@ describe('Dashboard CRUD (schema-driven)', () => {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     const list = await listResp.json();
-    const user = list.items?.find(u => u.name === 'E2E Test User');
+    const user = list.items?.find(u => u.displayName === 'E2E Test User');
     assert.ok(user, 'Test user exists in API');
 
     const delResp = await fetch(`${BASE_URL}/admin/auth/users/${user.id}`, {

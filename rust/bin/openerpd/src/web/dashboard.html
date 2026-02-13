@@ -292,10 +292,9 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     // Build column list: all fields (including _at), skip hidden/readonly widgets except id
     const allFields=res.fields;
     const pk=(res.key&&res.key.fields&&res.key.fields[0])||'id';
-    // Find the "display name" field (first non-id String field)
-    const displayField=allFields.find(f=>f.name!=='id'&&f.name!==pk&&!f.name.endsWith('_at')&&(f.ty==='String'||f.ty==='Id'));
-    // Find description field
-    const descField=allFields.find(f=>f.name==='description'||f.name==='name'&&f!==displayField);
+    // Common fields: display_name + description (auto-injected by #[model])
+    const displayField=allFields.find(f=>f.name==='display_name');
+    const descField=allFields.find(f=>f.name==='description');
     // Visible columns: id + main fields + timestamps
     const mainCols=allFields.filter(f=>{
       const w=(f.widget||'text').toLowerCase();
@@ -309,7 +308,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     // Table headers
     const head=document.getElementById('resHead');
     head.innerHTML='<th style="width:100px">ID</th>';
-    if(displayField)head.innerHTML+='<th>'+(displayField.name==='name'?'Name':displayField.name.replace(/_/g,' '))+'</th>';
+    if(displayField)head.innerHTML+='<th>Name</th>';
     for(const f of mainCols){
       const label=f.name.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
       head.innerHTML+='<th>'+label+'</th>';
@@ -577,16 +576,17 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     const data={};
     for(const el of form.querySelectorAll('input,textarea,select')){
       const name=el.name;if(!name)continue;
+      const key=toCamel(name); // snake_case -> camelCase for API
       const dtype=el.dataset.type;
-      if(dtype==='bool'){data[name]=el.checked;continue}
-      if(dtype==='tags'){const v=el.value.trim();if(v)data[name]=v.split(',').map(s=>s.trim()).filter(Boolean);continue}
-      if(dtype==='json'){const v=el.value.trim();if(v)try{data[name]=JSON.parse(v)}catch(e){data[name]=v};continue}
+      if(dtype==='bool'){data[key]=el.checked;continue}
+      if(dtype==='tags'){const v=el.value.trim();if(v)data[key]=v.split(',').map(s=>s.trim()).filter(Boolean);continue}
+      if(dtype==='json'){const v=el.value.trim();if(v)try{data[key]=JSON.parse(v)}catch(e){data[key]=v};continue}
       const v=el.value.trim();
-      if(v)data[name]=v;
+      if(v)data[key]=v;
     }
     // Collect permission pickers (from hidden input with JSON array).
     for(const input of form.querySelectorAll('input[data-type="perm_picker"]')){
-      if(input.value){try{data[input.name]=JSON.parse(input.value)}catch(e){}}
+      if(input.value){try{data[toCamel(input.name)]=JSON.parse(input.value)}catch(e){}}
     }
     const basePath='/admin/'+currentModule.id+'/'+pluralize(toSnake(currentResource.name));
     try{

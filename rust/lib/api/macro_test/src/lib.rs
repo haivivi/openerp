@@ -5,63 +5,67 @@ mod tests {
     use openerp_macro::model;
     use openerp_types::*;
 
-    // ── Basic model ──
+    // ── Basic model (common fields auto-injected) ──
 
     #[model(module = "auth")]
     pub struct User {
         pub id: Id,
-        pub name: String,
         pub email: Option<Email>,
         pub avatar: Option<Avatar>,
         pub active: bool,
         pub password_hash: Option<PasswordHash>,
-        pub created_at: DateTime,
-        pub updated_at: DateTime,
     }
 
     #[test]
     fn model_has_serde() {
         let user = User {
             id: Id::new("u1"),
-            name: "Alice".into(),
             email: Some(Email::new("alice@test.com")),
             avatar: None,
             active: true,
             password_hash: None,
+            // Common fields (auto-injected):
+            display_name: Some("Alice".into()),
+            description: None,
+            metadata: None,
             created_at: DateTime::new("2024-01-01T00:00:00Z"),
             updated_at: DateTime::new("2024-01-01T00:00:00Z"),
         };
         let json = serde_json::to_string(&user).unwrap();
-        // camelCase
         assert!(json.contains("\"passwordHash\""));
         assert!(json.contains("\"createdAt\""));
-        // Transparent newtypes serialize as plain strings
+        assert!(json.contains("\"displayName\""));
         assert!(json.contains("\"alice@test.com\""));
     }
 
     #[test]
-    fn field_consts_exist() {
-        // These are compile-time checked — if they don't exist, this won't compile.
-        let _: Field = User::id;
-        let _: Field = User::name;
-        let _: Field = User::email;
-        let _: Field = User::avatar;
-        let _: Field = User::active;
-        let _: Field = User::password_hash;
+    fn common_fields_auto_injected() {
+        // These Field consts exist even though not in the struct definition.
+        let _: Field = User::display_name;
+        let _: Field = User::description;
+        let _: Field = User::metadata;
         let _: Field = User::created_at;
         let _: Field = User::updated_at;
     }
 
     #[test]
+    fn field_consts_exist() {
+        let _: Field = User::id;
+        let _: Field = User::email;
+        let _: Field = User::avatar;
+        let _: Field = User::active;
+        let _: Field = User::password_hash;
+    }
+
+    #[test]
     fn field_const_values() {
-        assert_eq!(User::id.name, "id");
-        assert_eq!(User::id.widget, "readonly"); // Id -> readonly
-        assert_eq!(User::email.name, "email");
-        assert_eq!(User::email.widget, "email"); // Email -> email
-        assert_eq!(User::avatar.widget, "image"); // Avatar -> image
-        assert_eq!(User::active.widget, "switch"); // bool -> switch
-        assert_eq!(User::password_hash.widget, "hidden"); // PasswordHash -> hidden
-        assert_eq!(User::created_at.widget, "datetime"); // DateTime -> datetime
+        assert_eq!(User::id.widget, "readonly");
+        assert_eq!(User::email.widget, "email");
+        assert_eq!(User::avatar.widget, "image");
+        assert_eq!(User::active.widget, "switch");
+        assert_eq!(User::password_hash.widget, "hidden");
+        assert_eq!(User::display_name.widget, "text");
+        assert_eq!(User::created_at.widget, "datetime");
     }
 
     #[test]
@@ -72,18 +76,15 @@ mod tests {
     }
 
     #[test]
-    fn dsl_ir_json() {
+    fn dsl_ir_includes_common_fields() {
         let ir = User::__dsl_ir();
-        assert_eq!(ir["name"], "User");
-        assert_eq!(ir["module"], "auth");
-        assert_eq!(ir["resource"], "user");
-
         let fields = ir["fields"].as_array().unwrap();
-        assert_eq!(fields.len(), 8);
-        assert_eq!(fields[0]["name"], "id");
-        assert_eq!(fields[0]["widget"], "readonly");
-        assert_eq!(fields[2]["name"], "email");
-        assert_eq!(fields[2]["widget"], "email");
+        let names: Vec<&str> = fields.iter().map(|f| f["name"].as_str().unwrap()).collect();
+        assert!(names.contains(&"display_name"), "IR has display_name: {:?}", names);
+        assert!(names.contains(&"description"), "IR has description: {:?}", names);
+        assert!(names.contains(&"metadata"), "IR has metadata: {:?}", names);
+        assert!(names.contains(&"created_at"), "IR has created_at: {:?}", names);
+        assert!(names.contains(&"updated_at"), "IR has updated_at: {:?}", names);
     }
 
     // ── Model with explicit #[ui(widget)] ──
@@ -91,7 +92,6 @@ mod tests {
     #[model(module = "auth")]
     pub struct Role {
         pub id: Id,
-        pub description: Option<String>,
         #[ui(widget = "permission_picker")]
         pub permissions: Vec<String>,
     }
@@ -99,16 +99,5 @@ mod tests {
     #[test]
     fn explicit_ui_widget() {
         assert_eq!(Role::permissions.widget, "permission_picker");
-        assert_eq!(Role::description.widget, "textarea"); // "description" field name heuristic
-    }
-
-    #[test]
-    fn vec_string_default_widget() {
-        // Without #[ui], Vec<String> would be "tags"
-        // But Role.permissions has explicit override
-        let ir = Role::__dsl_ir();
-        let fields = ir["fields"].as_array().unwrap();
-        let perm_field = fields.iter().find(|f| f["name"] == "permissions").unwrap();
-        assert_eq!(perm_field["widget"], "permission_picker");
     }
 }

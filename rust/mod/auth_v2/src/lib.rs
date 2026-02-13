@@ -94,13 +94,13 @@ mod tests {
 
         let user = User {
             id: openerp_types::Id::default(),
-            name: "Alice".into(),
-            description: None,
             email: Some(openerp_types::Email::new("alice@test.com")),
             avatar: None,
             active: true,
             password_hash: None,
             linked_accounts: None,
+            display_name: Some("Alice".into()),
+            description: None,
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
@@ -111,7 +111,7 @@ mod tests {
         assert!(!created.created_at.is_empty(), "created_at auto-filled");
 
         let fetched = ops.get_or_err(created.id.as_str()).unwrap();
-        assert_eq!(fetched.name, "Alice");
+        assert_eq!(fetched.display_name, Some("Alice".into()));
 
         let all = ops.list().unwrap();
         assert_eq!(all.len(), 1);
@@ -127,9 +127,10 @@ mod tests {
 
         let role = Role {
             id: openerp_types::Id::new("pms:admin"),
-            name: "PMS Admin".into(),
-            description: Some("Full PMS access".into()),
             permissions: vec!["pms:device:read".into(), "pms:device:write".into()],
+            display_name: Some("PMS Admin".into()),
+            description: Some("Full PMS access".into()),
+            metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
         };
@@ -176,7 +177,7 @@ mod tests {
 
         // POST /users to create.
         let user_json = serde_json::json!({
-            "name": "Bob",
+            "displayName": "Bob",
             "email": "bob@test.com",
             "active": true,
         });
@@ -191,7 +192,7 @@ mod tests {
 
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(created["name"], "Bob");
+        assert_eq!(created["displayName"], "Bob");
         assert!(!created["id"].as_str().unwrap().is_empty());
     }
 }

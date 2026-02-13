@@ -29,14 +29,12 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
     };
 
     // Strip #[ui(...)] and #[permission(...)] from field output.
-    // Add #[serde(default)] to all fields for flexible deserialization
-    // (hooks fill required fields like id, timestamps after deserialization).
+    // Add #[serde(default)] to all fields for flexible deserialization.
     let mut clean_fields = named.clone();
     for field in clean_fields.named.iter_mut() {
         field
             .attrs
             .retain(|a| !a.path().is_ident("ui") && !a.path().is_ident("permission"));
-        // Add #[serde(default)] if not already present.
         let has_serde_default = field.attrs.iter().any(|a| {
             if a.path().is_ident("serde") {
                 a.meta.to_token_stream().to_string().contains("default")
@@ -46,6 +44,33 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
         });
         if !has_serde_default {
             field.attrs.push(syn::parse_quote!(#[serde(default)]));
+        }
+    }
+
+    // Inject common fields if not already present:
+    // display_name, description, metadata, created_at, updated_at
+    let existing_names: Vec<String> = clean_fields
+        .named
+        .iter()
+        .filter_map(|f| f.ident.as_ref().map(|i| i.to_string()))
+        .collect();
+
+    let common_fields: Vec<(&str, syn::Type)> = vec![
+        ("display_name", syn::parse_quote!(Option<String>)),
+        ("description", syn::parse_quote!(Option<String>)),
+        ("metadata", syn::parse_quote!(Option<String>)),
+        ("created_at", syn::parse_quote!(openerp_types::DateTime)),
+        ("updated_at", syn::parse_quote!(openerp_types::DateTime)),
+    ];
+
+    for (name, ty) in &common_fields {
+        if !existing_names.contains(&name.to_string()) {
+            let ident = format_ident!("{}", name);
+            let field: syn::Field = syn::parse_quote! {
+                #[serde(default)]
+                pub #ident: #ty
+            };
+            clean_fields.named.push(field);
         }
     }
 
@@ -87,6 +112,27 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
                 "widget": #widget_str
             })
         });
+    }
+
+    // Generate Field consts + IR for injected common fields.
+    for (name, ty) in &common_fields {
+        if !existing_names.contains(&name.to_string()) {
+            let ty_str = quote!(#ty).to_string().replace(' ', "");
+            let inner_ty = extract_inner_type_name(ty);
+            let widget_str = infer_widget(&inner_ty, name).to_string();
+            let const_name = format_ident!("{}", name);
+            field_consts.push(quote! {
+                pub const #const_name: openerp_types::Field =
+                    openerp_types::Field::new(#name, #ty_str, #widget_str);
+            });
+            field_ir_entries.push(quote! {
+                serde_json::json!({
+                    "name": #name,
+                    "ty": #ty_str,
+                    "widget": #widget_str
+                })
+            });
+        }
     }
 
     let resource_snake = to_snake_case(&struct_name_str);

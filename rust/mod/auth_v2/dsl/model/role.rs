@@ -4,10 +4,7 @@ use openerp_types::*;
 #[model(module = "auth")]
 pub struct Role {
     pub id: Id,
-    pub name: String,
-    pub description: Option<String>,
     #[ui(widget = "permission_picker")]
     pub permissions: Vec<String>,
-    pub created_at: DateTime,
-    pub updated_at: DateTime,
+    // display_name, description, metadata, created_at, updated_at → auto-injected
 }

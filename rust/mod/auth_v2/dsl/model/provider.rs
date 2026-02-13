@@ -4,8 +4,6 @@ use openerp_types::*;
 #[model(module = "auth")]
 pub struct Provider {
     pub id: Id,
-    pub name: String,
-    pub description: Option<String>,
     pub provider_type: String,
     pub client_id: String,
     pub client_secret: Option<Secret>,
@@ -15,6 +13,5 @@ pub struct Provider {
     pub scopes: Vec<String>,
     pub redirect_url: Url,
     pub enabled: bool,
-    pub created_at: DateTime,
-    pub updated_at: DateTime,
+    // display_name, description, metadata, created_at, updated_at → auto-injected
 }
