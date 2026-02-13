@@ -1,99 +1,91 @@
-/// openerp-codegen-macro
-/// 
-/// Proc macros for full-stack code generation from Rust DSL.
-/// 
+//! OpenERP DSL Proc Macros
+//!
+//! Attribute macros for the five-layer DSL:
+//!
+//! - `#[model]`      — defines a model struct, emits with Serialize/Deserialize
+//! - `#[persistent]` — generates CRUD service methods for a model's DB struct
+//! - `#[facet]`      — generates Axum router for a REST API surface
+//! - `#[module_def]` — (reserved) module hierarchy definition
+
+use proc_macro::TokenStream;
+use syn::parse_macro_input;
+
+mod gen_model;
+mod gen_persistent;
+mod gen_facet;
+
+/// Attribute macro for model definitions.
+///
 /// Usage:
 /// ```ignore
-/// #[resource(table = "characters", display_name = "角色")]
-/// pub struct Character {
-///     #[primary_key]
+/// #[model(module = "auth")]
+/// #[key(id)]
+/// pub struct User {
 ///     pub id: String,
-///     
-///     #[required]
-///     #[ui(label = "名称", input_type = "text")]
+///     pub name: String,
+///     pub email: Option<String>,
+/// }
+/// ```
+///
+/// Generates:
+/// - Re-emits the struct with `#[derive(Debug, Clone, Serialize, Deserialize)]`
+/// - Embeds IR metadata as a const for use by other macros and codegen
+#[proc_macro_attribute]
+pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(item as syn::ItemStruct);
+    gen_model::expand_model(attr.into(), item)
+        .unwrap_or_else(|e| e.to_compile_error().into())
+        .into()
+}
+
+/// Attribute macro for persistent (DB) definitions.
+///
+/// Usage:
+/// ```ignore
+/// #[persistent(User, store = "kv")]
+/// #[key(id)]
+/// #[unique(email)]
+/// #[index(name)]
+/// pub struct UserDB {
+///     #[auto(uuid)]
+///     pub id: String,
+///     pub name: String,
+///     pub password_hash: String,
+///     #[auto(create_timestamp)]
+///     pub created_at: String,
+/// }
+/// ```
+///
+/// Generates:
+/// - Re-emits the DB struct with Serialize/Deserialize
+/// - A service struct with CRUD methods: get, list, create, update, delete
+/// - Key serialization/deserialization helpers
+#[proc_macro_attribute]
+pub fn persistent(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(item as syn::ItemStruct);
+    gen_persistent::expand_persistent(attr.into(), item)
+        .unwrap_or_else(|e| e.to_compile_error().into())
+        .into()
+}
+
+/// Attribute macro for facet (REST API surface) definitions.
+///
+/// Usage:
+/// ```ignore
+/// #[facet(path = "/data", auth = "jwt", model = "User")]
+/// pub struct DataUser {
+///     pub id: String,
 ///     pub name: String,
 /// }
 /// ```
-
-use proc_macro::TokenStream;
-use quote::quote;
-use syn::{parse_macro_input, DeriveInput, Data, Fields};
-
-mod parse;
-mod codegen;
-
-/// Derive macro for resource definitions
-/// 
+///
 /// Generates:
-/// 1. Embedded IR metadata
-/// 2. Codegen binary that uses the metadata
+/// - An Axum Router with CRUD routes
+/// - Permission checks via Authenticator trait
 #[proc_macro_attribute]
-pub fn resource(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(item as DeriveInput);
-    let attr = parse_macro_input!(attr as syn::AttributeArgs);
-    
-    // Parse resource configuration from attributes
-    let resource = match parse::parse_resource(&input, &attr) {
-        Ok(r) => r,
-        Err(e) => return e.to_compile_error().into(),
-    };
-    
-    // Generate:
-    // 1. Original struct (unchanged)
-    // 2. Codegen binary with embedded metadata
-    let output = codegen::generate_resource_codegen(&input, &resource);
-    
-    output.into()
-}
-
-/// Derive macro for enum definitions
-#[proc_macro_derive(Enum, attributes(ui))]
-pub fn derive_enum(input: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(input as DeriveInput);
-    
-    let enum_def = match parse::parse_enum(&input) {
-        Ok(e) => e,
-        Err(e) => return e.to_compile_error().into(),
-    };
-    
-    let output = codegen::generate_enum_codegen(&input, &enum_def);
-    
-    output.into()
-}
-
-/// Attribute macro for custom actions
-#[proc_macro_attribute]
-pub fn action(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(item as DeriveInput);
-    let attr = parse_macro_input!(attr as syn::AttributeArgs);
-    
-    let action = match parse::parse_action(&input, &attr) {
-        Ok(a) => a,
-        Err(e) => return e.to_compile_error().into(),
-    };
-    
-    let output = codegen::generate_action_codegen(&input, &action);
-    
-    output.into()
-}
-
-/// Attribute macro for filter definitions
-#[proc_macro_attribute]
-pub fn filters(attr: TokenStream, item: TokenStream) -> TokenStream {
-    let input = parse_macro_input!(item as DeriveInput);
-    
-    // Parse which resource this filter applies to
-    let resource_name = match parse::parse_filter_target(&attr) {
-        Ok(name) => name,
-        Err(e) => return e.to_compile_error().into(),
-    };
-    
-    let filters = match parse::parse_filters(&input, &resource_name) {
-        Ok(f) => f,
-        Err(e) => return e.to_compile_error().into(),
-    };
-    
-    let output = codegen::generate_filter_codegen(&input, &filters);
-    
-    output.into()
+pub fn facet(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(item as syn::ItemStruct);
+    gen_facet::expand_facet(attr.into(), item)
+        .unwrap_or_else(|e| e.to_compile_error().into())
+        .into()
 }
