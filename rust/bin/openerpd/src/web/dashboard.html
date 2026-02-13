@@ -289,42 +289,86 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
       +'<div class="table-card"><table><thead><tr id="resHead"></tr></thead>'
       +'<tbody id="resBody"><tr><td class="empty-cell" colspan="99">Loading\u2026</td></tr></tbody></table></div>';
 
+    // Build column list: all fields (including _at), skip hidden/readonly widgets except id
+    const allFields=res.fields;
+    const pk=(res.key&&res.key.fields&&res.key.fields[0])||'id';
+    // Find the "display name" field (first non-id String field)
+    const displayField=allFields.find(f=>f.name!=='id'&&f.name!==pk&&!f.name.endsWith('_at')&&(f.ty==='String'||f.ty==='Id'));
+    // Find description field
+    const descField=allFields.find(f=>f.name==='description'||f.name==='name'&&f!==displayField);
+    // Visible columns: id + main fields + timestamps
+    const mainCols=allFields.filter(f=>{
+      const w=(f.widget||'text').toLowerCase();
+      if(w==='hidden'||w==='password')return false;
+      if(f.name===pk)return false; // ID is always first col
+      if(displayField&&f.name===displayField.name)return false; // merged into title col
+      if(descField&&f.name===descField.name&&f.name==='description')return false; // merged into subtitle
+      return true;
+    }).slice(0,5);
+
     // Table headers
     const head=document.getElementById('resHead');
-    const cols=res.fields.filter(f=>!f.name.endsWith('_at')).slice(0,6);
-    for(const f of cols){head.innerHTML+='<th>'+f.name+'</th>'}
+    head.innerHTML='<th style="width:100px">ID</th>';
+    if(displayField)head.innerHTML+='<th>'+(displayField.name==='name'?'Name':displayField.name.replace(/_/g,' '))+'</th>';
+    for(const f of mainCols){
+      const label=f.name.replace(/_/g,' ').replace(/\b\w/g,c=>c.toUpperCase());
+      head.innerHTML+='<th>'+label+'</th>';
+    }
     head.innerHTML+='<th style="width:60px"></th>';
 
     // Load data
-    loadResourceData(basePath,cols,res);
+    loadResourceData(basePath,allFields,mainCols,displayField,descField,pk,res);
   }
 
-  async function loadResourceData(basePath,cols,res){
+  async function loadResourceData(basePath,allFields,mainCols,displayField,descField,pk,res){
     try{
       const d=await api('GET',basePath);
       const body=document.getElementById('resBody');
       const items=d.items||d;
       if(!items||!items.length){body.innerHTML='<tr><td class="empty-cell" colspan="99">No data</td></tr>';return}
-      const pk=(res.key&&res.key.fields&&res.key.fields[0])||'id';
+
       body.innerHTML=items.map(item=>{
         let row='<tr>';
-        for(const f of cols){
+        // ID column: fixed width, mono, click to copy
+        const idVal=String(item[pk]??item[toCamel(pk)]??item.id??'');
+        const idShort=idVal.length>12?idVal.slice(0,12)+'\u2026':idVal;
+        row+='<td class="mono" style="width:100px;cursor:pointer" title="'+idVal+'" onclick="navigator.clipboard.writeText(\''+idVal+'\');toast(\'Copied\')">'+idShort+'</td>';
+
+        // Display name + description column (title/subtitle)
+        if(displayField){
+          const title=item[displayField.name]??item[toCamel(displayField.name)]??'\u2014';
+          const sub=descField?item[descField.name]??item[toCamel(descField.name)]??'':'';
+          if(sub){
+            row+='<td><div style="font-weight:500">'+esc(String(title))+'</div><div style="font-size:12px;color:var(--muted-fg);margin-top:1px">'+esc(String(sub))+'</div></td>';
+          }else{
+            row+='<td style="font-weight:500">'+esc(String(title))+'</td>';
+          }
+        }
+
+        // Remaining columns
+        for(const f of mainCols){
           let v=item[f.name]??item[toCamel(f.name)]??'\u2014';
           const w=(f.widget||'text').toLowerCase();
           if(typeof v==='boolean'){row+='<td>'+(v?'\u2705':'\u274c')+'</td>';continue}
-          if(Array.isArray(v)){row+='<td>'+v.map(x=>'<span class="badge badge-outline" style="margin:1px">'+x+'</span>').join(' ')+'</td>';continue}
+          if(Array.isArray(v)){row+='<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">'+v.slice(0,3).map(x=>'<span class="badge badge-outline" style="margin:1px;font-size:10px">'+esc(x)+'</span>').join(' ')+(v.length>3?' +' +(v.length-3):'')+'</td>';continue}
+          if(v===null||v===undefined||v==='\u2014'){row+='<td style="color:var(--muted-fg)">\u2014</td>';continue}
           if(typeof v==='object')v=JSON.stringify(v);
-          if(f.name===pk||f.name==='id')row+='<td class="mono">'+short(String(v))+'</td>';
-          else if(w==='email')row+='<td><a href="mailto:'+v+'" style="color:var(--card-fg);text-decoration:underline">'+v+'</a></td>';
-          else if(w==='url'||w==='image')row+='<td><a href="'+v+'" target="_blank" style="color:var(--card-fg);text-decoration:underline">'+short(String(v))+'</a></td>';
-          else row+='<td>'+String(v)+'</td>';
+          v=String(v);
+          if(w==='email')row+='<td><a href="mailto:'+v+'" style="color:var(--card-fg);text-decoration:underline;text-underline-offset:2px">'+esc(v)+'</a></td>';
+          else if(w==='url'||w==='image')row+='<td><a href="'+v+'" target="_blank" style="color:var(--card-fg);text-decoration:underline;text-underline-offset:2px">'+esc(short(v))+'</a></td>';
+          else if(f.name.endsWith('_at')&&v.includes('T'))row+='<td style="color:var(--muted-fg);font-size:12px">'+fmtDate(v)+'</td>';
+          else row+='<td>'+esc(v)+'</td>';
         }
-        const id=item[pk]??item[toCamel(pk)]??item.id;
+
+        const id=idVal;
         row+='<td><button class="btn-ghost-destructive" onclick="deleteResource(\''+basePath+'\',\''+id+'\')">Delete</button></td>';
         return row+'</tr>';
       }).join('');
     }catch(e){toast(e.message)}
   }
+
+  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
+  function fmtDate(s){try{const d=new Date(s);return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}catch(e){return s}}
 
   // ── Widget rendering ──
   function renderWidget(f){
