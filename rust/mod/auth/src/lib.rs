@@ -391,4 +391,93 @@ mod tests {
         // Should fail: viewer role doesn't have auth:user:create.
         assert!(checker.check(&headers, "auth:user:create").is_err());
     }
+
+    // ── Integration: admin API with AuthChecker ──
+
+    #[tokio::test]
+    async fn integration_admin_api_with_auth_checker() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("integ.redb")).unwrap(),
+        );
+
+        // Use AuthChecker instead of AllowAll.
+        let checker = Arc::new(handlers::policy_check::AuthChecker::new(
+            kv.clone(), "integ-secret", "auth:root",
+        ));
+        let router = admin_router(kv.clone(), checker);
+
+        // Helper: create JWT.
+        let make_jwt = |roles: Vec<&str>| -> String {
+            let claims = serde_json::json!({
+                "sub": "test-user", "roles": roles,
+                "iat": chrono::Utc::now().timestamp(),
+                "exp": chrono::Utc::now().timestamp() + 3600,
+            });
+            jsonwebtoken::encode(
+                &jsonwebtoken::Header::default(),
+                &claims,
+                &jsonwebtoken::EncodingKey::from_secret(b"integ-secret"),
+            ).unwrap()
+        };
+
+        // 1. No auth → 400.
+        let req = Request::builder().uri("/users").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // 2. Root token → 200.
+        let root_token = make_jwt(vec!["auth:root"]);
+        let req = Request::builder()
+            .uri("/users")
+            .header("authorization", format!("Bearer {}", root_token))
+            .body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 3. Create a role with auth:user:list permission.
+        let role = Role {
+            id: openerp_types::Id::new("test:viewer"),
+            permissions: vec!["auth:user:list".into()],
+            display_name: Some("Viewer".into()),
+            description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+        KvOps::<Role>::new(kv.clone()).save_new(role).unwrap();
+
+        // 4. User with viewer role → can list users.
+        let viewer_token = make_jwt(vec!["test:viewer"]);
+        let req = Request::builder()
+            .uri("/users")
+            .header("authorization", format!("Bearer {}", viewer_token))
+            .body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 5. User with viewer role → cannot create users.
+        let user_json = serde_json::json!({"displayName": "Integ User", "email": "integ@test.com"});
+        let req = Request::builder()
+            .method("POST")
+            .uri("/users")
+            .header("authorization", format!("Bearer {}", viewer_token))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&user_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST); // permission denied
+
+        // 6. Root creates user → succeeds.
+        let req = Request::builder()
+            .method("POST")
+            .uri("/users")
+            .header("authorization", format!("Bearer {}", root_token))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&user_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
 }
