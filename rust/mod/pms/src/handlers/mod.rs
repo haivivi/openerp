@@ -3,3 +3,4 @@
 //! TODO: provision, activate, firmware upload
 
 pub mod app;
+pub mod mfg;
