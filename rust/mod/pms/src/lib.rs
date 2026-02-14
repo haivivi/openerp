@@ -30,11 +30,6 @@ pub fn admin_router(
 pub fn facet_routers(kv: Arc<dyn openerp_kv::KVStore>) -> Vec<openerp_store::FacetDef> {
     vec![
         openerp_store::FacetDef {
-            name: "app",
-            module: "pms",
-            router: handlers::app::router(kv.clone()),
-        },
-        openerp_store::FacetDef {
             name: "mfg",
             module: "pms",
             router: handlers::mfg::router(kv.clone()),
