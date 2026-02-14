@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>OpenERP — Dashboard</title>
-<script src="https://unpkg.com/lucide@latest"></script>
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2/src/regular/style.css">
 <style>
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 :root{
@@ -123,14 +123,14 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 <!-- Top bar -->
 <div class="topbar">
   <div class="logo" id="logoBtn">
-    <i data-lucide="layers" style="width:18px;height:18px"></i>
+    <i class="ph ph-stack" style="font-size:18px"></i>
     OpenERP
   </div>
   <div class="sep"></div>
   <div id="moduleButtons"></div>
   <div class="topbar-spacer"></div>
   <span class="user-name" id="userName">root</span>
-  <button class="btn-ghost" id="logoutBtn"><i data-lucide="log-out" style="width:14px;height:14px"></i> Logout</button>
+  <button class="btn-ghost" id="logoutBtn"><i class="ph ph-sign-out" style="font-size:14px"></i> Logout</button>
 </div>
 
 <!-- Mega menu -->
@@ -210,7 +210,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     buildModuleButtons();
     buildMegaMenu();
     if(schema.modules.length>0)selectModule(schema.modules[0].id);
-    lucide.createIcons();
+    
   }
 
   // ── Module buttons in top bar ──
@@ -230,16 +230,16 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     const m=document.getElementById('megaMenu');m.innerHTML='';
     for(const mod of schema.modules){
       const div=document.createElement('div');div.className='mega-module';
-      div.innerHTML='<h3><i data-lucide="'+(mod.icon||'folder')+'" style="width:14px;height:14px;vertical-align:-2px"></i> '+mod.label+'</h3>';
+      div.innerHTML='<h3><i class="ph ph-'+(phIcon(mod.icon))+'" style="font-size:14px;vertical-align:-1px"></i> '+mod.label+'</h3>';
       for(const nav of mod.hierarchy.nav){
         const a=document.createElement('a');
-        a.innerHTML='<i data-lucide="'+(nav.icon||'file')+'" style="width:14px;height:14px;vertical-align:-2px;opacity:.6"></i> '+nav.label;
+        a.innerHTML='<i class="ph ph-'+(phIcon(nav.icon))+'" style="font-size:14px;opacity:.6"></i> '+nav.label;
         a.addEventListener('click',()=>{closeMega();selectModule(mod.id);selectResource(nav.model)});
         div.appendChild(a);
       }
       m.appendChild(div);
     }
-    lucide.createIcons();
+    
   }
   document.getElementById('logoBtn').addEventListener('click',()=>{
     document.getElementById('megaOverlay').classList.toggle('open');
@@ -264,11 +264,11 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     const s=document.getElementById('sidebar');s.innerHTML='';
     for(const nav of currentModule.hierarchy.nav){
       const item=document.createElement('div');item.className='nav-item';item.dataset.model=nav.model;
-      item.innerHTML='<i data-lucide="'+(nav.icon||'file')+'" style="width:16px;height:16px;flex-shrink:0"></i> '+nav.label;
+      item.innerHTML='<i class="ph ph-'+(phIcon(nav.icon))+'" style="font-size:16px"></i> '+nav.label;
       item.addEventListener('click',()=>selectResource(nav.model));
       s.appendChild(item);
     }
-    lucide.createIcons();
+    
   }
 
   // ── Select resource ──
@@ -289,7 +289,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     const basePath='/admin/'+currentModule.id+'/'+pluralize(toSnake(res.name));
 
     c.innerHTML='<div class="section-header"><h2>'+(navInfo?.label||res.name)+'</h2>'
-      +'<button class="btn-sm-primary" onclick="openCreateDlg()"><i data-lucide="plus" style="width:14px;height:14px"></i> Add</button></div>'
+      +'<button class="btn-sm-primary" onclick="openCreateDlg()"><i class="ph ph-plus" style="font-size:14px"></i> Add</button></div>'
       +'<div class="table-card"><table><thead><tr id="resHead"></tr></thead>'
       +'<tbody id="resBody"><tr><td class="empty-cell" colspan="99">Loading\u2026</td></tr></tbody></table></div>';
 
@@ -321,7 +321,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 
     // Load data
     loadResourceData(basePath,allFields,mainCols,displayField,descField,pk,res);
-    lucide.createIcons();
+    
   }
 
   async function loadResourceData(basePath,allFields,mainCols,displayField,descField,pk,res){
@@ -353,7 +353,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
         for(const f of mainCols){
           let v=item[f.name]??item[toCamel(f.name)]??'\u2014';
           const w=(f.widget||'text').toLowerCase();
-          if(typeof v==='boolean'){row+='<td>'+(v?'<i data-lucide="check" style="width:16px;height:16px;color:var(--success)"></i>':'<i data-lucide="x" style="width:16px;height:16px;color:var(--muted-fg)"></i>')+'</td>';continue}
+          if(typeof v==='boolean'){row+='<td>'+(v?'<i class="ph ph-check" style="color:var(--success)"></i>':'<i class="ph ph-x" style="color:var(--muted-fg)"></i>')+'</td>';continue}
           if(Array.isArray(v)){row+='<td style="max-width:200px;overflow:hidden;text-overflow:ellipsis">'+v.slice(0,3).map(x=>'<span class="badge badge-outline" style="margin:1px;font-size:10px">'+esc(x)+'</span>').join(' ')+(v.length>3?' +' +(v.length-3):'')+'</td>';continue}
           if(v===null||v===undefined||v==='\u2014'){row+='<td style="color:var(--muted-fg)">\u2014</td>';continue}
           if(typeof v==='object')v=JSON.stringify(v);
@@ -368,10 +368,15 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
         row+='<td><button class="btn-ghost-destructive" onclick="deleteResource(\''+basePath+'\',\''+id+'\')">Delete</button></td>';
         return row+'</tr>';
       }).join('');
-      lucide.createIcons();
+      
     }catch(e){toast(e.message)}
   }
 
+  // Map schema icon names to Phosphor icon names.
+  function phIcon(name){
+    const map={layers:'stack',box:'cube',monitor:'desktop',activity:'pulse',file:'file-text'};
+    return map[name]||name||'file-text';
+  }
   function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;')}
   function fmtDate(s){try{const d=new Date(s);return d.toLocaleDateString()+' '+d.toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'})}catch(e){return s}}
 

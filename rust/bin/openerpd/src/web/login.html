@@ -66,13 +66,13 @@
 
   @media(max-width:900px){.left{display:none}.right{width:100%;min-width:0}}
 </style>
-<script src="https://unpkg.com/lucide@latest"></script>
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2/src/regular/style.css">
 </head>
 <body>
 
 <div class="left">
   <div class="brand">
-    <i data-lucide="layers" style="width:24px;height:24px"></i>
+    <i class="ph ph-stack" style="font-size:24px"></i>
     OpenERP
   </div>
   <div class="quote">
@@ -120,7 +120,6 @@
     }catch(ex){err.textContent=ex.message;err.style.display='block'}finally{btn.disabled=false;btn.textContent='Sign In'}
   });
 })();
-lucide.createIcons();
 </script>
 </body>
 </html>
