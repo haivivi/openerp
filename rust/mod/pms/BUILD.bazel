@@ -1,8 +1,8 @@
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 rust_library(
-    name = "auth_v2",
-    crate_name = "auth_v2",
+    name = "pms",
+    crate_name = "pms",
     srcs = glob(["dsl/**/*.rs", "src/**/*.rs"]),
     crate_root = "src/lib.rs",
     edition = "2021",
@@ -24,11 +24,9 @@ rust_library(
 )
 
 rust_test(
-    name = "auth_v2_test",
-    crate = ":auth_v2",
+    name = "pms_test",
+    crate = ":pms",
     deps = [
         "@crates//:tempfile",
-        "@crates//:tokio",
-        "@crates//:tower",
     ],
 )

@@ -8,7 +8,7 @@
 //! - **Policy check**: permission resolution (future)
 //! - **OAuth**: provider callback flow (future)
 //!
-//! The DSL module (auth_v2) provides:
+//! The DSL module (auth) provides:
 //! - Model definitions (User, Role, Group, Policy, Session, Provider)
 //! - KvStore CRUD operations via KvOps<T>
 //! - Admin router (/admin/auth/*)
@@ -17,7 +17,7 @@
 //! Custom handlers that need direct model access can use KvOps:
 //!
 //! ```ignore
-//! use auth_v2::model::User;
+//! use auth::model::User;
 //! use openerp_store::KvOps;
 //!
 //! let ops = KvOps::<User>::new(kv.clone());

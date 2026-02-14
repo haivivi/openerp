@@ -1,8 +1,8 @@
 load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 rust_library(
-    name = "task_v2",
-    crate_name = "task_v2",
+    name = "task",
+    crate_name = "task",
     srcs = glob(["dsl/**/*.rs", "src/**/*.rs"]),
     crate_root = "src/lib.rs",
     edition = "2021",
@@ -24,8 +24,8 @@ rust_library(
 )
 
 rust_test(
-    name = "task_v2_test",
-    crate = ":task_v2",
+    name = "task_test",
+    crate = ":task",
     deps = [
         "@crates//:tempfile",
     ],

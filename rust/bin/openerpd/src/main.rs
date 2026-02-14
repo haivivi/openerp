@@ -73,9 +73,9 @@ async fn main() -> anyhow::Result<()> {
         Arc::new(openerp_core::AllowAll); // TODO: use AuthChecker
 
     let admin_routes: Vec<(&str, axum::Router)> = vec![
-        ("auth", auth_v2::admin_router(Arc::clone(&kv), authenticator.clone())),
-        ("pms", pms_v2::admin_router(Arc::clone(&kv), authenticator.clone())),
-        ("task", task_v2::admin_router(Arc::clone(&kv), authenticator.clone())),
+        ("auth", auth::admin_router(Arc::clone(&kv), authenticator.clone())),
+        ("pms", pms::admin_router(Arc::clone(&kv), authenticator.clone())),
+        ("task", task::admin_router(Arc::clone(&kv), authenticator.clone())),
     ];
     info!("Admin routers: /admin/auth/, /admin/pms/, /admin/task/");
 
@@ -84,12 +84,12 @@ async fn main() -> anyhow::Result<()> {
     let mut schema_json = openerp_store::build_schema(
         "OpenERP",
         vec![
-            auth_v2::schema_def(),
-            pms_v2::schema_def(),
-            task_v2::schema_def(),
+            auth::schema_def(),
+            pms::schema_def(),
+            task::schema_def(),
         ],
     );
-    openerp_store::apply_overrides(&mut schema_json, &auth_v2::ui_overrides());
+    openerp_store::apply_overrides(&mut schema_json, &auth::ui_overrides());
 
     // Build JWT state for middleware.
     let jwt_state = Arc::new(JwtState {
