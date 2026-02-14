@@ -7,6 +7,8 @@
 // DSL definitions.
 #[path = "../dsl/model/mod.rs"]
 pub mod model;
+#[path = "../dsl/hierarchy/mod.rs"]
+pub mod hierarchy_def;
 #[path = "../dsl/ui/mod.rs"]
 pub mod ui_defs;
 
@@ -81,6 +83,7 @@ pub fn schema_def() -> openerp_store::ModuleDef {
             ResourceDef::from_ir("auth", Provider::__dsl_ir())
                 .with_desc("OAuth provider configuration"),
         ],
+        hierarchy: hierarchy_def::hierarchy(),
     }
 }
 

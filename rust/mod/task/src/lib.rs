@@ -2,6 +2,8 @@
 
 #[path = "../dsl/model/mod.rs"]
 pub mod model;
+#[path = "../dsl/hierarchy/mod.rs"]
+pub mod hierarchy_def;
 
 pub mod handlers;
 mod store_impls;
@@ -40,5 +42,6 @@ pub fn schema_def() -> openerp_store::ModuleDef {
                 .with_action("task", "cancel"),
             ResourceDef::from_ir("task", TaskType::__dsl_ir()).with_desc("Task type definitions"),
         ],
+        hierarchy: hierarchy_def::hierarchy(),
     }
 }

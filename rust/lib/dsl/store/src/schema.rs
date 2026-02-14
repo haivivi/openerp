@@ -6,12 +6,16 @@
 
 use serde_json::{json, Value};
 
+use crate::hierarchy::HierarchyNode;
+
 /// A module definition for the schema.
 pub struct ModuleDef {
     pub id: &'static str,
     pub label: &'static str,
     pub icon: &'static str,
     pub resources: Vec<ResourceDef>,
+    /// Resource hierarchy tree for sidebar navigation and detail page relations.
+    pub hierarchy: Vec<HierarchyNode>,
 }
 
 /// A resource definition within a module.
@@ -157,12 +161,7 @@ pub fn build_schema(app_name: &str, modules: Vec<ModuleDef>) -> Value {
                 "icon": m.icon,
                 "resources": m.resources.iter().map(|r| &r.ir).collect::<Vec<_>>(),
                 "hierarchy": {
-                    "nav": m.resources.iter().map(|r| json!({
-                        "model": r.ir["name"],
-                        "path": format!("/{}", r.path),
-                        "label": r.label,
-                        "icon": r.icon,
-                    })).collect::<Vec<_>>()
+                    "nav": m.hierarchy.iter().map(|h| h.to_json()).collect::<Vec<_>>()
                 },
                 "facets": ["admin"]
             })
@@ -191,6 +190,9 @@ mod tests {
                 resources: vec![
                     ResourceDef::from_ir("auth", json!({"name": "User", "module": "auth", "resource": "user", "fields": []}))
                         .with_desc("User identity management"),
+                ],
+                hierarchy: vec![
+                    HierarchyNode::leaf("user", "Users", "users", "User identity management"),
                 ],
             }],
         );

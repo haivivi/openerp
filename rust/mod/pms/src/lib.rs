@@ -2,6 +2,8 @@
 
 #[path = "../dsl/model/mod.rs"]
 pub mod model;
+#[path = "../dsl/hierarchy/mod.rs"]
+pub mod hierarchy_def;
 
 pub mod handlers;
 mod store_impls;
@@ -54,5 +56,6 @@ pub fn schema_def() -> openerp_store::ModuleDef {
                 .with_action("pms", "import"),
             ResourceDef::from_ir("pms", Segment::__dsl_ir()).with_desc("SN encoding segments"),
         ],
+        hierarchy: hierarchy_def::hierarchy(),
     }
 }
