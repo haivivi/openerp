@@ -3,7 +3,7 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
 rust_binary(
     name = "openerpd",
     srcs = glob(["src/**/*.rs"]),
-    # HTML served from oe_web crate (rust/lib/dsl/web/).
+    # HTML served from openerp_web crate (rust/lib/dsl/web/).
     visibility = ["//visibility:public"],
     deps = [
         "//rust/lib/core",

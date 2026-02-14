@@ -18,7 +18,7 @@
 //!
 //! ```ignore
 //! use auth_v2::model::User;
-//! use oe_store::KvOps;
+//! use openerp_store::KvOps;
 //!
 //! let ops = KvOps::<User>::new(kv.clone());
 //! let user = ops.get_or_err("user-id")?;

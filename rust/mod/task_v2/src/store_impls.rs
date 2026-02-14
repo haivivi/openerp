@@ -1,7 +1,7 @@
 //! KvStore implementations for Task models.
 
-use oe_store::KvStore;
-use oe_types::*;
+use openerp_store::KvStore;
+use openerp_types::*;
 use crate::model::*;
 
 impl KvStore for Task {

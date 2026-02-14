@@ -3,8 +3,8 @@
 //! Models impl `SearchStore` to declare which fields are searchable.
 //! `SearchOps<T>` provides index/search/remove using a SearchEngine backend.
 
-use oe_core::ServiceError;
-use oe_types::Field;
+use openerp_core::ServiceError;
+use openerp_types::Field;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -45,12 +45,12 @@ pub trait SearchStore: Serialize + DeserializeOwned + Clone + Send + Sync + 'sta
 
 /// Full-text search operations for a SearchStore model.
 pub struct SearchOps<T: SearchStore> {
-    engine: Arc<dyn oe_search::SearchEngine>,
+    engine: Arc<dyn openerp_search::SearchEngine>,
     _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T: SearchStore> SearchOps<T> {
-    pub fn new(engine: Arc<dyn oe_search::SearchEngine>) -> Self {
+    pub fn new(engine: Arc<dyn openerp_search::SearchEngine>) -> Self {
         Self {
             engine,
             _phantom: std::marker::PhantomData,

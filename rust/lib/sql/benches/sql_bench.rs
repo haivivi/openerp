@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 
-use oe_sql::{SQLStore, SqliteStore, Value};
+use openerp_sql::{SQLStore, SqliteStore, Value};
 
 fn bench_exec_insert(c: &mut Criterion) {
     let store = SqliteStore::open_in_memory().unwrap();

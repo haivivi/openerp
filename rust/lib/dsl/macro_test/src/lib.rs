@@ -2,8 +2,8 @@
 
 #[cfg(test)]
 mod tests {
-    use oe_macro::model;
-    use oe_types::*;
+    use openerp_macro::model;
+    use openerp_types::*;
 
     // ── Basic model (common fields auto-injected) ──
 

@@ -2,7 +2,7 @@ load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 rust_library(
     name = "types",
-    crate_name = "oe_types",
+    crate_name = "openerp_types",
     srcs = glob(["src/**/*.rs"]),
     edition = "2021",
     visibility = ["//visibility:public"],

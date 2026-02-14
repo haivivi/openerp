@@ -25,7 +25,7 @@ mod model;
 ///
 /// Generates:
 /// - `#[derive(Debug, Clone, Serialize, Deserialize)]` with `#[serde(rename_all = "camelCase")]`
-/// - Field consts: `User::id`, `User::email`, etc. (type `oe_types::Field`)
+/// - Field consts: `User::id`, `User::email`, etc. (type `openerp_types::Field`)
 /// - `User::__DSL_IR` — JSON metadata for codegen/schema
 /// - `User::__DSL_FIELDS` — array of all Field descriptors
 /// - `User::__DSL_MODULE` — module name string

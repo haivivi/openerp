@@ -6,7 +6,7 @@
 
 use std::sync::Arc;
 
-use oe_core::now_rfc3339;
+use openerp_core::now_rfc3339;
 use tracing::info;
 
 use crate::config::ServerConfig;
@@ -33,7 +33,7 @@ pub fn verify_config(config: &ServerConfig) -> anyhow::Result<()> {
 
 /// Ensure the auth:root role exists. Creates it if missing.
 pub fn ensure_root_role(
-    kv: &Arc<dyn oe_kv::KVStore>,
+    kv: &Arc<dyn openerp_kv::KVStore>,
 ) -> anyhow::Result<()> {
     let key = format!("auth/roles/{}", ROOT_ROLE_ID);
 

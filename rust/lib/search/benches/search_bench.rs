@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tempfile::TempDir;
 
-use oe_search::{SearchEngine, TantivyEngine};
+use openerp_search::{SearchEngine, TantivyEngine};
 
 fn bench_index_document(c: &mut Criterion) {
     let tmp = TempDir::new().unwrap();

@@ -1,5 +1,5 @@
-use oe_macro::model;
-use oe_types::*;
+use openerp_macro::model;
+use openerp_types::*;
 
 /// A production batch. Provisioning generates Devices.
 #[model(module = "pms")]

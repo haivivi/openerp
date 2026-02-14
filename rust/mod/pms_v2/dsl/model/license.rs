@@ -1,5 +1,5 @@
-use oe_macro::model;
-use oe_types::*;
+use openerp_macro::model;
+use openerp_types::*;
 
 /// A license entry (MIIT, WiFi, etc.).
 #[model(module = "pms")]

@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tempfile::TempDir;
 
-use oe_blob::{BlobStore, FileStore};
+use openerp_blob::{BlobStore, FileStore};
 
 fn bench_put_1kb(c: &mut Criterion) {
     let tmp = TempDir::new().unwrap();

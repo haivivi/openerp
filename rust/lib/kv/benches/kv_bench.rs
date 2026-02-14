@@ -1,7 +1,7 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tempfile::TempDir;
 
-use oe_kv::{KVStore, OverlayKV, RedbStore};
+use openerp_kv::{KVStore, OverlayKV, RedbStore};
 
 fn bench_redb_set(c: &mut Criterion) {
     let tmp = TempDir::new().unwrap();

@@ -6,8 +6,8 @@
 //! Data is stored as JSON blob in a `data` column, with indexed fields
 //! extracted into dedicated columns for efficient queries.
 
-use oe_core::ServiceError;
-use oe_types::Field;
+use openerp_core::ServiceError;
+use openerp_types::Field;
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
@@ -65,19 +65,19 @@ pub trait SqlStore: Serialize + DeserializeOwned + Clone + Send + Sync + 'static
 
 /// CRUD operations for a SqlStore model.
 pub struct SqlOps<T: SqlStore> {
-    sql: Arc<dyn oe_sql::SQLStore>,
+    sql: Arc<dyn openerp_sql::SQLStore>,
     _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T: SqlStore> SqlOps<T> {
-    pub fn new(sql: Arc<dyn oe_sql::SQLStore>) -> Self {
+    pub fn new(sql: Arc<dyn openerp_sql::SQLStore>) -> Self {
         Self {
             sql,
             _phantom: std::marker::PhantomData,
         }
     }
 
-    fn sql_err(e: oe_sql::SQLError) -> ServiceError {
+    fn sql_err(e: openerp_sql::SQLError) -> ServiceError {
         ServiceError::Storage(e.to_string())
     }
 
@@ -148,19 +148,19 @@ impl<T: SqlStore> SqlOps<T> {
             table,
             where_clause.join(" AND ")
         );
-        let params: Vec<oe_sql::Value> = pk
+        let params: Vec<openerp_sql::Value> = pk
             .iter()
-            .map(|v| oe_sql::Value::Text(v.to_string()))
+            .map(|v| openerp_sql::Value::Text(v.to_string()))
             .collect();
 
         let rows = self.sql.query(&sql, &params).map_err(Self::sql_err)?;
         if let Some(row) = rows.first() {
-            if let Some(oe_sql::Value::Blob(data)) = row.get("data") {
+            if let Some(openerp_sql::Value::Blob(data)) = row.get("data") {
                 let record: T = serde_json::from_slice(data)
                     .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
                 return Ok(Some(record));
             }
-            if let Some(oe_sql::Value::Text(data)) = row.get("data") {
+            if let Some(openerp_sql::Value::Text(data)) = row.get("data") {
                 let record: T = serde_json::from_str(data)
                     .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
                 return Ok(Some(record));
@@ -182,11 +182,11 @@ impl<T: SqlStore> SqlOps<T> {
         let rows = self.sql.query(&sql, &[]).map_err(Self::sql_err)?;
         let mut records = Vec::with_capacity(rows.len());
         for row in &rows {
-            if let Some(oe_sql::Value::Blob(data)) = row.get("data") {
+            if let Some(openerp_sql::Value::Blob(data)) = row.get("data") {
                 let record: T = serde_json::from_slice(data)
                     .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
                 records.push(record);
-            } else if let Some(oe_sql::Value::Text(data)) = row.get("data") {
+            } else if let Some(openerp_sql::Value::Text(data)) = row.get("data") {
                 let record: T = serde_json::from_str(data)
                     .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
                 records.push(record);
@@ -209,7 +209,7 @@ impl<T: SqlStore> SqlOps<T> {
         // Build INSERT.
         let mut col_names = Vec::new();
         let mut placeholders = Vec::new();
-        let mut params: Vec<oe_sql::Value> = Vec::new();
+        let mut params: Vec<openerp_sql::Value> = Vec::new();
 
         for (i, f) in indexed.iter().enumerate() {
             col_names.push(format!("\"{}\"", f.name));
@@ -218,20 +218,20 @@ impl<T: SqlStore> SqlOps<T> {
                 .get(f.name)
                 .or_else(|| json_val.get(&to_camel_case(f.name)))
                 .map(|v| match v {
-                    serde_json::Value::String(s) => oe_sql::Value::Text(s.clone()),
+                    serde_json::Value::String(s) => openerp_sql::Value::Text(s.clone()),
                     serde_json::Value::Number(n) => {
-                        oe_sql::Value::Integer(n.as_i64().unwrap_or(0))
+                        openerp_sql::Value::Integer(n.as_i64().unwrap_or(0))
                     }
-                    serde_json::Value::Bool(b) => oe_sql::Value::Integer(*b as i64),
-                    other => oe_sql::Value::Text(other.to_string()),
+                    serde_json::Value::Bool(b) => openerp_sql::Value::Integer(*b as i64),
+                    other => openerp_sql::Value::Text(other.to_string()),
                 })
-                .unwrap_or(oe_sql::Value::Null);
+                .unwrap_or(openerp_sql::Value::Null);
             params.push(val);
         }
 
         col_names.push("data".to_string());
         placeholders.push(format!("?{}", indexed.len() + 1));
-        params.push(oe_sql::Value::Blob(data));
+        params.push(openerp_sql::Value::Blob(data));
 
         let sql = format!(
             "INSERT INTO \"{}\" ({}) VALUES ({})",
@@ -260,7 +260,7 @@ impl<T: SqlStore> SqlOps<T> {
 
         // Build UPDATE.
         let mut set_clauses = Vec::new();
-        let mut params: Vec<oe_sql::Value> = Vec::new();
+        let mut params: Vec<openerp_sql::Value> = Vec::new();
         let mut idx = 1;
 
         for f in &indexed {
@@ -272,27 +272,27 @@ impl<T: SqlStore> SqlOps<T> {
                 .get(f.name)
                 .or_else(|| json_val.get(&to_camel_case(f.name)))
                 .map(|v| match v {
-                    serde_json::Value::String(s) => oe_sql::Value::Text(s.clone()),
+                    serde_json::Value::String(s) => openerp_sql::Value::Text(s.clone()),
                     serde_json::Value::Number(n) => {
-                        oe_sql::Value::Integer(n.as_i64().unwrap_or(0))
+                        openerp_sql::Value::Integer(n.as_i64().unwrap_or(0))
                     }
-                    serde_json::Value::Bool(b) => oe_sql::Value::Integer(*b as i64),
-                    other => oe_sql::Value::Text(other.to_string()),
+                    serde_json::Value::Bool(b) => openerp_sql::Value::Integer(*b as i64),
+                    other => openerp_sql::Value::Text(other.to_string()),
                 })
-                .unwrap_or(oe_sql::Value::Null);
+                .unwrap_or(openerp_sql::Value::Null);
             params.push(val);
             idx += 1;
         }
 
         set_clauses.push(format!("data = ?{}", idx));
-        params.push(oe_sql::Value::Blob(data));
+        params.push(openerp_sql::Value::Blob(data));
         idx += 1;
 
         let where_clause: Vec<String> = pk_fields
             .iter()
             .enumerate()
             .map(|(i, f)| {
-                params.push(oe_sql::Value::Text(pk_values[i].clone()));
+                params.push(openerp_sql::Value::Text(pk_values[i].clone()));
                 format!("\"{}\" = ?{}", f.name, idx + i)
             })
             .collect();
@@ -318,9 +318,9 @@ impl<T: SqlStore> SqlOps<T> {
             .enumerate()
             .map(|(i, f)| format!("\"{}\" = ?{}", f.name, i + 1))
             .collect();
-        let params: Vec<oe_sql::Value> = pk
+        let params: Vec<openerp_sql::Value> = pk
             .iter()
-            .map(|v| oe_sql::Value::Text(v.to_string()))
+            .map(|v| openerp_sql::Value::Text(v.to_string()))
             .collect();
 
         let sql = format!(
@@ -343,16 +343,16 @@ impl<T: SqlStore> SqlOps<T> {
         );
         let rows = self
             .sql
-            .query(&sql, &[oe_sql::Value::Text(value.to_string())])
+            .query(&sql, &[openerp_sql::Value::Text(value.to_string())])
             .map_err(Self::sql_err)?;
 
         let mut records = Vec::new();
         for row in &rows {
-            if let Some(oe_sql::Value::Blob(data)) = row.get("data") {
+            if let Some(openerp_sql::Value::Blob(data)) = row.get("data") {
                 let record: T = serde_json::from_slice(data)
                     .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
                 records.push(record);
-            } else if let Some(oe_sql::Value::Text(data)) = row.get("data") {
+            } else if let Some(openerp_sql::Value::Text(data)) = row.get("data") {
                 let record: T = serde_json::from_str(data)
                     .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
                 records.push(record);
@@ -409,8 +409,8 @@ mod tests {
 
     fn make_ops() -> (SqlOps<Device>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let sql: Arc<dyn oe_sql::SQLStore> =
-            Arc::new(oe_sql::SqliteStore::open(&dir.path().join("test.db")).unwrap());
+        let sql: Arc<dyn openerp_sql::SQLStore> =
+            Arc::new(openerp_sql::SqliteStore::open(&dir.path().join("test.db")).unwrap());
         let ops = SqlOps::new(sql);
         ops.ensure_table().unwrap();
         (ops, dir)
@@ -476,8 +476,8 @@ mod tests {
     #[test]
     fn compound_pk() {
         let dir = tempfile::tempdir().unwrap();
-        let sql: Arc<dyn oe_sql::SQLStore> =
-            Arc::new(oe_sql::SqliteStore::open(&dir.path().join("test2.db")).unwrap());
+        let sql: Arc<dyn openerp_sql::SQLStore> =
+            Arc::new(openerp_sql::SqliteStore::open(&dir.path().join("test2.db")).unwrap());
         let ops = SqlOps::new(sql);
         ops.ensure_table().unwrap();
 

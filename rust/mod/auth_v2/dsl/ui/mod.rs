@@ -8,7 +8,7 @@ mod textarea;
 mod password;
 mod url;
 
-use oe_store::WidgetOverride;
+use openerp_store::WidgetOverride;
 
 /// Collect all UI widget overrides for the auth module.
 pub fn overrides() -> Vec<WidgetOverride> {
