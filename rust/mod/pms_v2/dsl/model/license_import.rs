@@ -1,5 +1,5 @@
-use openerp_macro::model;
-use openerp_types::*;
+use oe_macro::model;
+use oe_types::*;
 
 /// A license import/generation batch record.
 #[model(module = "pms")]

@@ -77,7 +77,7 @@ async fn handle_root_login(state: &AppState, password: &str) -> axum::response::
         name: "Root".to_string(),
         groups: vec![],
         roles: vec![ROOT_ROLE_ID.to_string()],
-        sid: openerp_core::new_id(),
+        sid: oe_core::new_id(),
         iat: now,
         exp: now + expire_secs as i64,
     };

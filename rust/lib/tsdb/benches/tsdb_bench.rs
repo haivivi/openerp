@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tempfile::TempDir;
 
-use openerp_tsdb::{LogEntry, LogQuery, TsDb, WalEngine};
+use oe_tsdb::{LogEntry, LogQuery, TsDb, WalEngine};
 
 fn make_entry(ts: u64, log_type: &str, fw: &str) -> LogEntry {
     let mut labels = HashMap::new();

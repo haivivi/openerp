@@ -8,12 +8,12 @@ mod store_impls;
 
 use std::sync::Arc;
 use axum::Router;
-use openerp_store::{admin_kv_router, KvOps, ResourceDef};
+use oe_store::{admin_kv_router, KvOps, ResourceDef};
 use model::*;
 
 pub fn admin_router(
-    kv: Arc<dyn openerp_kv::KVStore>,
-    auth: Arc<dyn openerp_core::Authenticator>,
+    kv: Arc<dyn oe_kv::KVStore>,
+    auth: Arc<dyn oe_core::Authenticator>,
 ) -> Router {
     let mut router = Router::new();
     router = router.merge(admin_kv_router(KvOps::<Model>::new(kv.clone()), auth.clone(), "pms", "models", "model"));
@@ -26,8 +26,8 @@ pub fn admin_router(
     router
 }
 
-pub fn schema_def() -> openerp_store::ModuleDef {
-    openerp_store::ModuleDef {
+pub fn schema_def() -> oe_store::ModuleDef {
+    oe_store::ModuleDef {
         id: "pms",
         label: "Product Management",
         icon: "cube",

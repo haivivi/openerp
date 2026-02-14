@@ -59,8 +59,8 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
         ("display_name", syn::parse_quote!(Option<String>)),
         ("description", syn::parse_quote!(Option<String>)),
         ("metadata", syn::parse_quote!(Option<String>)),
-        ("created_at", syn::parse_quote!(openerp_types::DateTime)),
-        ("updated_at", syn::parse_quote!(openerp_types::DateTime)),
+        ("created_at", syn::parse_quote!(oe_types::DateTime)),
+        ("updated_at", syn::parse_quote!(oe_types::DateTime)),
     ];
 
     for (name, ty) in &common_fields {
@@ -100,8 +100,8 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
         // Field const: pub const field_name: Field = Field::new("name", "Type", "widget");
         let const_name = format_ident!("{}", fname_str);
         field_consts.push(quote! {
-            pub const #const_name: openerp_types::Field =
-                openerp_types::Field::new(#fname_str, #ty_str, #widget_str);
+            pub const #const_name: oe_types::Field =
+                oe_types::Field::new(#fname_str, #ty_str, #widget_str);
         });
 
         // IR entry for schema JSON.
@@ -122,8 +122,8 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
             let widget_str = infer_widget(&inner_ty, name).to_string();
             let const_name = format_ident!("{}", name);
             field_consts.push(quote! {
-                pub const #const_name: openerp_types::Field =
-                    openerp_types::Field::new(#name, #ty_str, #widget_str);
+                pub const #const_name: oe_types::Field =
+                    oe_types::Field::new(#name, #ty_str, #widget_str);
             });
             field_ir_entries.push(quote! {
                 serde_json::json!({

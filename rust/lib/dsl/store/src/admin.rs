@@ -10,7 +10,7 @@ use axum::extract::{Path, State};
 use axum::http::HeaderMap;
 use axum::routing::{delete, get, post, put};
 use axum::{Json, Router};
-use openerp_core::{Authenticator, ListResult, ServiceError};
+use oe_core::{Authenticator, ListResult, ServiceError};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 

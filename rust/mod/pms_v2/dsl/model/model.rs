@@ -1,5 +1,5 @@
-use openerp_macro::model;
-use openerp_types::*;
+use oe_macro::model;
+use oe_types::*;
 
 /// Product model/series definition. Primary key is numeric code.
 #[model(module = "pms")]

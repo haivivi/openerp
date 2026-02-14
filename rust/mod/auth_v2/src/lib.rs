@@ -16,14 +16,14 @@ mod store_impls;
 use std::sync::Arc;
 
 use axum::Router;
-use openerp_store::{admin_kv_router, KvOps, KvStore};
+use oe_store::{admin_kv_router, KvOps, KvStore};
 
 use model::*;
 
 /// Build the admin router for all auth resources.
 pub fn admin_router(
-    kv: Arc<dyn openerp_kv::KVStore>,
-    auth: Arc<dyn openerp_core::Authenticator>,
+    kv: Arc<dyn oe_kv::KVStore>,
+    auth: Arc<dyn oe_core::Authenticator>,
 ) -> Router {
     let mut router = Router::new();
 
@@ -50,15 +50,15 @@ pub fn admin_router(
 }
 
 /// Get UI widget overrides defined in dsl/ui/.
-pub fn ui_overrides() -> Vec<openerp_store::WidgetOverride> {
+pub fn ui_overrides() -> Vec<oe_store::WidgetOverride> {
     ui_defs::overrides()
 }
 
 /// Build schema definition for this module.
 /// Auto-derived from #[model] IR — no hand-written field lists.
-pub fn schema_def() -> openerp_store::ModuleDef {
-    use openerp_store::ResourceDef;
-    openerp_store::ModuleDef {
+pub fn schema_def() -> oe_store::ModuleDef {
+    use oe_store::ResourceDef;
+    oe_store::ModuleDef {
         id: "auth",
         label: "Authentication",
         icon: "shield",
@@ -87,14 +87,14 @@ mod tests {
     #[test]
     fn user_kv_crud() {
         let dir = tempfile::tempdir().unwrap();
-        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
-            openerp_kv::RedbStore::open(&dir.path().join("test.redb")).unwrap(),
+        let kv: Arc<dyn oe_kv::KVStore> = Arc::new(
+            oe_kv::RedbStore::open(&dir.path().join("test.redb")).unwrap(),
         );
         let ops = KvOps::<User>::new(kv);
 
         let user = User {
-            id: openerp_types::Id::default(),
-            email: Some(openerp_types::Email::new("alice@test.com")),
+            id: oe_types::Id::default(),
+            email: Some(oe_types::Email::new("alice@test.com")),
             avatar: None,
             active: true,
             password_hash: None,
@@ -102,8 +102,8 @@ mod tests {
             display_name: Some("Alice".into()),
             description: None,
             metadata: None,
-            created_at: openerp_types::DateTime::default(),
-            updated_at: openerp_types::DateTime::default(),
+            created_at: oe_types::DateTime::default(),
+            updated_at: oe_types::DateTime::default(),
         };
 
         let created = ops.save_new(user).unwrap();
@@ -120,19 +120,19 @@ mod tests {
     #[test]
     fn role_kv_crud() {
         let dir = tempfile::tempdir().unwrap();
-        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
-            openerp_kv::RedbStore::open(&dir.path().join("test2.redb")).unwrap(),
+        let kv: Arc<dyn oe_kv::KVStore> = Arc::new(
+            oe_kv::RedbStore::open(&dir.path().join("test2.redb")).unwrap(),
         );
         let ops = KvOps::<Role>::new(kv);
 
         let role = Role {
-            id: openerp_types::Id::new("pms:admin"),
+            id: oe_types::Id::new("pms:admin"),
             permissions: vec!["pms:device:read".into(), "pms:device:write".into()],
             display_name: Some("PMS Admin".into()),
             description: Some("Full PMS access".into()),
             metadata: None,
-            created_at: openerp_types::DateTime::default(),
-            updated_at: openerp_types::DateTime::default(),
+            created_at: oe_types::DateTime::default(),
+            updated_at: oe_types::DateTime::default(),
         };
 
         let created = ops.save_new(role).unwrap();
@@ -156,10 +156,10 @@ mod tests {
         use tower::ServiceExt;
 
         let dir = tempfile::tempdir().unwrap();
-        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
-            openerp_kv::RedbStore::open(&dir.path().join("test3.redb")).unwrap(),
+        let kv: Arc<dyn oe_kv::KVStore> = Arc::new(
+            oe_kv::RedbStore::open(&dir.path().join("test3.redb")).unwrap(),
         );
-        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let auth: Arc<dyn oe_core::Authenticator> = Arc::new(oe_core::AllowAll);
         let router = admin_router(kv, auth);
 
         // GET /users should return empty list.

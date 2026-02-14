@@ -10,7 +10,7 @@
 //!
 //! Usage:
 //! ```ignore
-//! use openerp_types::*;
+//! use oe_types::*;
 //!
 //! #[model(module = "auth")]
 //! pub struct User {

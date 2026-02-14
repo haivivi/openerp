@@ -1,4 +1,4 @@
-use openerp_store::{widget, WidgetOverride};
+use oe_store::{widget, WidgetOverride};
 
 pub fn overrides() -> Vec<WidgetOverride> {
     vec![

@@ -2,8 +2,8 @@
 //!
 //! Defines KEY, kv_prefix, key_value, and hooks for each model.
 
-use openerp_store::KvStore;
-use openerp_types::*;
+use oe_store::KvStore;
+use oe_types::*;
 
 use crate::model::*;
 

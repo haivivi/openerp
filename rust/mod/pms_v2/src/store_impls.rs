@@ -1,7 +1,7 @@
 //! KvStore implementations for PMS models.
 
-use openerp_store::KvStore;
-use openerp_types::*;
+use oe_store::KvStore;
+use oe_types::*;
 use crate::model::*;
 
 macro_rules! impl_kv_basic {

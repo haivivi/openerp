@@ -53,14 +53,14 @@ async fn main() -> anyhow::Result<()> {
     let data_dir = std::path::PathBuf::from(&server_config.storage.data_dir);
     std::fs::create_dir_all(&data_dir)?;
 
-    let core_config = openerp_core::ServiceConfig {
+    let core_config = oe_core::ServiceConfig {
         data_dir: Some(data_dir.clone()),
         listen: cli.listen.clone(),
         ..Default::default()
     };
 
-    let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
-        openerp_kv::RedbStore::open(&core_config.resolve_db_path())
+    let kv: Arc<dyn oe_kv::KVStore> = Arc::new(
+        oe_kv::RedbStore::open(&core_config.resolve_db_path())
             .map_err(|e| anyhow::anyhow!("failed to open KV store: {}", e))?,
     );
 
@@ -69,8 +69,8 @@ async fn main() -> anyhow::Result<()> {
 
     // ── DSL modules ──
 
-    let authenticator: Arc<dyn openerp_core::Authenticator> =
-        Arc::new(openerp_core::AllowAll); // TODO: use AuthChecker
+    let authenticator: Arc<dyn oe_core::Authenticator> =
+        Arc::new(oe_core::AllowAll); // TODO: use AuthChecker
 
     let admin_routes: Vec<(&str, axum::Router)> = vec![
         ("auth", auth_v2::admin_router(Arc::clone(&kv), authenticator.clone())),
@@ -81,7 +81,7 @@ async fn main() -> anyhow::Result<()> {
 
     // ── Schema (auto-generated from DSL + UI overrides) ──
 
-    let mut schema_json = openerp_store::build_schema(
+    let mut schema_json = oe_store::build_schema(
         "OpenERP",
         vec![
             auth_v2::schema_def(),
@@ -89,7 +89,7 @@ async fn main() -> anyhow::Result<()> {
             task_v2::schema_def(),
         ],
     );
-    openerp_store::apply_overrides(&mut schema_json, &auth_v2::ui_overrides());
+    oe_store::apply_overrides(&mut schema_json, &auth_v2::ui_overrides());
 
     // Build JWT state for middleware.
     let jwt_state = Arc::new(JwtState {

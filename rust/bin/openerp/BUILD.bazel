@@ -19,6 +19,6 @@ rust_binary(
 )
 
 rust_test(
-    name = "openerp_test",
+    name = "oe_test",
     crate = ":openerp",
 )

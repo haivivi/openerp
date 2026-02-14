@@ -3,8 +3,8 @@
 //! The model impls `KvStore` to declare KEY + hooks.
 //! `KvOps<T>` provides the actual get/save/list/delete using a KVStore backend.
 
-use openerp_core::ServiceError;
-use openerp_types::Field;
+use oe_core::ServiceError;
+use oe_types::Field;
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
@@ -34,12 +34,12 @@ pub trait KvStore: Serialize + DeserializeOwned + Clone + Send + Sync + 'static 
 
 /// CRUD operations for a KvStore model. Holds a reference to the KV backend.
 pub struct KvOps<T: KvStore> {
-    kv: Arc<dyn openerp_kv::KVStore>,
+    kv: Arc<dyn oe_kv::KVStore>,
     _phantom: std::marker::PhantomData<T>,
 }
 
 impl<T: KvStore> KvOps<T> {
-    pub fn new(kv: Arc<dyn openerp_kv::KVStore>) -> Self {
+    pub fn new(kv: Arc<dyn oe_kv::KVStore>) -> Self {
         Self {
             kv,
             _phantom: std::marker::PhantomData,
@@ -50,9 +50,9 @@ impl<T: KvStore> KvOps<T> {
         format!("{}{}", T::kv_prefix(), id)
     }
 
-    fn kv_err(e: openerp_kv::KVError) -> ServiceError {
+    fn kv_err(e: oe_kv::KVError) -> ServiceError {
         match e {
-            openerp_kv::KVError::ReadOnly(msg) => ServiceError::ReadOnly(msg),
+            oe_kv::KVError::ReadOnly(msg) => ServiceError::ReadOnly(msg),
             other => ServiceError::Storage(other.to_string()),
         }
     }
@@ -171,8 +171,8 @@ mod tests {
 
     fn make_ops() -> (KvOps<Thing>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
-        let kv: Arc<dyn openerp_kv::KVStore> =
-            Arc::new(openerp_kv::RedbStore::open(&dir.path().join("test.redb")).unwrap());
+        let kv: Arc<dyn oe_kv::KVStore> =
+            Arc::new(oe_kv::RedbStore::open(&dir.path().join("test.redb")).unwrap());
         (KvOps::new(kv), dir)
     }
 

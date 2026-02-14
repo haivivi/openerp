@@ -7,8 +7,8 @@
 use std::sync::Arc;
 
 use axum::http::HeaderMap;
-use openerp_core::{Authenticator, ServiceError};
-use openerp_store::KvOps;
+use oe_core::{Authenticator, ServiceError};
+use oe_store::KvOps;
 
 use crate::model::{Policy, Role};
 
@@ -26,7 +26,7 @@ pub struct AuthChecker {
 
 impl AuthChecker {
     pub fn new(
-        kv: Arc<dyn openerp_kv::KVStore>,
+        kv: Arc<dyn oe_kv::KVStore>,
         root_role: &str,
     ) -> Self {
         Self {

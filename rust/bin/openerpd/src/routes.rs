@@ -15,7 +15,7 @@ use crate::login;
 pub struct AppState {
     pub jwt_state: Arc<JwtState>,
     pub server_config: Arc<crate::config::ServerConfig>,
-    pub kv: Arc<dyn openerp_kv::KVStore>,
+    pub kv: Arc<dyn oe_kv::KVStore>,
 }
 
 /// Build the complete router.
@@ -63,11 +63,11 @@ pub fn build_router(
 }
 
 async fn index_page() -> impl IntoResponse {
-    Html(openerp_web::login_html())
+    Html(oe_web::login_html())
 }
 
 async fn dashboard_page() -> impl IntoResponse {
-    Html(openerp_web::dashboard_html())
+    Html(oe_web::dashboard_html())
 }
 
 async fn health() -> impl IntoResponse {

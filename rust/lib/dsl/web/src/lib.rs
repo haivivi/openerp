@@ -5,10 +5,10 @@
 //!
 //! Usage:
 //! ```ignore
-//! use openerp_web;
+//! use oe_web;
 //!
-//! app.route("/", get(|| async { Html(openerp_web::login_html()) }));
-//! app.route("/dashboard", get(|| async { Html(openerp_web::dashboard_html()) }));
+//! app.route("/", get(|| async { Html(oe_web::login_html()) }));
+//! app.route("/dashboard", get(|| async { Html(oe_web::dashboard_html()) }));
 //! ```
 //!
 //! The dashboard reads `/meta/schema` to dynamically render:
