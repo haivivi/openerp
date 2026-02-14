@@ -1,4 +1,0 @@
-# API layer — DSL framework for OpenERP.
-#
-# types/  — semantic newtypes (Id, Email, Avatar, etc.)
-# macro/  — proc macros (#[model], KvStore/SqlStore/SearchStore trait impls)

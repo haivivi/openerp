@@ -7,7 +7,7 @@ rust_library(
     edition = "2021",
     visibility = ["//visibility:public"],
     deps = [
-        "//rust/lib/api/types",
+        "//rust/lib/dsl/types",
         "//rust/lib/core",
         "//rust/lib/kv",
         "//rust/lib/sql",

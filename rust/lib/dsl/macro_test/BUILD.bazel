@@ -5,10 +5,10 @@ rust_test(
     srcs = glob(["src/**/*.rs"]),
     edition = "2021",
     proc_macro_deps = [
-        "//rust/lib/api/macro",
+        "//rust/lib/dsl/macro",
     ],
     deps = [
-        "//rust/lib/api/types",
+        "//rust/lib/dsl/types",
         "@crates//:serde",
         "@crates//:serde_json",
     ],

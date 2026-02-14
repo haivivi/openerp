@@ -1,0 +1,6 @@
+# DSL framework for OpenERP.
+#
+# types/  — semantic newtypes (Id, Email, Avatar, etc.)
+# macro/  — proc macros (#[model])
+# store/  — store traits (KvStore, SqlStore, SearchStore) + admin router + schema + widget!
+# web/    — reusable web UI components (embedded HTML/JS/CSS)

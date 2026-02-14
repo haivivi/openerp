@@ -72,11 +72,11 @@ pub fn build_router(
 }
 
 async fn index_page() -> impl IntoResponse {
-    Html(include_str!("web/login.html"))
+    Html(openerp_web::login_html())
 }
 
 async fn dashboard_page() -> impl IntoResponse {
-    Html(include_str!("web/dashboard.html"))
+    Html(openerp_web::dashboard_html())
 }
 
 async fn health() -> impl IntoResponse {
