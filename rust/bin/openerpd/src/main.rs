@@ -104,6 +104,16 @@ async fn main() -> anyhow::Result<()> {
     );
     openerp_store::apply_overrides(&mut schema_json, &auth::ui_overrides());
 
+    // Add facet info to schema.
+    let facet_info: Vec<serde_json::Value> = facet_routes.iter()
+        .map(|f| serde_json::json!({
+            "name": f.name,
+            "module": f.module,
+            "path": format!("/{}/{}", f.name, f.module),
+        }))
+        .collect();
+    schema_json["facets"] = serde_json::Value::Array(facet_info);
+
     // Build JWT state for middleware.
     let jwt_state = Arc::new(JwtState {
         decoding_key: DecodingKey::from_secret(server_config.jwt.secret.as_bytes()),
