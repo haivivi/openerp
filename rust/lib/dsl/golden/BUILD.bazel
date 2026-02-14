@@ -1,0 +1,22 @@
+load("@rules_rust//rust:defs.bzl", "rust_test")
+
+rust_test(
+    name = "golden_test",
+    srcs = glob(["src/**/*.rs"]),
+    compile_data = glob(["snapshots/**/*.json"], allow_empty = True),
+    edition = "2021",
+    proc_macro_deps = [
+        "//rust/lib/dsl/macro",
+    ],
+    deps = [
+        "//rust/lib/dsl/store",
+        "//rust/lib/dsl/types",
+        "//rust/lib/core",
+        "//rust/lib/kv",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:chrono",
+        "@crates//:uuid",
+        "@crates//:tempfile",
+    ],
+)
