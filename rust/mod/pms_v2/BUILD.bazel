@@ -1,0 +1,32 @@
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+
+rust_library(
+    name = "pms_v2",
+    crate_name = "pms_v2",
+    srcs = glob(["dsl/**/*.rs", "src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2021",
+    visibility = ["//rust:__subpackages__"],
+    proc_macro_deps = [
+        "//rust/lib/dsl/macro",
+    ],
+    deps = [
+        "//rust/lib/dsl/store",
+        "//rust/lib/dsl/types",
+        "//rust/lib/core",
+        "//rust/lib/kv",
+        "@crates//:axum",
+        "@crates//:chrono",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:uuid",
+    ],
+)
+
+rust_test(
+    name = "pms_v2_test",
+    crate = ":pms_v2",
+    deps = [
+        "@crates//:tempfile",
+    ],
+)

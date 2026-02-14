@@ -16,6 +16,8 @@ rust_binary(
         "//rust/lib/dsl/web",
         "//rust/mod/auth",
         "//rust/mod/auth_v2",
+        "//rust/mod/pms_v2",
+        "//rust/mod/task_v2",
         "//rust/mod/pms",
         "//rust/mod/task",
         "@crates//:anyhow",

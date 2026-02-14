@@ -133,14 +133,20 @@ async fn main() -> anyhow::Result<()> {
 
     let admin_routes: Vec<(&str, axum::Router)> = vec![
         ("auth", auth_v2::admin_router(Arc::clone(&kv), authenticator.clone())),
+        ("pms", pms_v2::admin_router(Arc::clone(&kv), authenticator.clone())),
+        ("task", task_v2::admin_router(Arc::clone(&kv), authenticator.clone())),
     ];
-    info!("Auth v2 admin router mounted at /admin/auth/");
+    info!("DSL admin routers mounted: /admin/auth/, /admin/pms/, /admin/task/");
 
     // ── Schema (auto-generated from DSL + UI overrides) ──
 
     let mut schema_json = openerp_store::build_schema(
         "OpenERP",
-        vec![auth_v2::schema_def()],
+        vec![
+            auth_v2::schema_def(),
+            pms_v2::schema_def(),
+            task_v2::schema_def(),
+        ],
     );
     openerp_store::apply_overrides(&mut schema_json, &auth_v2::ui_overrides());
 
