@@ -1,4 +1,4 @@
-//! Route registration — collects all module routes + system endpoints.
+//! Route registration — admin routes + system endpoints.
 
 use std::sync::Arc;
 
@@ -16,24 +16,22 @@ pub struct AppState {
     pub jwt_state: Arc<JwtState>,
     pub server_config: Arc<crate::config::ServerConfig>,
     pub kv: Arc<dyn openerp_kv::KVStore>,
-    pub sql: Arc<dyn openerp_sql::SQLStore>,
 }
 
-/// Build the complete router with all routes.
+/// Build the complete router.
 pub fn build_router(
     state: AppState,
-    module_routes: Vec<(&str, Router)>,
     admin_routes: Vec<(&str, Router)>,
     schema_json: serde_json::Value,
 ) -> Router {
     let jwt_state = state.jwt_state.clone();
 
-    // System endpoints (public, no state needed).
+    // System endpoints (public).
     let system_routes = Router::new()
         .route("/health", get(health))
         .route("/version", get(version));
 
-    // Schema endpoint — serves the DSL-generated schema JSON.
+    // Schema endpoint.
     let schema = schema_json.clone();
     let schema_route = Router::new().route(
         "/meta/schema",
@@ -43,28 +41,21 @@ pub fn build_router(
         }),
     );
 
-    // Start with the system and login routes (which need AppState).
+    // App shell + login.
     let mut app: Router<()> = Router::new()
         .route("/", get(index_page))
         .route("/dashboard", get(dashboard_page))
         .merge(login::routes(state.clone()))
         .with_state(state);
 
-    // Merge stateless system routes.
     app = app.merge(system_routes);
     app = app.merge(schema_route);
-
-    // Mount old module routes (auth, pms, task — will be replaced over time).
-    for (name, router) in module_routes {
-        app = app.nest(&format!("/{}", name), router);
-    }
 
     // Mount admin routes from DSL modules.
     for (name, router) in admin_routes {
         app = app.nest(&format!("/admin/{}", name), router);
     }
 
-    // Apply JWT auth middleware to all routes.
     app.layer(middleware::from_fn_with_state(
         jwt_state,
         auth_middleware::auth_middleware,
@@ -80,9 +71,7 @@ async fn dashboard_page() -> impl IntoResponse {
 }
 
 async fn health() -> impl IntoResponse {
-    axum::Json(serde_json::json!({
-        "status": "ok",
-    }))
+    axum::Json(serde_json::json!({"status": "ok"}))
 }
 
 async fn version() -> impl IntoResponse {

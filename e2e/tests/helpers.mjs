@@ -142,19 +142,19 @@ export async function apiCall(method, path, body, token) {
  */
 export async function cleanupTestData(token) {
   try {
-    const users = await apiCall('GET', '/auth/users', null, token);
+    const users = await apiCall('GET', '/admin/auth/users', null, token);
     if (users?.data?.items) {
       for (const u of users.data.items) {
         await apiCall('DELETE', `/auth/users/${u.id}`, null, token);
       }
     }
-    const roles = await apiCall('GET', '/auth/roles', null, token);
+    const roles = await apiCall('GET', '/admin/auth/roles', null, token);
     if (roles?.data?.items) {
       for (const r of roles.data.items) {
         await apiCall('DELETE', `/auth/roles/${r.id}`, null, token);
       }
     }
-    const models = await apiCall('GET', '/pms/models', null, token);
+    const models = await apiCall('GET', '/admin/pms/models', null, token);
     if (models?.data?.items) {
       for (const m of models.data.items) {
         await apiCall('DELETE', `/pms/models/${m.code}`, null, token);

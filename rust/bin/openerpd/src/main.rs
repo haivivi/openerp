@@ -2,9 +2,6 @@
 //!
 //! Usage:
 //!   openerpd -c <context-name-or-path> [--listen <addr>]
-//!
-//! The context name resolves to `/etc/openerp/<name>.toml`.
-//! If a path with `/` or `.` is given, it's used directly.
 
 mod auth_middleware;
 mod bootstrap;
@@ -16,7 +13,6 @@ use std::sync::Arc;
 
 use clap::Parser;
 use jsonwebtoken::{DecodingKey, Validation};
-use openerp_core::Module;
 use tracing::info;
 
 use auth_middleware::JwtState;
@@ -38,7 +34,6 @@ struct Cli {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    // Initialize logging.
     tracing_subscriber::fmt()
         .with_env_filter(
             tracing_subscriber::EnvFilter::try_from_default_env()
@@ -48,12 +43,10 @@ async fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
 
-    // Load server configuration.
     let config_path = ServerConfig::resolve_path(&cli.config);
     info!("Loading configuration from {}", config_path.display());
     let server_config = ServerConfig::load(&config_path)?;
 
-    // Verify configuration is valid.
     bootstrap::verify_config(&server_config)?;
 
     // Initialize storage.
@@ -66,77 +59,25 @@ async fn main() -> anyhow::Result<()> {
         ..Default::default()
     };
 
-    // Initialize embedded stores (shared by all modules).
     let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
         openerp_kv::RedbStore::open(&core_config.resolve_db_path())
             .map_err(|e| anyhow::anyhow!("failed to open KV store: {}", e))?,
-    );
-    let sql: Arc<dyn openerp_sql::SQLStore> = Arc::new(
-        openerp_sql::SqliteStore::open(&core_config.resolve_sqlite_path())
-            .map_err(|e| anyhow::anyhow!("failed to open SQL store: {}", e))?,
-    );
-    let search: Arc<dyn openerp_search::SearchEngine> = Arc::new(
-        openerp_search::TantivyEngine::open(&data_dir.join("search"))
-            .map_err(|e| anyhow::anyhow!("failed to open search engine: {}", e))?,
-    );
-    let blob: Arc<dyn openerp_blob::BlobStore> = Arc::new(
-        openerp_blob::FileStore::open(&data_dir.join("blob"))
-            .map_err(|e| anyhow::anyhow!("failed to open blob store: {}", e))?,
-    );
-    let tsdb: Arc<dyn openerp_tsdb::TsDb> = Arc::new(
-        openerp_tsdb::WalEngine::open(&data_dir.join("tsdb"))
-            .map_err(|e| anyhow::anyhow!("failed to open TSDB: {}", e))?,
     );
 
     // Bootstrap: ensure auth:root role exists.
     bootstrap::ensure_root_role(&kv)?;
 
-    // ── Initialize old modules (will be replaced by DSL versions) ──
-
-    let auth_config = auth::service::AuthConfig {
-        jwt_secret: server_config.jwt.secret.clone(),
-        ..Default::default()
-    };
-    let auth_module = auth::AuthModule::new(
-        Arc::clone(&sql),
-        Arc::clone(&kv),
-        auth_config,
-    )?;
-    info!("Auth module initialized (legacy)");
-
-    let pms_module = pms::PmsModule::new(
-        Arc::clone(&sql),
-        Arc::clone(&kv),
-        Arc::clone(&search),
-        Arc::clone(&blob),
-    )?;
-    info!("PMS module initialized");
-
-    let task_module = task::TaskModule::new(
-        Arc::clone(&sql),
-        Arc::clone(&kv),
-        Arc::clone(&tsdb),
-    )?;
-    info!("Task module initialized");
-
-    // Legacy module routes (old API, kept for compatibility).
-    let module_routes = vec![
-        (auth_module.name(), auth_module.routes()),
-        (pms_module.name(), pms_module.routes()),
-        (task_module.name(), task_module.routes()),
-    ];
-
-    // ── DSL-based modules (new admin API) ──
+    // ── DSL modules ──
 
     let authenticator: Arc<dyn openerp_core::Authenticator> =
-        Arc::new(openerp_core::AllowAll); // TODO: use AuthChecker once JWT middleware injects roles
+        Arc::new(openerp_core::AllowAll); // TODO: use AuthChecker
 
     let admin_routes: Vec<(&str, axum::Router)> = vec![
         ("auth", auth_v2::admin_router(Arc::clone(&kv), authenticator.clone())),
         ("pms", pms_v2::admin_router(Arc::clone(&kv), authenticator.clone())),
         ("task", task_v2::admin_router(Arc::clone(&kv), authenticator.clone())),
     ];
-    info!("DSL admin routers mounted: /admin/auth/, /admin/pms/, /admin/task/");
+    info!("Admin routers: /admin/auth/, /admin/pms/, /admin/task/");
 
     // ── Schema (auto-generated from DSL + UI overrides) ──
 
@@ -158,18 +99,14 @@ async fn main() -> anyhow::Result<()> {
 
     let server_config = Arc::new(server_config);
 
-    // Build application state.
     let app_state = AppState {
         jwt_state,
         server_config,
         kv,
-        sql,
     };
 
-    // Build router.
-    let app = routes::build_router(app_state, module_routes, admin_routes, schema_json);
+    let app = routes::build_router(app_state, admin_routes, schema_json);
 
-    // Start server.
     let listener = tokio::net::TcpListener::bind(&cli.listen).await?;
     info!("OpenERP server listening on {}", cli.listen);
     axum::serve(listener, app).await?;
