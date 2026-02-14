@@ -14,13 +14,7 @@ pub fn hierarchy() -> Vec<HierarchyNode> {
             ],
         },
         HierarchyNode::leaf("role", "Roles", "shield", "Permission roles for access control"),
-        HierarchyNode {
-            resource: "group", label: "Groups", icon: "stack",
-            description: "Organizational groups and hierarchy",
-            children: vec![
-                HierarchyNode::leaf("group", "Sub-groups", "stack", "Child groups"),
-            ],
-        },
+        HierarchyNode::leaf("group", "Groups", "stack", "Organizational groups (tree via parent_id)"),
         HierarchyNode::leaf("provider", "Providers", "globe", "OAuth provider configuration"),
     ]
 }
