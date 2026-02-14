@@ -610,7 +610,17 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
   // ── Delete ──
   window.deleteResource=async function(basePath,id){
     if(!confirm('Delete this record?'))return;
-    try{await api('DELETE',basePath+'/'+id);toast('Deleted');selectResource(currentResource.name)}catch(e){toast(e.message)}
+    try{
+      await api('DELETE',basePath+'/'+id);
+      toast('Deleted');
+      // Remove the row from DOM immediately, then refresh data.
+      const rows=document.querySelectorAll('#resBody tr');
+      for(const row of rows){if(row.textContent.includes(id.slice(0,12)))row.remove()}
+      // Also do a full refresh in background.
+      if(currentResource&&currentModule){
+        selectResource(currentResource.name);
+      }
+    }catch(e){toast(e.message)}
   };
 
   // ── Util ──
