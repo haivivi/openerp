@@ -1,4 +1,4 @@
-//! Root login endpoint — verifies password against argon2id hash, issues JWT.
+//! Login endpoint — root password or user email+password.
 
 use std::sync::Arc;
 
@@ -14,14 +14,12 @@ use crate::auth_middleware::Claims;
 use crate::bootstrap::{verify_root_password, ROOT_ROLE_ID};
 use crate::routes::AppState;
 
-/// Login request body.
 #[derive(Debug, Deserialize)]
 pub struct LoginRequest {
     pub username: String,
     pub password: String,
 }
 
-/// Login response body.
 #[derive(Debug, Serialize)]
 pub struct LoginResponse {
     pub access_token: String,
@@ -29,46 +27,34 @@ pub struct LoginResponse {
     pub expires_in: u64,
 }
 
-/// Register login routes.
 pub fn routes(state: AppState) -> Router<AppState> {
     Router::new()
         .route("/auth/login", post(login_handler))
 }
 
-/// Handle POST /auth/login.
-///
-/// For root: verify password against config hash, issue JWT with auth:root role.
-/// For normal users: TODO — will delegate to auth module's UserService.
 async fn login_handler(
     State(state): State<AppState>,
     axum::Json(body): axum::Json<LoginRequest>,
 ) -> impl IntoResponse {
+    // Root login.
     if body.username == "root" {
-        return handle_root_login(&state, &body.password).await;
+        return handle_root_login(&state, &body.password);
     }
 
-    // Normal user login — TODO: delegate to auth module.
-    (
-        StatusCode::NOT_IMPLEMENTED,
-        axum::Json(serde_json::json!({
-            "error": "User login not yet implemented. Use root account."
-        })),
-    ).into_response()
+    // User login: username is email.
+    handle_user_login(&state, &body.username, &body.password)
 }
 
-async fn handle_root_login(state: &AppState, password: &str) -> axum::response::Response {
+fn handle_root_login(state: &AppState, password: &str) -> axum::response::Response {
     let config = &state.server_config;
 
     if !verify_root_password(password, &config.root.password_hash) {
         return (
             StatusCode::UNAUTHORIZED,
-            axum::Json(serde_json::json!({
-                "error": "invalid credentials"
-            })),
+            axum::Json(serde_json::json!({"error": "invalid credentials"})),
         ).into_response();
     }
 
-    // Issue JWT with root claims.
     let now = chrono::Utc::now().timestamp();
     let expire_secs = config.jwt.expire_secs;
 
@@ -82,8 +68,75 @@ async fn handle_root_login(state: &AppState, password: &str) -> axum::response::
         exp: now + expire_secs as i64,
     };
 
-    let encoding_key = EncodingKey::from_secret(config.jwt.secret.as_bytes());
-    match encode(&Header::default(), &claims, &encoding_key) {
+    issue_jwt(state, &claims, expire_secs)
+}
+
+fn handle_user_login(state: &AppState, email: &str, password: &str) -> axum::response::Response {
+    // Find user by email.
+    let user = match auth::store_impls::find_user_by_email(&state.kv, email) {
+        Ok(Some(u)) => u,
+        Ok(None) => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({"error": "invalid credentials"})),
+            ).into_response();
+        }
+        Err(e) => {
+            tracing::error!("Failed to find user: {}", e);
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                axum::Json(serde_json::json!({"error": "internal server error"})),
+            ).into_response();
+        }
+    };
+
+    // Check password.
+    let hash = match &user.password_hash {
+        Some(h) if !h.is_empty() => h.as_str(),
+        _ => {
+            return (
+                StatusCode::UNAUTHORIZED,
+                axum::Json(serde_json::json!({"error": "account has no password set"})),
+            ).into_response();
+        }
+    };
+
+    if !auth::store_impls::verify_password(password, hash) {
+        return (
+            StatusCode::UNAUTHORIZED,
+            axum::Json(serde_json::json!({"error": "invalid credentials"})),
+        ).into_response();
+    }
+
+    if !user.active {
+        return (
+            StatusCode::FORBIDDEN,
+            axum::Json(serde_json::json!({"error": "account is deactivated"})),
+        ).into_response();
+    }
+
+    // Build claims.
+    let config = &state.server_config;
+    let now = chrono::Utc::now().timestamp();
+    let expire_secs = config.jwt.expire_secs;
+
+    let display = user.display_name.as_deref().unwrap_or("User");
+    let claims = Claims {
+        sub: user.id.to_string(),
+        name: display.to_string(),
+        groups: vec![],
+        roles: vec![], // TODO: look up policies → roles for this user
+        sid: openerp_core::new_id(),
+        iat: now,
+        exp: now + expire_secs as i64,
+    };
+
+    issue_jwt(state, &claims, expire_secs)
+}
+
+fn issue_jwt(state: &AppState, claims: &Claims, expire_secs: u64) -> axum::response::Response {
+    let encoding_key = EncodingKey::from_secret(state.server_config.jwt.secret.as_bytes());
+    match encode(&Header::default(), claims, &encoding_key) {
         Ok(token) => {
             let response = LoginResponse {
                 access_token: token,
@@ -96,9 +149,7 @@ async fn handle_root_login(state: &AppState, password: &str) -> axum::response::
             tracing::error!("Failed to encode JWT: {}", e);
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                axum::Json(serde_json::json!({
-                    "error": "internal server error"
-                })),
+                axum::Json(serde_json::json!({"error": "internal server error"})),
             ).into_response()
         }
     }

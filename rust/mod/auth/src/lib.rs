@@ -13,7 +13,7 @@ pub mod hierarchy_def;
 pub mod ui_defs;
 
 pub mod handlers;
-mod store_impls;
+pub mod store_impls;
 
 use std::sync::Arc;
 

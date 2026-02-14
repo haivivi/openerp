@@ -41,10 +41,9 @@ describe('API Authentication', () => {
     if (browser) await browser.close();
   });
 
-  it('admin API works without auth (public)', async () => {
+  it('admin API rejects unauthenticated requests', async () => {
     const resp = await apiCall('GET', '/admin/auth/users');
-    assert.equal(resp.status, 200);
-    assert.ok(resp.data.items !== undefined, 'Returns items array');
+    assert.equal(resp.status, 400);
   });
 
   it('accepts authenticated API calls', async () => {
@@ -53,9 +52,9 @@ describe('API Authentication', () => {
     assert.ok(Array.isArray(resp.data.items));
   });
 
-  it('admin API works even with invalid token (public routes)', async () => {
+  it('admin API rejects invalid tokens', async () => {
     const resp = await apiCall('GET', '/admin/auth/users', null, 'invalid.token.here');
-    assert.equal(resp.status, 200);
+    assert.equal(resp.status, 400);
   });
 
   it('public endpoints work without auth', async () => {
@@ -88,21 +87,21 @@ describe('API Authentication', () => {
     assert.match(resp.data.error, /invalid/i);
   });
 
-  it('dashboard loads even with invalid token (admin routes are public)', async () => {
-    // Set an obviously invalid token.
+  it('dashboard loads schema even with invalid token', async () => {
+    // Schema endpoint is public, so sidebar nav renders.
+    // But admin API calls will fail (tables show error/empty).
     await page.goto(`${BASE_URL}/`, { waitUntil: 'networkidle0' });
     await page.evaluate(() => localStorage.setItem('openerp_token', 'invalid.token.value'));
     await page.goto(`${BASE_URL}/dashboard`, { waitUntil: 'networkidle0' });
 
-    // Dashboard should still load because admin API routes don't require JWT.
-    // The schema endpoint is also public.
+    // Schema is public — sidebar should still render.
     await page.waitForFunction(
       () => document.querySelectorAll('.sidebar .nav-item').length > 0,
       { timeout: 5000 },
     );
 
     const items = await page.$$eval('.sidebar .nav-item', els => els.length);
-    assert.ok(items > 0, 'Dashboard loaded with sidebar items');
+    assert.ok(items > 0, 'Sidebar loaded from public schema');
 
     // Clean up.
     await page.evaluate(() => localStorage.removeItem('openerp_token'));

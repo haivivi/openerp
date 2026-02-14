@@ -7,6 +7,46 @@ use openerp_types::*;
 
 use crate::model::*;
 
+// ── Password helpers ──
+
+/// Hash a plain password with argon2id.
+pub fn hash_password(password: &str) -> Result<String, String> {
+    use argon2::Argon2;
+    use password_hash::{PasswordHasher, SaltString};
+    use password_hash::rand_core::OsRng;
+
+    let salt = SaltString::generate(&mut OsRng);
+    let argon2 = Argon2::default();
+    argon2
+        .hash_password(password.as_bytes(), &salt)
+        .map(|h| h.to_string())
+        .map_err(|e| e.to_string())
+}
+
+/// Verify a password against an argon2id hash.
+pub fn verify_password(password: &str, hash: &str) -> bool {
+    use argon2::Argon2;
+    use password_hash::{PasswordHash, PasswordVerifier};
+
+    match PasswordHash::new(hash) {
+        Ok(parsed) => Argon2::default().verify_password(password.as_bytes(), &parsed).is_ok(),
+        Err(_) => false,
+    }
+}
+
+/// Find a user by email (scans all users).
+pub fn find_user_by_email(
+    kv: &std::sync::Arc<dyn openerp_kv::KVStore>,
+    email: &str,
+) -> Result<Option<User>, openerp_core::ServiceError> {
+    use openerp_store::KvOps;
+    let ops = KvOps::<User>::new(kv.clone());
+    let all = ops.list()?;
+    Ok(all.into_iter().find(|u| {
+        u.email.as_ref().map(|e| e.as_str()) == Some(email)
+    }))
+}
+
 // ── User ──
 
 impl KvStore for User {
@@ -29,8 +69,6 @@ impl KvStore for User {
             self.created_at = DateTime::new(&now);
         }
         self.updated_at = DateTime::new(&now);
-        // Default active to true.
-        // (active defaults to false from serde, fix on create)
     }
 
     fn before_update(&mut self) {

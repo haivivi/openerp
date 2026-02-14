@@ -70,7 +70,11 @@ async fn main() -> anyhow::Result<()> {
     // ── DSL modules ──
 
     let authenticator: Arc<dyn openerp_core::Authenticator> =
-        Arc::new(openerp_core::AllowAll); // TODO: use AuthChecker
+        Arc::new(auth::handlers::policy_check::AuthChecker::new(
+            Arc::clone(&kv),
+            &server_config.jwt.secret,
+            bootstrap::ROOT_ROLE_ID,
+        ));
 
     let admin_routes: Vec<(&str, axum::Router)> = vec![
         ("auth", auth::admin_router(Arc::clone(&kv), authenticator.clone())),
