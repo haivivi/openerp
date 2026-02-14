@@ -133,8 +133,11 @@ export async function apiCall(method, path, body, token) {
   if (token) opts.headers['Authorization'] = `Bearer ${token}`;
   if (body) opts.body = JSON.stringify(body);
   const resp = await fetch(`${BASE_URL}${path}`, opts);
-  if (resp.status === 204) return null;
-  return { status: resp.status, data: await resp.json() };
+  if (resp.status === 204) return { status: 204, data: null };
+  const text = await resp.text();
+  let data = null;
+  if (text) { try { data = JSON.parse(text); } catch(e) {} }
+  return { status: resp.status, data };
 }
 
 /**
