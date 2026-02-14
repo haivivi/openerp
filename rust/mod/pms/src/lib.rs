@@ -26,9 +26,15 @@ pub fn admin_router(
     router
 }
 
-/// Facet routers for PMS. Empty for now — add facets as needed.
-pub fn facet_routers(_kv: Arc<dyn openerp_kv::KVStore>) -> Vec<openerp_store::FacetDef> {
-    vec![]
+/// Facet routers for PMS.
+pub fn facet_routers(kv: Arc<dyn openerp_kv::KVStore>) -> Vec<openerp_store::FacetDef> {
+    vec![
+        openerp_store::FacetDef {
+            name: "app",
+            module: "pms",
+            router: handlers::app::router(kv.clone()),
+        },
+    ]
 }
 
 pub fn schema_def() -> openerp_store::ModuleDef {

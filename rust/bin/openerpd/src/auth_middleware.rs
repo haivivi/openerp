@@ -114,6 +114,8 @@ fn is_public_path(path: &str) -> bool {
         path,
         "/" | "/dashboard" | "/health" | "/version" | "/meta/schema"
     ) || path.starts_with("/admin/") // Admin routes have their own Authenticator
+      || path.starts_with("/app/")  // Facet routes handle their own auth
+      || path.starts_with("/gear/") // Facet routes handle their own auth
       || path.starts_with("/auth/login")
       || path.starts_with("/auth/providers")
       || path.starts_with("/auth/oauth/")
