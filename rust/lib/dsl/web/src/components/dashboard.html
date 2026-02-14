@@ -25,10 +25,17 @@ body{font-family:var(--font);background:var(--bg);color:var(--card-fg);min-heigh
 .topbar .logo{font-size:15px;font-weight:600;letter-spacing:-.02em;display:flex;align-items:center;gap:6px;cursor:pointer;position:relative}
 .topbar .logo svg{width:18px;height:18px;fill:currentColor;opacity:.9}
 .topbar .sep{width:1px;height:24px;background:var(--border)}
-.module-btn{display:flex;align-items:center;gap:6px;padding:6px 10px;border-radius:calc(var(--radius) - 2px);font-size:13px;font-weight:500;cursor:pointer;transition:background .1s;background:transparent;border:none;color:var(--card-fg)}
-.module-btn:hover{background:var(--accent)}
-.module-btn.active{background:var(--accent)}
-.module-btn svg{width:14px;height:14px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+/* ─── Module dropdown ─── */
+.mod-dropdown{position:relative}
+.mod-trigger{display:flex;align-items:center;gap:6px;padding:6px 12px;border-radius:calc(var(--radius) - 2px);font-size:13px;font-weight:500;cursor:pointer;background:transparent;border:1px solid var(--border);color:var(--card-fg);transition:background .1s}
+.mod-trigger:hover{background:var(--accent)}
+.mod-trigger .ph{font-size:14px}
+.mod-menu{position:absolute;top:100%;left:0;margin-top:4px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius);padding:4px;min-width:200px;box-shadow:0 8px 24px oklch(0 0 0/.4);z-index:50;display:none}
+.mod-menu.open{display:block}
+.mod-menu-item{display:flex;align-items:center;gap:8px;padding:8px 12px;border-radius:calc(var(--radius) - 2px);font-size:13px;cursor:pointer;transition:background .1s;color:var(--muted-fg)}
+.mod-menu-item:hover{background:var(--accent);color:var(--card-fg)}
+.mod-menu-item.active{color:var(--card-fg);font-weight:500}
+.mod-menu-item .ph{font-size:15px}
 .topbar-spacer{flex:1}
 .topbar .user-name{font-size:13px;color:var(--muted-fg)}
 .btn-ghost{height:32px;padding:0 10px;border:none;border-radius:calc(var(--radius) - 2px);background:transparent;color:var(--muted-fg);font-size:13px;cursor:pointer;transition:background .1s;display:inline-flex;align-items:center;gap:4px}
@@ -127,7 +134,14 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     OpenERP
   </div>
   <div class="sep"></div>
-  <div id="moduleButtons"></div>
+  <div class="mod-dropdown">
+    <button class="mod-trigger" id="modTrigger" onclick="toggleModMenu()">
+      <i class="ph ph-stack" id="modTriggerIcon"></i>
+      <span id="modTriggerLabel">Module</span>
+      <i class="ph ph-caret-down" style="font-size:12px;opacity:.5"></i>
+    </button>
+    <div class="mod-menu" id="modMenu"></div>
+  </div>
   <div class="topbar-spacer"></div>
   <span class="user-name" id="userName">root</span>
   <button class="btn-ghost" id="logoutBtn"><i class="ph ph-sign-out" style="font-size:14px"></i> Logout</button>
@@ -207,22 +221,34 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
   // ── Load schema ──
   async function loadSchema(){
     schema=await api('GET','/meta/schema');
-    buildModuleButtons();
+    buildModuleMenu();
     buildMegaMenu();
     if(schema.modules.length>0)selectModule(schema.modules[0].id);
     
   }
 
-  // ── Module buttons in top bar ──
-  function buildModuleButtons(){
-    const c=document.getElementById('moduleButtons');c.innerHTML='';
+  // ── Module dropdown ──
+  function buildModuleMenu(){
+    const menu=document.getElementById('modMenu');menu.innerHTML='';
     for(const mod of schema.modules){
-      const btn=document.createElement('button');
-      btn.className='module-btn';btn.dataset.id=mod.id;
-      btn.textContent=mod.label;
-      btn.addEventListener('click',()=>selectModule(mod.id));
-      c.appendChild(btn);
+      const item=document.createElement('div');
+      item.className='mod-menu-item';item.dataset.id=mod.id;
+      item.innerHTML='<i class="ph ph-'+phIcon(mod.icon)+'"></i> '+mod.label;
+      item.addEventListener('click',()=>{selectModule(mod.id);closeModMenu()});
+      menu.appendChild(item);
     }
+  }
+  window.toggleModMenu=function(){document.getElementById('modMenu').classList.toggle('open')};
+  function closeModMenu(){document.getElementById('modMenu').classList.remove('open')}
+  // Close on outside click.
+  document.addEventListener('click',function(e){
+    if(!e.target.closest('.mod-dropdown'))closeModMenu();
+  });
+  function updateModTrigger(mod){
+    document.getElementById('modTriggerLabel').textContent=mod.label;
+    document.getElementById('modTriggerIcon').className='ph ph-'+phIcon(mod.icon);
+    // Highlight active in menu.
+    document.querySelectorAll('.mod-menu-item').forEach(i=>{i.classList.toggle('active',i.dataset.id===mod.id)});
   }
 
   // ── Mega menu ──
@@ -251,8 +277,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
   function selectModule(id){
     currentModule=schema.modules.find(m=>m.id===id);
     if(!currentModule)return;
-    // Highlight button
-    document.querySelectorAll('.module-btn').forEach(b=>{b.classList.toggle('active',b.dataset.id===id)});
+    updateModTrigger(currentModule);
     // Build sidebar
     buildSidebar();
     // Select first resource

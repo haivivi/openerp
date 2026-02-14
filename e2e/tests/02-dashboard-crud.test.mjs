@@ -52,9 +52,17 @@ describe('Dashboard CRUD (schema-driven)', () => {
   });
 
   it('loads modules from schema', async () => {
-    const modules = await page.$$eval('.module-btn', els => els.map(e => e.textContent));
-    assert.ok(modules.length >= 1, 'At least one module loaded');
-    assert.ok(modules.some(m => /auth/i.test(m)), 'Auth module present');
+    // Module dropdown should show current module label.
+    const modLabel = await page.$eval('#modTriggerLabel', el => el.textContent);
+    assert.ok(modLabel.length > 0, 'Module dropdown has label');
+    // Open menu and check items.
+    await page.click('#modTrigger');
+    await new Promise(r => setTimeout(r, 200));
+    const items = await page.$$eval('.mod-menu-item', els => els.map(e => e.textContent.trim()));
+    assert.ok(items.length >= 1, 'At least one module in dropdown');
+    assert.ok(items.some(m => /auth/i.test(m)), 'Auth module present');
+    // Close menu.
+    await page.click('#modTrigger');
   });
 
   it('shows sidebar resources for selected module', async () => {

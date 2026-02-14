@@ -115,9 +115,9 @@ describe('Login flow', () => {
       { timeout: 5000 },
     );
 
-    // Should show module button(s) from schema.
-    const moduleButtons = await page.$$eval('.module-btn', els => els.map(e => e.textContent));
-    assert.ok(moduleButtons.length > 0, 'Module buttons rendered from schema');
+    // Should show module dropdown from schema.
+    const modLabel = await page.$eval('#modTriggerLabel', el => el.textContent);
+    assert.ok(modLabel.length > 0, 'Module dropdown rendered from schema');
 
     // Sidebar should have nav items.
     const navItems = await page.$$eval('.sidebar .nav-item', els => els.map(e => e.textContent));
