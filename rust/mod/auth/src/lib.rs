@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use openerp_store::{admin_kv_router, KvOps, KvStore};
+use openerp_core::Authenticator; // For AuthChecker::check() in tests.
 
 use model::*;
 
@@ -202,5 +203,192 @@ mod tests {
         let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(created["displayName"], "Bob");
         assert!(!created["id"].as_str().unwrap().is_empty());
+    }
+
+    // ── Password tests ──
+
+    #[test]
+    fn password_hash_and_verify() {
+        let hash = store_impls::hash_password("mypassword").unwrap();
+        assert!(hash.starts_with("$argon2id$"), "should be argon2id hash");
+        assert!(store_impls::verify_password("mypassword", &hash));
+        assert!(!store_impls::verify_password("wrong", &hash));
+    }
+
+    #[test]
+    fn password_verify_invalid_hash() {
+        assert!(!store_impls::verify_password("test", "not-a-hash"));
+        assert!(!store_impls::verify_password("test", ""));
+    }
+
+    // ── find_user_by_email tests ──
+
+    #[test]
+    fn find_user_by_email_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("find1.redb")).unwrap(),
+        );
+        let ops = KvOps::<User>::new(kv.clone());
+
+        let user = User {
+            id: openerp_types::Id::default(),
+            email: Some(openerp_types::Email::new("find@test.com")),
+            avatar: None, active: true, password_hash: None, linked_accounts: None,
+            display_name: Some("Finder".into()),
+            description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+        ops.save_new(user).unwrap();
+
+        let found = store_impls::find_user_by_email(&kv, "find@test.com").unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().display_name, Some("Finder".into()));
+    }
+
+    #[test]
+    fn find_user_by_email_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("find2.redb")).unwrap(),
+        );
+
+        let found = store_impls::find_user_by_email(&kv, "nobody@test.com").unwrap();
+        assert!(found.is_none());
+    }
+
+    // ── AuthChecker tests ──
+
+    #[test]
+    fn auth_checker_missing_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac1.redb")).unwrap(),
+        );
+        let checker = handlers::policy_check::AuthChecker::new(kv, "test-secret", "auth:root");
+        let headers = axum::http::HeaderMap::new();
+
+        let result = checker.check(&headers, "auth:user:read");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing"));
+    }
+
+    #[test]
+    fn auth_checker_invalid_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac2.redb")).unwrap(),
+        );
+        let checker = handlers::policy_check::AuthChecker::new(kv, "test-secret", "auth:root");
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", "Bearer invalid.jwt.token".parse().unwrap());
+
+        let result = checker.check(&headers, "auth:user:read");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid token"));
+    }
+
+    #[test]
+    fn auth_checker_root_bypasses() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac3.redb")).unwrap(),
+        );
+        let checker = handlers::policy_check::AuthChecker::new(
+            kv, "test-secret", "auth:root",
+        );
+
+        // Create a valid JWT with auth:root role.
+        let claims = serde_json::json!({
+            "sub": "root", "roles": ["auth:root"],
+            "iat": chrono::Utc::now().timestamp(),
+            "exp": chrono::Utc::now().timestamp() + 3600,
+        });
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
+        ).unwrap();
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        // Root should pass any permission.
+        assert!(checker.check(&headers, "anything:goes:here").is_ok());
+    }
+
+    #[test]
+    fn auth_checker_user_without_role_denied() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac4.redb")).unwrap(),
+        );
+        let checker = handlers::policy_check::AuthChecker::new(
+            kv, "test-secret", "auth:root",
+        );
+
+        // JWT with no roles.
+        let claims = serde_json::json!({
+            "sub": "user1", "roles": [],
+            "iat": chrono::Utc::now().timestamp(),
+            "exp": chrono::Utc::now().timestamp() + 3600,
+        });
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
+        ).unwrap();
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        let result = checker.check(&headers, "auth:user:read");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("permission denied"));
+    }
+
+    #[test]
+    fn auth_checker_user_with_matching_role() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac5.redb")).unwrap(),
+        );
+
+        // Create a role in KV with the needed permission.
+        let role_ops = KvOps::<Role>::new(kv.clone());
+        let role = Role {
+            id: openerp_types::Id::new("viewer"),
+            permissions: vec!["auth:user:read".into(), "auth:user:list".into()],
+            display_name: Some("Viewer".into()),
+            description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+        role_ops.save_new(role).unwrap();
+
+        let checker = handlers::policy_check::AuthChecker::new(
+            kv, "test-secret", "auth:root",
+        );
+
+        // JWT with "viewer" role.
+        let claims = serde_json::json!({
+            "sub": "user1", "roles": ["viewer"],
+            "iat": chrono::Utc::now().timestamp(),
+            "exp": chrono::Utc::now().timestamp() + 3600,
+        });
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
+        ).unwrap();
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        // Should pass: viewer role has auth:user:read.
+        assert!(checker.check(&headers, "auth:user:read").is_ok());
+        // Should fail: viewer role doesn't have auth:user:create.
+        assert!(checker.check(&headers, "auth:user:create").is_err());
     }
 }

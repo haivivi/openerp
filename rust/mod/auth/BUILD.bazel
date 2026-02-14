@@ -30,6 +30,8 @@ rust_test(
     name = "auth_test",
     crate = ":auth",
     deps = [
+        "@crates//:chrono",
+        "@crates//:jsonwebtoken",
         "@crates//:tempfile",
         "@crates//:tokio",
         "@crates//:tower",
