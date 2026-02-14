@@ -49,6 +49,11 @@ pub fn admin_router(
     router
 }
 
+/// Facet routers for this module. Empty for now — add facets as needed.
+pub fn facet_routers(_kv: Arc<dyn openerp_kv::KVStore>) -> Vec<openerp_store::FacetDef> {
+    vec![]
+}
+
 /// Get UI widget overrides defined in dsl/ui/.
 pub fn ui_overrides() -> Vec<openerp_store::WidgetOverride> {
     ui_defs::overrides()

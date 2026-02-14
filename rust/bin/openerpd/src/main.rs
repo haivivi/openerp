@@ -79,6 +79,19 @@ async fn main() -> anyhow::Result<()> {
     ];
     info!("Admin routers: /admin/auth/, /admin/pms/, /admin/task/");
 
+    // ── Facet routes (multi-consumer APIs) ──
+
+    let mut facet_routes: Vec<openerp_store::FacetDef> = Vec::new();
+    facet_routes.extend(auth::facet_routers(Arc::clone(&kv)));
+    facet_routes.extend(pms::facet_routers(Arc::clone(&kv)));
+    facet_routes.extend(task::facet_routers(Arc::clone(&kv)));
+    if !facet_routes.is_empty() {
+        let names: Vec<String> = facet_routes.iter()
+            .map(|f| format!("/{}/{}", f.name, f.module))
+            .collect();
+        info!("Facet routers: {}", names.join(", "));
+    }
+
     // ── Schema (auto-generated from DSL + UI overrides) ──
 
     let mut schema_json = openerp_store::build_schema(
@@ -105,7 +118,7 @@ async fn main() -> anyhow::Result<()> {
         kv,
     };
 
-    let app = routes::build_router(app_state, admin_routes, schema_json);
+    let app = routes::build_router(app_state, admin_routes, facet_routes, schema_json);
 
     let listener = tokio::net::TcpListener::bind(&cli.listen).await?;
     info!("OpenERP server listening on {}", cli.listen);

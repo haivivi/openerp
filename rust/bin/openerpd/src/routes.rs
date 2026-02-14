@@ -22,6 +22,7 @@ pub struct AppState {
 pub fn build_router(
     state: AppState,
     admin_routes: Vec<(&str, Router)>,
+    facet_routes: Vec<openerp_store::FacetDef>,
     schema_json: serde_json::Value,
 ) -> Router {
     let jwt_state = state.jwt_state.clone();
@@ -54,6 +55,12 @@ pub fn build_router(
     // Mount admin routes from DSL modules.
     for (name, router) in admin_routes {
         app = app.nest(&format!("/admin/{}", name), router);
+    }
+
+    // Mount facet routes: /{facet_name}/{module}/...
+    for facet in facet_routes {
+        let prefix = format!("/{}/{}", facet.name, facet.module);
+        app = app.nest(&prefix, facet.router);
     }
 
     app.layer(middleware::from_fn_with_state(

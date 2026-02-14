@@ -21,6 +21,11 @@ pub fn admin_router(
     router
 }
 
+/// Facet routers for Task. Empty for now.
+pub fn facet_routers(_kv: Arc<dyn openerp_kv::KVStore>) -> Vec<openerp_store::FacetDef> {
+    vec![]
+}
+
 pub fn schema_def() -> openerp_store::ModuleDef {
     openerp_store::ModuleDef {
         id: "task",
