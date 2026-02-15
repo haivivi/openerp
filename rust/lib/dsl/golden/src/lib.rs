@@ -3,6 +3,8 @@
 //! Verify that DSL definitions produce exactly the expected output.
 //! If the macro or schema builder changes, these tests break and show the diff.
 
+mod mini_erp;
+
 #[cfg(test)]
 mod tests {
     use openerp_macro::model;
