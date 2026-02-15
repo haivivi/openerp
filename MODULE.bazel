@@ -88,22 +88,24 @@ use_repo(crate, "crates")
 # ── Lightpanda headless browser (for E2E browser tests) ──
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
 
-# Nightly builds rotate daily — no sha256 pin (would break on next build).
-# Pin to a versioned release when Lightpanda publishes one.
+# Lightpanda v0.2.3 — pinned release with sha256.
 http_file(
     name = "lightpanda_macos_arm64",
-    url = "https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-aarch64-macos",
+    url = "https://github.com/lightpanda-io/browser/releases/download/v0.2.3/lightpanda-aarch64-macos",
+    sha256 = "f7567fd7cd252d32c12e6302ebb66acf8e19fd5a944184814c2f1d048b7cd847",
     executable = True,
 )
 
 http_file(
     name = "lightpanda_linux_x86_64",
-    url = "https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-x86_64-linux",
+    url = "https://github.com/lightpanda-io/browser/releases/download/v0.2.3/lightpanda-x86_64-linux",
+    sha256 = "40282bdb2468fdff07af02aaa4622eead430fe5bf58400ea47801e30d99e8be2",
     executable = True,
 )
 
 http_file(
     name = "lightpanda_linux_arm64",
-    url = "https://github.com/lightpanda-io/browser/releases/download/nightly/lightpanda-aarch64-linux",
+    url = "https://github.com/lightpanda-io/browser/releases/download/v0.2.3/lightpanda-aarch64-linux",
+    sha256 = "ba17eb70c08dc53e52b0e7ebaebe2c9e48ec78680ad40c80da4b530a60775127",
     executable = True,
 )
