@@ -461,6 +461,144 @@ impl<T: DslModel> ResourceClient<T> {
     }
 }
 
+// ── Facet list result ───────────────────────────────────────────────
+
+/// List response for facet endpoints. Uses `hasMore` pagination
+/// (same shape as admin `ListResponse`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ListResult<T> {
+    pub items: Vec<T>,
+    pub has_more: bool,
+}
+
+// ── FacetClientBase ─────────────────────────────────────────────────
+
+/// Shared HTTP client used by all `#[facet]` generated clients.
+///
+/// Handles URL construction, authentication, and response parsing.
+/// Generated `{Facet}Client` structs hold a `FacetClientBase` and
+/// delegate HTTP operations to it.
+pub struct FacetClientBase {
+    http: reqwest::Client,
+    base_url: String,
+    token_source: Arc<dyn TokenSource>,
+}
+
+impl FacetClientBase {
+    pub fn new(base_url: &str, token_source: Arc<dyn TokenSource>) -> Self {
+        Self {
+            http: reqwest::Client::new(),
+            base_url: base_url.trim_end_matches('/').to_string(),
+            token_source,
+        }
+    }
+
+    async fn authed(
+        &self,
+        req: reqwest::RequestBuilder,
+    ) -> Result<reqwest::RequestBuilder, ApiError> {
+        if let Some(token) = self.token_source.token().await? {
+            Ok(req.bearer_auth(token))
+        } else {
+            Ok(req)
+        }
+    }
+
+    async fn parse<T: DeserializeOwned>(resp: reqwest::Response) -> Result<T, ApiError> {
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ApiError::from_response_body(status.as_u16(), &body));
+        }
+        resp.json::<T>()
+            .await
+            .map_err(|e| ApiError::Decode(e.to_string()))
+    }
+
+    /// GET a list endpoint — returns ListResult<T> with hasMore pagination.
+    pub async fn list<T: DeserializeOwned>(&self, path: &str) -> Result<ListResult<T>, ApiError> {
+        let url = format!("{}{}", self.base_url, path);
+        let req = self.http.get(&url);
+        let req = self.authed(req).await?;
+        let resp = req.send().await?;
+        Self::parse(resp).await
+    }
+
+    /// GET a single item endpoint.
+    pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
+        let url = format!("{}{}", self.base_url, path);
+        let req = self.http.get(&url);
+        let req = self.authed(req).await?;
+        let resp = req.send().await?;
+        Self::parse(resp).await
+    }
+
+    /// POST with a JSON body.
+    pub async fn post<Req: Serialize, Resp: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &Req,
+    ) -> Result<Resp, ApiError> {
+        let url = format!("{}{}", self.base_url, path);
+        let req = self.http.post(&url).json(body);
+        let req = self.authed(req).await?;
+        let resp = req.send().await?;
+        Self::parse(resp).await
+    }
+
+    /// POST without a body.
+    pub async fn post_empty<Resp: DeserializeOwned>(
+        &self,
+        path: &str,
+    ) -> Result<Resp, ApiError> {
+        let url = format!("{}{}", self.base_url, path);
+        let req = self.http.post(&url);
+        let req = self.authed(req).await?;
+        let resp = req.send().await?;
+        Self::parse(resp).await
+    }
+
+    /// PUT with a JSON body.
+    pub async fn put<Req: Serialize, Resp: DeserializeOwned>(
+        &self,
+        path: &str,
+        body: &Req,
+    ) -> Result<Resp, ApiError> {
+        let url = format!("{}{}", self.base_url, path);
+        let req = self.http.put(&url).json(body);
+        let req = self.authed(req).await?;
+        let resp = req.send().await?;
+        Self::parse(resp).await
+    }
+
+    /// PUT without a body.
+    pub async fn put_empty<Resp: DeserializeOwned>(
+        &self,
+        path: &str,
+    ) -> Result<Resp, ApiError> {
+        let url = format!("{}{}", self.base_url, path);
+        let req = self.http.put(&url);
+        let req = self.authed(req).await?;
+        let resp = req.send().await?;
+        Self::parse(resp).await
+    }
+
+    /// DELETE (no response body).
+    pub async fn delete(&self, path: &str) -> Result<(), ApiError> {
+        let url = format!("{}{}", self.base_url, path);
+        let req = self.http.delete(&url);
+        let req = self.authed(req).await?;
+        let resp = req.send().await?;
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ApiError::from_response_body(status.as_u16(), &body));
+        }
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -633,5 +771,23 @@ mod tests {
         if let Some(limit) = p.limit { parts.push(format!("limit={}", limit)); }
         if let Some(offset) = p.offset { parts.push(format!("offset={}", offset)); }
         assert_eq!(parts.join("&"), "limit=20&offset=40");
+    }
+
+    // ── Facet ListResult ────────────────────────────────────────────
+
+    #[test]
+    fn facet_list_result_deserializes_has_more() {
+        let json = r#"{"items":[{"name":"a"},{"name":"b"}],"hasMore":true}"#;
+        let result: ListResult<serde_json::Value> = serde_json::from_str(json).unwrap();
+        assert_eq!(result.items.len(), 2);
+        assert!(result.has_more);
+    }
+
+    #[test]
+    fn facet_list_result_deserializes_no_more() {
+        let json = r#"{"items":[],"hasMore":false}"#;
+        let result: ListResult<serde_json::Value> = serde_json::from_str(json).unwrap();
+        assert_eq!(result.items.len(), 0);
+        assert!(!result.has_more);
     }
 }

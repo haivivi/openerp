@@ -1,4 +1,4 @@
-//! Integration tests for the #[model] macro.
+//! Integration tests for the #[model] and #[facet] macros.
 
 #[cfg(test)]
 mod tests {
@@ -104,5 +104,156 @@ mod tests {
     #[test]
     fn explicit_ui_widget() {
         assert_eq!(Role::permissions.widget, "permission_picker");
+    }
+}
+
+// ── Facet macro tests ──────────────────────────────────────────────
+
+#[cfg(test)]
+mod facet_tests {
+    use openerp_macro::facet;
+
+    // ── Action request/response types (defined before facet module) ──
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct TestProvisionRequest {
+        pub count: Option<u32>,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct TestProvisionResponse {
+        pub batch_id: String,
+        pub provisioned: u32,
+    }
+
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct TestActivateResponse {
+        pub sn: String,
+        pub status: String,
+    }
+
+    // ── Facet definition ──
+
+    #[facet(name = "mfg", module = "pms")]
+    pub mod mfg {
+        use super::*;
+
+        /// Product model for MFG app.
+        #[resource(path = "/models", pk = "code")]
+        pub struct MfgModel {
+            pub code: u32,
+            pub series_name: String,
+            pub display_name: Option<String>,
+        }
+
+        /// Production batch for MFG app.
+        #[resource(path = "/batches", pk = "id")]
+        pub struct MfgBatch {
+            pub id: String,
+            pub model: u32,
+            pub quantity: u32,
+            pub status: String,
+        }
+
+        /// Device view for MFG app.
+        #[resource(path = "/devices", pk = "sn")]
+        pub struct MfgDevice {
+            pub sn: String,
+            pub model: u32,
+            pub status: String,
+        }
+
+        #[action(method = "POST", path = "/batches/{id}/@provision")]
+        pub type Provision = fn(id: String, req: TestProvisionRequest) -> TestProvisionResponse;
+
+        #[action(method = "POST", path = "/devices/{sn}/@activate")]
+        pub type Activate = fn(sn: String) -> TestActivateResponse;
+    }
+
+    // ── Tests ──
+
+    #[test]
+    fn facet_metadata() {
+        assert_eq!(mfg::__FACET_NAME, "mfg");
+        assert_eq!(mfg::__FACET_MODULE, "pms");
+    }
+
+    #[test]
+    fn facet_ir_structure() {
+        let ir = mfg::__facet_ir();
+        assert_eq!(ir["name"], "mfg");
+        assert_eq!(ir["module"], "pms");
+
+        let resources = ir["resources"].as_array().unwrap();
+        assert_eq!(resources.len(), 3);
+        assert_eq!(resources[0]["name"], "MfgModel");
+        assert_eq!(resources[0]["path"], "/models");
+        assert_eq!(resources[0]["pk"], "code");
+        assert_eq!(resources[1]["name"], "MfgBatch");
+        assert_eq!(resources[2]["name"], "MfgDevice");
+
+        let actions = ir["actions"].as_array().unwrap();
+        assert_eq!(actions.len(), 2);
+        assert_eq!(actions[0]["name"], "provision");
+        assert_eq!(actions[0]["method"], "POST");
+        assert_eq!(actions[0]["path"], "/batches/{id}/@provision");
+        assert_eq!(actions[0]["hasBody"], true);
+        assert_eq!(actions[1]["name"], "activate");
+        assert_eq!(actions[1]["hasBody"], false);
+    }
+
+    #[test]
+    fn resource_struct_has_serde() {
+        // MfgModel should have camelCase serde.
+        let model = mfg::MfgModel {
+            code: 42,
+            series_name: "H106".into(),
+            display_name: Some("Speaker".into()),
+        };
+        let json = serde_json::to_value(&model).unwrap();
+        assert_eq!(json["code"], 42);
+        assert_eq!(json["seriesName"], "H106");
+        assert_eq!(json["displayName"], "Speaker");
+
+        // Deserialize back.
+        let back: mfg::MfgModel = serde_json::from_value(json).unwrap();
+        assert_eq!(back.code, 42);
+        assert_eq!(back.series_name, "H106");
+    }
+
+    #[test]
+    fn resource_struct_camel_case_deserialize() {
+        let json = r#"{"code":1001,"seriesName":"H200","displayName":null}"#;
+        let model: mfg::MfgModel = serde_json::from_str(json).unwrap();
+        assert_eq!(model.code, 1001);
+        assert_eq!(model.series_name, "H200");
+        assert!(model.display_name.is_none());
+    }
+
+    #[test]
+    fn client_struct_exists() {
+        // Verify the MfgClient struct exists and can be constructed.
+        // We can't actually call methods (no server), but we can check it compiles.
+        fn _assert_client_compiles() {
+            let _client = mfg::MfgClient::new(
+                "http://localhost:8080",
+                std::sync::Arc::new(openerp_client::NoAuth),
+            );
+        }
+    }
+
+    #[test]
+    fn batch_serde() {
+        let batch = mfg::MfgBatch {
+            id: "b001".into(),
+            model: 42,
+            quantity: 100,
+            status: "pending".into(),
+        };
+        let json = serde_json::to_string(&batch).unwrap();
+        assert!(json.contains("\"id\""));
+        assert!(json.contains("\"model\""));
+        let back: mfg::MfgBatch = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.id, "b001");
     }
 }
