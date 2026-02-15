@@ -748,6 +748,242 @@ mod tests {
     }
 
     // =====================================================================
+    // 18. Metadata JSON object roundtrip
+    // =====================================================================
+
+    #[tokio::test]
+    async fn metadata_json_string_roundtrip() {
+        let (router, _, _dir) = make_router::<AllOptional>("records", "record");
+
+        // metadata is Option<String>, so we store JSON as a serialized string.
+        let meta_obj = serde_json::json!({
+            "source": "import", "version": 3,
+            "nested": {"key": "value", "array": [1, 2, 3]},
+        });
+        let meta_str = serde_json::to_string(&meta_obj).unwrap();
+
+        let (s, created) = call(&router, "POST", "/records",
+            Some(serde_json::json!({
+                "name": "With Metadata",
+                "metadata": meta_str,
+                "displayName": "Meta Test",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+        let id = created["id"].as_str().unwrap();
+        assert_eq!(created["metadata"].as_str().unwrap(), meta_str);
+
+        // Read back — metadata string preserved exactly.
+        let (s, fetched) = call(&router, "GET", &format!("/records/{}", id), None).await;
+        assert_eq!(s, StatusCode::OK);
+        let fetched_meta: serde_json::Value = serde_json::from_str(fetched["metadata"].as_str().unwrap()).unwrap();
+        assert_eq!(fetched_meta["source"], "import");
+        assert_eq!(fetched_meta["version"], 3);
+        assert_eq!(fetched_meta["nested"]["array"][2], 3);
+
+        // Update metadata.
+        let mut edit = fetched.clone();
+        let new_meta = serde_json::json!({"source": "updated", "version": 4});
+        edit["metadata"] = serde_json::json!(serde_json::to_string(&new_meta).unwrap());
+        let (s, updated) = call(&router, "PUT", &format!("/records/{}", id), Some(edit)).await;
+        assert_eq!(s, StatusCode::OK);
+        let upd_meta: serde_json::Value = serde_json::from_str(updated["metadata"].as_str().unwrap()).unwrap();
+        assert_eq!(upd_meta["version"], 4);
+    }
+
+    // =====================================================================
+    // 19. Unknown fields in POST body silently dropped
+    // =====================================================================
+
+    #[tokio::test]
+    async fn unknown_fields_dropped() {
+        let (router, _, _dir) = make_router::<ValidatedRecord>("items", "item");
+
+        let (s, created) = call(&router, "POST", "/items",
+            Some(serde_json::json!({
+                "priority": 5,
+                "displayName": "Known",
+                "unknownField1": "should be dropped",
+                "nonExistent": 12345,
+                "extra": {"nested": true},
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(created["priority"], 5);
+        assert_eq!(created["displayName"], "Known");
+        // Unknown fields should not appear in response.
+        assert!(created.get("unknownField1").is_none() || created["unknownField1"].is_null(),
+            "unknownField1 should be dropped");
+        assert!(created.get("nonExistent").is_none() || created["nonExistent"].is_null(),
+            "nonExistent should be dropped");
+    }
+
+    // =====================================================================
+    // 20. Delete then recreate with same ID
+    // =====================================================================
+
+    #[tokio::test]
+    async fn delete_and_recreate_same_id() {
+        let (router, _, _dir) = make_router::<ValidatedRecord>("items", "item");
+
+        // Create with explicit ID.
+        let (s, _) = call(&router, "POST", "/items",
+            Some(serde_json::json!({"id": "reuse-me", "priority": 1, "displayName": "V1"})),
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+
+        // Delete.
+        let (s, _) = call(&router, "DELETE", "/items/reuse-me", None).await;
+        assert_eq!(s, StatusCode::OK);
+
+        // Verify deleted.
+        let (s, _) = call(&router, "GET", "/items/reuse-me", None).await;
+        assert_eq!(s, StatusCode::NOT_FOUND);
+
+        // Recreate with same ID but different data.
+        let (s, v2) = call(&router, "POST", "/items",
+            Some(serde_json::json!({"id": "reuse-me", "priority": 99, "displayName": "V2"})),
+        ).await;
+        assert_eq!(s, StatusCode::OK, "Should allow recreate after delete");
+        assert_eq!(v2["id"], "reuse-me");
+        assert_eq!(v2["priority"], 99);
+        assert_eq!(v2["displayName"], "V2");
+
+        // Verify only V2 data exists.
+        let (s, fetched) = call(&router, "GET", "/items/reuse-me", None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(fetched["priority"], 99, "New data, not old data");
+        assert_eq!(fetched["displayName"], "V2");
+
+        // List should have exactly 1.
+        let (s, list) = call(&router, "GET", "/items", None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(list["total"], 1);
+    }
+
+    // =====================================================================
+    // 21. Schema field order matches struct definition
+    // =====================================================================
+
+    #[test]
+    fn schema_field_order_matches_struct() {
+        let ir = AllOptional::__dsl_ir();
+        let fields = ir["fields"].as_array().unwrap();
+        let names: Vec<&str> = fields.iter().map(|f| f["name"].as_str().unwrap()).collect();
+
+        // User fields should come first, in definition order.
+        assert_eq!(names[0], "id");
+        assert_eq!(names[1], "name");
+        assert_eq!(names[2], "email");
+        assert_eq!(names[3], "url");
+        assert_eq!(names[4], "avatar");
+        assert_eq!(names[5], "secret");
+        assert_eq!(names[6], "count");
+        assert_eq!(names[7], "active");
+        assert_eq!(names[8], "tags");
+        // Then common fields (injected by #[model]).
+        assert_eq!(names[9], "display_name");
+        assert_eq!(names[10], "description");
+        assert_eq!(names[11], "metadata");
+        assert_eq!(names[12], "created_at");
+        assert_eq!(names[13], "updated_at");
+    }
+
+    // =====================================================================
+    // 22. PUT change every single field at once
+    // =====================================================================
+
+    #[tokio::test]
+    async fn put_change_every_field() {
+        let (router, _, _dir) = make_router::<AllOptional>("records", "record");
+
+        let (s, created) = call(&router, "POST", "/records",
+            Some(serde_json::json!({
+                "name": "Original",
+                "email": "old@test.com",
+                "url": "https://old.com",
+                "count": 1,
+                "active": false,
+                "tags": ["old"],
+                "displayName": "Old Name",
+                "description": "Old desc",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+        let id = created["id"].as_str().unwrap();
+
+        // Change EVERY field.
+        let mut edit = created.clone();
+        edit["name"] = serde_json::json!("Changed");
+        edit["email"] = serde_json::json!("new@test.com");
+        edit["url"] = serde_json::json!("https://new.com");
+        edit["count"] = serde_json::json!(999);
+        edit["active"] = serde_json::json!(true);
+        edit["tags"] = serde_json::json!(["new", "changed"]);
+        edit["displayName"] = serde_json::json!("New Name");
+        edit["description"] = serde_json::json!("New desc");
+
+        let (s, updated) = call(&router, "PUT", &format!("/records/{}", id), Some(edit)).await;
+        assert_eq!(s, StatusCode::OK);
+
+        // Verify ALL fields changed.
+        assert_eq!(updated["name"], "Changed");
+        assert_eq!(updated["email"], "new@test.com");
+        assert_eq!(updated["url"], "https://new.com");
+        assert_eq!(updated["count"], 999);
+        assert_eq!(updated["active"], true);
+        assert_eq!(updated["tags"][0], "new");
+        assert_eq!(updated["tags"][1], "changed");
+        assert_eq!(updated["displayName"], "New Name");
+        assert_eq!(updated["description"], "New desc");
+        // id unchanged.
+        assert_eq!(updated["id"], id);
+
+        // Re-fetch to confirm persistence.
+        let (s, fetched) = call(&router, "GET", &format!("/records/{}", id), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(fetched["name"], "Changed");
+        assert_eq!(fetched["active"], true);
+        assert_eq!(fetched["count"], 999);
+    }
+
+    // =====================================================================
+    // 23. Bool field: default false, set true, toggle back to false
+    // =====================================================================
+
+    #[tokio::test]
+    async fn bool_field_toggle() {
+        let (router, _, _dir) = make_router::<AllOptional>("records", "record");
+
+        // Create without active → defaults to null (Option<bool>).
+        let (s, created) = call(&router, "POST", "/records",
+            Some(serde_json::json!({"displayName": "Bool Test"})),
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+        let id = created["id"].as_str().unwrap();
+        assert!(created["active"].is_null(), "Option<bool> default is null");
+
+        // Set to true.
+        let mut edit = created.clone();
+        edit["active"] = serde_json::json!(true);
+        let (s, u1) = call(&router, "PUT", &format!("/records/{}", id), Some(edit)).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(u1["active"], true);
+
+        // Toggle to false.
+        let mut edit = u1.clone();
+        edit["active"] = serde_json::json!(false);
+        let (s, u2) = call(&router, "PUT", &format!("/records/{}", id), Some(edit)).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(u2["active"], false, "false should be stored, not treated as null");
+
+        // Verify false persisted.
+        let (s, fetched) = call(&router, "GET", &format!("/records/{}", id), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(fetched["active"], false);
+    }
+
+    // =====================================================================
     // 17. Deeply nested hierarchy
     // =====================================================================
 
