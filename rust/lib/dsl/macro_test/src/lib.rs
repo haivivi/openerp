@@ -30,11 +30,13 @@ mod tests {
             metadata: None,
             created_at: DateTime::new("2024-01-01T00:00:00Z"),
             updated_at: DateTime::new("2024-01-01T00:00:00Z"),
+            version: 0,
         };
         let json = serde_json::to_string(&user).unwrap();
         assert!(json.contains("\"passwordHash\""));
         assert!(json.contains("\"createdAt\""));
         assert!(json.contains("\"displayName\""));
+        assert!(json.contains("\"version\""));
         assert!(json.contains("\"alice@test.com\""));
     }
 
@@ -46,6 +48,7 @@ mod tests {
         let _: Field = User::metadata;
         let _: Field = User::created_at;
         let _: Field = User::updated_at;
+        let _: Field = User::version;
     }
 
     #[test]
@@ -66,6 +69,7 @@ mod tests {
         assert_eq!(User::password_hash.widget, "hidden");
         assert_eq!(User::display_name.widget, "text");
         assert_eq!(User::created_at.widget, "datetime");
+        assert_eq!(User::version.widget, "readonly");
     }
 
     #[test]
@@ -85,6 +89,7 @@ mod tests {
         assert!(names.contains(&"metadata"), "IR has metadata: {:?}", names);
         assert!(names.contains(&"created_at"), "IR has created_at: {:?}", names);
         assert!(names.contains(&"updated_at"), "IR has updated_at: {:?}", names);
+        assert!(names.contains(&"version"), "IR has version: {:?}", names);
     }
 
     // ── Model with explicit #[ui(widget)] ──

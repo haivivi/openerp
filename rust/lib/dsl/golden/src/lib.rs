@@ -130,8 +130,10 @@ mod tests {
         assert!(names.contains(&"created_at"), "missing created_at in {:?}", names);
         assert!(names.contains(&"updated_at"), "missing updated_at in {:?}", names);
 
-        // Total: 6 user + 5 common = 11.
-        assert_eq!(fields.len(), 11, "expected 11 fields, got: {:?}", names);
+        assert!(names.contains(&"version"), "missing version in {:?}", names);
+
+        // Total: 6 user + 6 common = 12.
+        assert_eq!(fields.len(), 12, "expected 12 fields, got: {:?}", names);
     }
 
     #[test]
@@ -325,6 +327,7 @@ mod tests {
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
+            version: 0,
         };
         let created = ops.save_new(w).unwrap();
         assert_eq!(created.id.as_str(), "auto-id");
@@ -367,6 +370,7 @@ mod tests {
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
+            version: 0,
         };
         let json = serde_json::to_value(&w).unwrap();
         // camelCase keys.

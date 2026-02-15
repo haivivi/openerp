@@ -272,18 +272,18 @@ mod tests {
         let emp_ir = Employee::__dsl_ir();
         assert_eq!(emp_ir["module"], "hr");
         assert_eq!(emp_ir["name"], "Employee");
-        // 9 user fields + 5 common = 14
-        assert_eq!(emp_ir["fields"].as_array().unwrap().len(), 14);
+        // 9 user fields + 6 common = 15
+        assert_eq!(emp_ir["fields"].as_array().unwrap().len(), 15);
 
         let dept_ir = Department::__dsl_ir();
         assert_eq!(dept_ir["module"], "hr");
-        // 4 user (id, parent_id, head_employee_id, budget) + 5 common = 9
-        assert_eq!(dept_ir["fields"].as_array().unwrap().len(), 9);
+        // 4 user (id, parent_id, head_employee_id, budget) + 6 common = 10
+        assert_eq!(dept_ir["fields"].as_array().unwrap().len(), 10);
 
         let proj_ir = Project::__dsl_ir();
         assert_eq!(proj_ir["module"], "pm");
-        // 7 user + 5 common = 12
-        assert_eq!(proj_ir["fields"].as_array().unwrap().len(), 12);
+        // 7 user + 6 common = 13
+        assert_eq!(proj_ir["fields"].as_array().unwrap().len(), 13);
     }
 
     // ── 2. Widget inference for all types ──
@@ -904,6 +904,7 @@ mod tests {
             display_name: Some(id.into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            version: 0,
         }).unwrap();
     }
 
