@@ -424,11 +424,14 @@ fn emit_action_client_method(
     let path_fmt = build_path_format(facet_name, facet_module, &action.path);
 
     let body_param: Option<&ActionParam> = action.params.iter().find(|p| !p.is_path_param);
+    let is_delete = action.method == "DELETE";
 
-    // fn signature parameters: path params as &str, body param as &Type
+    // DELETE actions must not have a body parameter.
+    // Filter body params out of fn_args for DELETE to avoid a misleading signature.
     let fn_args: Vec<TokenStream> = action
         .params
         .iter()
+        .filter(|p| !is_delete || p.is_path_param)
         .map(|p| {
             let name = &p.name;
             if p.is_path_param {
@@ -455,7 +458,8 @@ fn emit_action_client_method(
         None => quote! { () },
     };
 
-    let call = match (action.method.as_str(), body_param) {
+    let effective_body = if is_delete { None } else { body_param };
+    let call = match (action.method.as_str(), effective_body) {
         ("POST", Some(body)) => {
             let body_name = &body.name;
             quote! { self.base.post(&path, #body_name).await }
@@ -468,7 +472,6 @@ fn emit_action_client_method(
         ("PUT", None) => quote! { self.base.put_empty(&path).await },
         ("DELETE", _) => quote! { self.base.delete(&path).await },
         _ => {
-            // Default to POST for unknown methods.
             if let Some(body) = body_param {
                 let body_name = &body.name;
                 quote! { self.base.post(&path, #body_name).await }
@@ -541,18 +544,7 @@ fn fn_name_from_type(ident: &syn::Ident) -> String {
 }
 
 fn to_snake_case(s: &str) -> String {
-    let mut result = String::new();
-    for (i, ch) in s.chars().enumerate() {
-        if ch.is_uppercase() {
-            if i > 0 {
-                result.push('_');
-            }
-            result.push(ch.to_ascii_lowercase());
-        } else {
-            result.push(ch);
-        }
-    }
-    result
+    crate::util::to_snake_case(s)
 }
 
 fn to_pascal_case(s: &str) -> String {

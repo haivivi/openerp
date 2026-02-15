@@ -11,6 +11,7 @@ use syn::parse_macro_input;
 
 mod facet;
 mod model;
+mod util;
 
 /// Define a DSL model.
 ///
