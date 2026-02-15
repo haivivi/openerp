@@ -18,6 +18,15 @@ pub trait KVStore: Send + Sync {
     /// Merges both file-layer and DB-layer results when applicable.
     fn scan(&self, prefix: &str) -> Result<Vec<(String, Vec<u8>)>, KVError>;
 
+    /// Atomically set multiple key-value pairs in a single transaction.
+    /// Either all entries are written or none (on error).
+    fn batch_set(&self, entries: &[(&str, &[u8])]) -> Result<(), KVError>;
+
+    /// Atomically delete multiple keys in a single transaction.
+    /// Either all keys are deleted or none (on error).
+    /// Missing keys are silently ignored.
+    fn batch_delete(&self, keys: &[&str]) -> Result<(), KVError>;
+
     /// Check whether a key is in the read-only (file) layer.
     fn is_readonly(&self, key: &str) -> bool;
 }

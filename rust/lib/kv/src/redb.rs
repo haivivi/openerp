@@ -93,6 +93,48 @@ impl KVStore for RedbStore {
         Ok(())
     }
 
+    fn batch_set(&self, entries: &[(&str, &[u8])]) -> Result<(), KVError> {
+        let write_txn = self
+            .db
+            .begin_write()
+            .map_err(|e| KVError::Storage(e.to_string()))?;
+        {
+            let mut table = write_txn
+                .open_table(TABLE)
+                .map_err(|e| KVError::Storage(e.to_string()))?;
+            for (key, value) in entries {
+                table
+                    .insert(*key, *value)
+                    .map_err(|e| KVError::Storage(e.to_string()))?;
+            }
+        }
+        write_txn
+            .commit()
+            .map_err(|e| KVError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
+    fn batch_delete(&self, keys: &[&str]) -> Result<(), KVError> {
+        let write_txn = self
+            .db
+            .begin_write()
+            .map_err(|e| KVError::Storage(e.to_string()))?;
+        {
+            let mut table = write_txn
+                .open_table(TABLE)
+                .map_err(|e| KVError::Storage(e.to_string()))?;
+            for key in keys {
+                table
+                    .remove(*key)
+                    .map_err(|e| KVError::Storage(e.to_string()))?;
+            }
+        }
+        write_txn
+            .commit()
+            .map_err(|e| KVError::Storage(e.to_string()))?;
+        Ok(())
+    }
+
     fn scan(&self, prefix: &str) -> Result<Vec<(String, Vec<u8>)>, KVError> {
         let read_txn = self
             .db

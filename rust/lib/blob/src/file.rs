@@ -1,4 +1,5 @@
 use std::fs;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use crate::error::BlobError;
@@ -112,6 +113,24 @@ impl BlobStore for FileStore {
         self.walk_dir(&self.base_dir, prefix, &mut results)?;
         results.sort_by(|a, b| a.key.cmp(&b.key));
         Ok(results)
+    }
+
+    fn read_stream(&self, key: &str) -> Result<Box<dyn Read + Send>, BlobError> {
+        let path = self.resolve(key)?;
+        if !path.is_file() {
+            return Err(BlobError::NotFound(key.to_string()));
+        }
+        let file = fs::File::open(&path).map_err(|e| BlobError::Io(e.to_string()))?;
+        Ok(Box::new(file))
+    }
+
+    fn write_stream(&self, key: &str) -> Result<Box<dyn Write + Send>, BlobError> {
+        let path = self.resolve(key)?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).map_err(|e| BlobError::Io(e.to_string()))?;
+        }
+        let file = fs::File::create(&path).map_err(|e| BlobError::Io(e.to_string()))?;
+        Ok(Box::new(file))
     }
 }
 
