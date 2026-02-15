@@ -1,3 +1,5 @@
+use std::io::{Read, Write};
+
 use crate::error::BlobError;
 
 /// Metadata for a stored blob.
@@ -28,4 +30,13 @@ pub trait BlobStore: Send + Sync {
 
     /// List blobs matching a key prefix. Returns metadata sorted by key.
     fn list(&self, prefix: &str) -> Result<Vec<BlobMeta>, BlobError>;
+
+    /// Open a blob for streaming read. Returns a reader.
+    /// Returns `BlobError::NotFound` if the key does not exist.
+    fn read_stream(&self, key: &str) -> Result<Box<dyn Read + Send>, BlobError>;
+
+    /// Open a blob for streaming write. Returns a writer.
+    /// Parent directories are created automatically.
+    /// The blob is committed when the writer is dropped/closed.
+    fn write_stream(&self, key: &str) -> Result<Box<dyn Write + Send>, BlobError>;
 }
