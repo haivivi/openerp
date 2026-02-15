@@ -139,6 +139,87 @@ describe('Dashboard CRUD (schema-driven)', () => {
     assert.ok(tableText.includes('E2E Test User'), `Created user should appear in table, got: ${tableText.substring(0, 200)}`);
   });
 
+  it('edits a user via the edit dialog (click row)', async () => {
+    // Ensure we're on Users page with the created user visible.
+    await page.evaluate(() => {
+      const items = document.querySelectorAll('.sidebar .nav-item');
+      for (const item of items) {
+        if (/user/i.test(item.textContent)) { item.click(); break; }
+      }
+    });
+    await new Promise(r => setTimeout(r, 500));
+
+    // Wait for table data.
+    await page.waitForFunction(
+      () => {
+        const el = document.getElementById('resBody');
+        return el && el.textContent.includes('E2E Test User');
+      },
+      { timeout: 5000 },
+    );
+
+    // Click on the row containing "E2E Test User" to open edit dialog.
+    await page.evaluate(() => {
+      const rows = document.querySelectorAll('#resBody tr');
+      for (const row of rows) {
+        if (row.textContent.includes('E2E Test User')) {
+          row.click();
+          break;
+        }
+      }
+    });
+
+    // Wait for edit dialog to open.
+    await page.waitForFunction(
+      () => document.getElementById('createDlg')?.classList.contains('open'),
+      { timeout: 3000 },
+    );
+
+    // Verify dialog title says "Edit".
+    const dlgTitle = await page.$eval('#dlgTitle', el => el.textContent);
+    assert.ok(dlgTitle.includes('Edit'), `Dialog should say Edit, got: ${dlgTitle}`);
+
+    // Verify the submit button says "Save".
+    const btnText = await page.$eval('#dlgSubmit', el => el.textContent);
+    assert.equal(btnText, 'Save', 'Submit button should say Save in edit mode');
+
+    // Verify display_name is pre-filled.
+    const nameVal = await page.$eval('#dlgForm input[name="display_name"]', el => el.value);
+    assert.equal(nameVal, 'E2E Test User', 'Display name should be pre-filled');
+
+    // Clear and type new name.
+    await page.evaluate(() => {
+      const input = document.querySelector('#dlgForm input[name="display_name"]');
+      input.value = '';
+    });
+    const nameInput = await page.$('#dlgForm input[name="display_name"]');
+    await nameInput.type('E2E Edited User');
+
+    // Submit (Save).
+    await page.click('#dlgSubmit');
+
+    // Wait for dialog to close.
+    await page.waitForFunction(
+      () => !document.getElementById('createDlg')?.classList.contains('open'),
+      { timeout: 5000 },
+    );
+
+    // Wait for table refresh.
+    await new Promise(r => setTimeout(r, 500));
+
+    // Verify via API that the user was updated (not duplicated).
+    const token = await getToken(page);
+    const listResp = await fetch(`${BASE_URL}/admin/auth/users`, {
+      headers: { 'Authorization': `Bearer ${token}` },
+    });
+    const list = await listResp.json();
+    const editedUsers = list.items.filter(u => u.displayName === 'E2E Edited User');
+    const oldUsers = list.items.filter(u => u.displayName === 'E2E Test User');
+
+    assert.equal(editedUsers.length, 1, `Should have exactly 1 edited user, got ${editedUsers.length}`);
+    assert.equal(oldUsers.length, 0, `Old name should not exist, got ${oldUsers.length}`);
+  });
+
   it('deletes a record via the API', async () => {
     // Use the API directly instead of UI to avoid confirm dialog issues.
     const token = await getToken(page);
@@ -146,7 +227,7 @@ describe('Dashboard CRUD (schema-driven)', () => {
       headers: { 'Authorization': `Bearer ${token}` },
     });
     const list = await listResp.json();
-    const user = list.items?.find(u => u.displayName === 'E2E Test User');
+    const user = list.items?.find(u => u.displayName === 'E2E Edited User' || u.displayName === 'E2E Test User');
     assert.ok(user, 'Test user exists in API');
 
     const delResp = await fetch(`${BASE_URL}/admin/auth/users/${user.id}`, {

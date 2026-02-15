@@ -688,18 +688,23 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
   window.submitDlg=async function(){
     if(!currentResource||!currentModule)return;
     const form=document.getElementById('dlgForm');
-    const data=collectFormData(form);
+    const formData=collectFormData(form);
     const basePath='/admin/'+currentModule.id+'/'+pluralize(toSnake(currentResource.name));
     const pk=(currentResource.key&&currentResource.key.fields&&currentResource.key.fields[0])||'id';
     try{
       if(editingRecord){
-        // Edit mode: PUT with full record.
+        // Edit mode: merge original record with form changes, then PUT.
+        // Start from original record (preserves id, created_at, etc.).
+        const data={};
+        for(const[k,v] of Object.entries(editingRecord)){data[k]=v}
+        // Overwrite with form edits.
+        for(const[k,v] of Object.entries(formData)){data[k]=v}
         const id=String(editingRecord[pk]??editingRecord[toCamel(pk)]??editingRecord.id??'');
         await api('PUT',basePath+'/'+id,data);
         closeCreateDlg();toast(currentResource.name+' updated');
       }else{
         // Create mode: POST.
-        await api('POST',basePath,data);
+        await api('POST',basePath,formData);
         closeCreateDlg();toast(currentResource.name+' created');
       }
       selectResource(currentResource.name);
