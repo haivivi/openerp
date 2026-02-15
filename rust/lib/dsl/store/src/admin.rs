@@ -6,11 +6,11 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::routing::get;
 use axum::{Json, Router};
-use openerp_core::{Authenticator, ListResult, ServiceError};
+use openerp_core::{Authenticator, CountResult, ListParams, ListResult, ServiceError};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -27,11 +27,13 @@ struct AdminState<T: KvStore> {
 /// Build an Axum router for admin CRUD on a KvStore model.
 ///
 /// Routes:
-///   GET  /{resources}       — list all
-///   POST /{resources}       — create
-///   GET  /{resources}/{id}  — get by key
-///   PUT  /{resources}/{id}  — update
-///   DELETE /{resources}/{id} — delete
+///   GET    /{resources}         — list (paginated)
+///   POST   /{resources}         — create
+///   GET    /{resources}/@count  — count (optional)
+///   GET    /{resources}/{id}    — get by key
+///   PUT    /{resources}/{id}    — full update (with rev check)
+///   PATCH  /{resources}/{id}    — partial update (RFC 7386 merge patch)
+///   DELETE /{resources}/{id}    — delete
 ///
 /// - `resource_path`: URL segment (e.g. "users", "roles")
 /// - `resource_name`: permission resource name (e.g. "user", "role")
@@ -50,14 +52,17 @@ pub fn admin_kv_router<T: KvStore + Serialize + DeserializeOwned>(
     });
 
     let list_path = format!("/{}", resource_path);
+    let count_path = format!("/{}/@count", resource_path);
     let item_path = format!("/{}/{{id}}", resource_path);
 
     Router::new()
         .route(&list_path, get(list_handler::<T>).post(create_handler::<T>))
+        .route(&count_path, get(count_handler::<T>))
         .route(
             &item_path,
             get(get_handler::<T>)
                 .put(update_handler::<T>)
+                .patch(patch_handler::<T>)
                 .delete(delete_handler::<T>),
         )
         .with_state(state)
@@ -70,13 +75,24 @@ fn perm(module: &str, resource: &str, action: &str) -> String {
 async fn list_handler<T: KvStore + Serialize>(
     State(state): State<Arc<AdminState<T>>>,
     headers: HeaderMap,
+    Query(params): Query<ListParams>,
 ) -> Result<Json<ListResult<T>>, ServiceError> {
     let p = perm(&state.module, &state.resource, "list");
     state.auth.check(&headers, &p)?;
 
-    let items = state.ops.list()?;
-    let total = items.len();
-    Ok(Json(ListResult { items, total }))
+    let result = state.ops.list_paginated(&params)?;
+    Ok(Json(result))
+}
+
+async fn count_handler<T: KvStore + Serialize>(
+    State(state): State<Arc<AdminState<T>>>,
+    headers: HeaderMap,
+) -> Result<Json<CountResult>, ServiceError> {
+    let p = perm(&state.module, &state.resource, "list");
+    state.auth.check(&headers, &p)?;
+
+    let count = state.ops.count()?;
+    Ok(Json(CountResult { count }))
 }
 
 async fn get_handler<T: KvStore + Serialize>(
@@ -116,6 +132,19 @@ async fn update_handler<T: KvStore + Serialize + DeserializeOwned>(
     let _existing = state.ops.get_or_err(&id)?;
     let updated = state.ops.save(record)?;
     Ok(Json(updated))
+}
+
+async fn patch_handler<T: KvStore + Serialize + DeserializeOwned>(
+    State(state): State<Arc<AdminState<T>>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(patch): Json<serde_json::Value>,
+) -> Result<Json<T>, ServiceError> {
+    let p = perm(&state.module, &state.resource, "update");
+    state.auth.check(&headers, &p)?;
+
+    let patched = state.ops.patch(&id, &patch)?;
+    Ok(Json(patched))
 }
 
 async fn delete_handler<T: KvStore + Serialize>(

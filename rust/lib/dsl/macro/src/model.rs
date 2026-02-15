@@ -48,7 +48,7 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
     }
 
     // Inject common fields if not already present:
-    // display_name, description, metadata, created_at, updated_at
+    // display_name, description, metadata, created_at, updated_at, rev
     let existing_names: Vec<String> = clean_fields
         .named
         .iter()
@@ -61,6 +61,7 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
         ("metadata", syn::parse_quote!(Option<String>)),
         ("created_at", syn::parse_quote!(openerp_types::DateTime)),
         ("updated_at", syn::parse_quote!(openerp_types::DateTime)),
+        ("rev", syn::parse_quote!(u64)),
     ];
 
     for (name, ty) in &common_fields {
@@ -275,6 +276,7 @@ fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
         "DateTime" => "datetime",
         "Date" => "date",
         "Color" => "color",
+        "SemVer" => "text",
         "bool" => "switch",
         "Vec" => "tags",
         _ => {
@@ -282,6 +284,8 @@ fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
                 "datetime"
             } else if field_name == "description" || field_name == "notes" {
                 "textarea"
+            } else if field_name == "rev" {
+                "readonly"
             } else {
                 "text"
             }

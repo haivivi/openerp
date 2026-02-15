@@ -93,6 +93,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
 
         let created = ops.save_new(m).unwrap();
@@ -125,6 +126,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
 
         let created = ops.save_new(d).unwrap();
@@ -152,6 +154,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
 
         let created = ops.save_new(b).unwrap();
@@ -177,6 +180,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
 
         let created = ops.save_new(f).unwrap();
@@ -204,6 +208,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
 
         let created = ops.save_new(l).unwrap();
@@ -228,6 +233,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
 
         let created = ops.save_new(li).unwrap();
@@ -249,6 +255,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
 
         let created = ops.save_new(s).unwrap();
@@ -318,7 +325,7 @@ mod tests {
         let resp = router.clone().oneshot(req).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let devices: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(devices["total"], 3);
+        assert_eq!(devices["items"].as_array().unwrap().len(), 3);
 
         // Batch should be completed.
         let req = Request::builder().uri(format!("/batches/{}", batch_id)).body(Body::empty()).unwrap();

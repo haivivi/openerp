@@ -84,6 +84,7 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
 
         let created = ops.save_new(task).unwrap();
@@ -124,6 +125,7 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
 
         let created = ops.save_new(tt).unwrap();

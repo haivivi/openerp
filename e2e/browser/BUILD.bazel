@@ -1,0 +1,21 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+# Runner: starts openerpd, then runs the Puppeteer + Chromium test.
+# Puppeteer auto-downloads Chromium via npm install.
+rust_binary(
+    name = "runner",
+    srcs = ["src/runner.rs"],
+    edition = "2021",
+    deps = [
+        "@crates//:reqwest",
+        "@crates//:tempfile",
+    ],
+    data = [
+        "//rust/bin/openerpd",
+        "//rust/bin/openerp",
+        "dashboard.test.mjs",
+        "package.json",
+    ],
+    tags = ["e2e"],
+    visibility = ["//visibility:public"],
+)

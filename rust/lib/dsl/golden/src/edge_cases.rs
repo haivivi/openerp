@@ -441,6 +441,7 @@ mod tests {
             id: Id::default(), value: "will be deleted".into(),
             display_name: None, description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         };
         let created = ops.save_new(t).unwrap();
         ops.delete(created.id.as_str()).unwrap();
@@ -472,7 +473,7 @@ mod tests {
         // List should have 50.
         let (s, list) = call(&router, "GET", "/items", None).await;
         assert_eq!(s, StatusCode::OK);
-        assert_eq!(list["total"], 50);
+        assert_eq!(list["items"].as_array().unwrap().len(), 50);
 
         // Delete all.
         for id in &ids {
@@ -483,8 +484,8 @@ mod tests {
         // List should be empty.
         let (s, list) = call(&router, "GET", "/items", None).await;
         assert_eq!(s, StatusCode::OK);
-        assert_eq!(list["total"], 0);
         assert_eq!(list["items"].as_array().unwrap().len(), 0);
+        assert_eq!(list["hasMore"], false);
     }
 
     // =====================================================================
@@ -721,6 +722,7 @@ mod tests {
             display_name: Some("Dynamic".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         }).unwrap();
 
         // User with "dynamic" role can list but not create.
@@ -858,7 +860,7 @@ mod tests {
         // List should have exactly 1.
         let (s, list) = call(&router, "GET", "/items", None).await;
         assert_eq!(s, StatusCode::OK);
-        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"].as_array().unwrap().len(), 1);
     }
 
     // =====================================================================

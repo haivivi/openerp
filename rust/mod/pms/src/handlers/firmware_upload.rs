@@ -51,6 +51,7 @@ async fn upload(
         metadata: None,
         created_at: DateTime::default(),
         updated_at: DateTime::default(),
+        rev: 0,
     };
 
     let created = ops.save_new(firmware)?;

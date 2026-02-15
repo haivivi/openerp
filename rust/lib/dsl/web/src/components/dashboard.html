@@ -126,6 +126,19 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 /* ─── Badge ─── */
 .badge{display:inline-flex;align-items:center;height:20px;padding:0 8px;border-radius:9999px;font-size:11px;font-weight:500}
 .badge-outline{border:1px solid var(--border);color:var(--card-fg)}
+.badge-count{background:var(--muted);color:var(--card-fg);font-size:10px;height:18px;min-width:18px;padding:0 5px;border-radius:9px;margin-left:auto}
+
+/* ─── Pagination bar ─── */
+.pagination{display:flex;align-items:center;justify-content:space-between;padding:10px 16px;border-top:1px solid var(--border);font-size:13px;color:var(--muted-fg)}
+.pagination .page-info{display:flex;align-items:center;gap:8px}
+.pagination .page-btns{display:flex;gap:4px}
+.pagination .page-btn{height:28px;padding:0 10px;border:1px solid var(--border);border-radius:calc(var(--radius) - 2px);background:transparent;color:var(--card-fg);font-size:12px;cursor:pointer;transition:background .1s}
+.pagination .page-btn:hover:not(:disabled){background:var(--accent)}
+.pagination .page-btn:disabled{opacity:.3;cursor:not-allowed}
+
+/* ─── Conflict banner ─── */
+.conflict-banner{padding:10px 16px;background:oklch(.577 .245 27.325/.15);border:1px solid oklch(.577 .245 27.325/.3);border-radius:var(--radius);margin-bottom:12px;font-size:13px;color:var(--card-fg);display:flex;align-items:center;gap:8px}
+.conflict-banner .ph{color:var(--destructive);font-size:16px}
 
 @media(max-width:768px){.sidebar{display:none}.content{padding:16px}.mega-menu{min-width:280px;grid-template-columns:1fr}}
 </style>
@@ -212,10 +225,13 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
   let currentModule=null;
   let currentResource=null;
   let editingRecord=null; // null = create mode, object = edit mode
+  const PAGE_SIZE=20;
+  let pageOffset=0;
+  let pageHasMore=false;
 
   // Helpers
   function toast(msg){const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),3000)}
-  async function api(m,p,b){const o={method:m,headers:H};if(b)o.body=JSON.stringify(b);const r=await fetch(p,o);if(r.status===401){localStorage.removeItem('openerp_token');window.location.href='/';return}if(r.status===204||r.status===200&&r.headers.get('content-length')==='0')return null;const text=await r.text();if(!text)return null;const d=JSON.parse(text);if(!r.ok)throw new Error(d.error||'Request failed');return d}
+  async function api(m,p,b){const o={method:m,headers:H};if(b)o.body=JSON.stringify(b);const r=await fetch(p,o);if(r.status===401){localStorage.removeItem('openerp_token');window.location.href='/';return}if(r.status===409){const d=JSON.parse(await r.text());throw Object.assign(new Error(d.error||'Conflict'),{status:409})}if(r.status===204||r.status===200&&r.headers.get('content-length')==='0')return null;const text=await r.text();if(!text)return null;const d=JSON.parse(text);if(!r.ok)throw new Error(d.error||'Request failed');return d}
   function short(s){return s&&s.length>12?s.slice(0,12)+'\u2026':s||'\u2014'}
 
   // JWT decode
@@ -298,6 +314,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
         const group=document.createElement('div');group.className='nav-group';
         const item=document.createElement('div');item.className='nav-item';item.dataset.resource=nav.resource;
         item.innerHTML='<i class="ph ph-'+phIcon(nav.icon)+'" style="font-size:16px"></i> '+nav.label
+          +'<span class="badge badge-count sidebar-count" data-resource="'+nav.resource+'" style="display:none"></span>'
           +'<i class="ph ph-caret-right nav-toggle"></i>';
         item.addEventListener('click',function(){
           group.classList.toggle('open');
@@ -307,7 +324,8 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
         const kids=document.createElement('div');kids.className='nav-children';
         for(const child of nav.children){
           const ci=document.createElement('div');ci.className='nav-item';ci.dataset.resource=child.resource;
-          ci.innerHTML='<i class="ph ph-'+phIcon(child.icon)+'" style="font-size:14px"></i> '+child.label;
+          ci.innerHTML='<i class="ph ph-'+phIcon(child.icon)+'" style="font-size:14px"></i> '+child.label
+            +'<span class="badge badge-count sidebar-count" data-resource="'+child.resource+'" style="display:none"></span>';
           ci.addEventListener('click',function(e){e.stopPropagation();selectResourceByName(child.resource)});
           kids.appendChild(ci);
         }
@@ -315,11 +333,32 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
         s.appendChild(group);
       } else {
         const item=document.createElement('div');item.className='nav-item';item.dataset.resource=nav.resource;
-        item.innerHTML='<i class="ph ph-'+phIcon(nav.icon)+'" style="font-size:16px"></i> '+nav.label;
+        item.innerHTML='<i class="ph ph-'+phIcon(nav.icon)+'" style="font-size:16px"></i> '+nav.label
+          +'<span class="badge badge-count sidebar-count" data-resource="'+nav.resource+'" style="display:none"></span>';
         item.addEventListener('click',()=>selectResourceByName(nav.resource));
         s.appendChild(item);
       }
     }
+    // Load counts for all sidebar resources.
+    loadSidebarCounts();
+  }
+
+  async function loadSidebarCounts(){
+    if(!currentModule)return;
+    for(const nav of currentModule.hierarchy.nav){
+      loadSidebarCount(nav.resource);
+      if(nav.children){for(const child of nav.children)loadSidebarCount(child.resource)}
+    }
+  }
+  async function loadSidebarCount(resource){
+    try{
+      const basePath='/admin/'+currentModule.id+'/'+pluralize(toSnake(resource));
+      const d=await api('GET',basePath+'/@count');
+      if(d&&typeof d.count==='number'){
+        const badge=document.querySelector('.sidebar-count[data-resource="'+resource+'"]');
+        if(badge){badge.textContent=d.count;badge.style.display=d.count>0?'inline-flex':'none'}
+      }
+    }catch(e){/* @count may not be available */}
   }
 
   function selectResourceByName(resourceName){
@@ -343,14 +382,22 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
 
   // ── Resource page ──
   function buildResourcePage(res){
+    pageOffset=0; // Reset pagination on resource switch.
     const c=document.getElementById('content');
     const navInfo=currentModule.hierarchy.nav.find(n=>n.model===res.name);
     const basePath='/admin/'+currentModule.id+'/'+pluralize(toSnake(res.name));
 
-    c.innerHTML='<div class="section-header"><h2>'+(navInfo?.label||res.name)+'</h2>'
+    c.innerHTML='<div class="section-header"><h2>'+(navInfo?.label||res.name)+' <span id="countBadge" class="badge badge-count" style="display:none"></span></h2>'
       +'<button class="btn-sm-primary" onclick="openCreateDlg()"><i class="ph ph-plus" style="font-size:14px"></i> Add</button></div>'
+      +'<div id="conflictBanner" class="conflict-banner" style="display:none"><i class="ph ph-warning"></i><span id="conflictMsg"></span></div>'
       +'<div class="table-card"><table><thead><tr id="resHead"></tr></thead>'
-      +'<tbody id="resBody"><tr><td class="empty-cell" colspan="99">Loading\u2026</td></tr></tbody></table></div>';
+      +'<tbody id="resBody"><tr><td class="empty-cell" colspan="99">Loading\u2026</td></tr></tbody></table>'
+      +'<div class="pagination" id="paginationBar" style="display:none">'
+      +'<div class="page-info"><span id="pageInfo"></span></div>'
+      +'<div class="page-btns">'
+      +'<button class="page-btn" id="prevBtn" onclick="prevPage()"><i class="ph ph-caret-left" style="font-size:12px"></i> Prev</button>'
+      +'<button class="page-btn" id="nextBtn" onclick="nextPage()">Next <i class="ph ph-caret-right" style="font-size:12px"></i></button>'
+      +'</div></div></div>';
 
     // Build column list: all fields (including _at), skip hidden/readonly widgets except id
     const allFields=res.fields;
@@ -365,6 +412,7 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
       if(f.name===pk)return false; // ID is always first col
       if(displayField&&f.name===displayField.name)return false; // merged into title col
       if(descField&&f.name===descField.name&&f.name==='description')return false; // merged into subtitle
+      if(f.name==='rev')return false; // internal field, don't show in table
       return true;
     }).slice(0,5);
 
@@ -378,17 +426,75 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     }
     head.innerHTML+='<th style="width:60px"></th>';
 
-    // Load data
+    // Load data + count
     loadResourceData(basePath,allFields,mainCols,displayField,descField,pk,res);
-    
+    loadCount(basePath);
+  }
+
+  // ── @count badge ──
+  async function loadCount(basePath){
+    try{
+      const d=await api('GET',basePath+'/@count');
+      if(d&&typeof d.count==='number'){
+        const badge=document.getElementById('countBadge');
+        if(badge){badge.textContent=d.count;badge.style.display='inline-flex'}
+      }
+    }catch(e){/* @count may not be available */}
+  }
+
+  // ── Pagination controls ──
+  window.prevPage=function(){
+    if(pageOffset<=0)return;
+    pageOffset=Math.max(0,pageOffset-PAGE_SIZE);
+    refreshCurrentResource();
+  };
+  window.nextPage=function(){
+    if(!pageHasMore)return;
+    pageOffset+=PAGE_SIZE;
+    refreshCurrentResource();
+  };
+  function refreshCurrentResource(){
+    if(!currentResource||!currentModule)return;
+    const basePath='/admin/'+currentModule.id+'/'+pluralize(toSnake(currentResource.name));
+    const allFields=currentResource.fields;
+    const pk=(currentResource.key&&currentResource.key.fields&&currentResource.key.fields[0])||'id';
+    const displayField=allFields.find(f=>f.name==='display_name');
+    const descField=allFields.find(f=>f.name==='description');
+    const mainCols=allFields.filter(f=>{
+      const w=(f.widget||'text').toLowerCase();
+      if(w==='hidden'||w==='password')return false;
+      if(f.name===pk)return false;
+      if(displayField&&f.name===displayField.name)return false;
+      if(descField&&f.name===descField.name&&f.name==='description')return false;
+      if(f.name==='rev')return false;
+      return true;
+    }).slice(0,5);
+    loadResourceData(basePath,allFields,mainCols,displayField,descField,pk,currentResource);
   }
 
   async function loadResourceData(basePath,allFields,mainCols,displayField,descField,pk,res){
     try{
-      const d=await api('GET',basePath);
+      const url=basePath+'?limit='+PAGE_SIZE+'&offset='+pageOffset;
+      const d=await api('GET',url);
       const body=document.getElementById('resBody');
       const items=d.items||d;
-      if(!items||!items.length){body.innerHTML='<tr><td class="empty-cell" colspan="99">No data</td></tr>';return}
+      pageHasMore=!!d.hasMore;
+
+      // Update pagination bar.
+      const pagBar=document.getElementById('paginationBar');
+      const pageInfo=document.getElementById('pageInfo');
+      const prevBtn=document.getElementById('prevBtn');
+      const nextBtn=document.getElementById('nextBtn');
+      if(pagBar){
+        const start=pageOffset+1;
+        const end=pageOffset+(items?items.length:0);
+        pagBar.style.display=(items&&items.length>0||pageOffset>0)?'flex':'none';
+        if(pageInfo)pageInfo.textContent=items&&items.length>0?'Showing '+start+'\u2013'+end:'No results';
+        if(prevBtn)prevBtn.disabled=pageOffset<=0;
+        if(nextBtn)nextBtn.disabled=!pageHasMore;
+      }
+
+      if(!items||!items.length){body.innerHTML='<tr><td class="empty-cell" colspan="99">'+(pageOffset>0?'No more data':'No data')+'</td></tr>';return}
 
       // Store items for edit lookups.
       window.__currentItems=items;
@@ -693,22 +799,46 @@ tbody tr:hover{background:oklch(.2 0 0/.4)}
     const pk=(currentResource.key&&currentResource.key.fields&&currentResource.key.fields[0])||'id';
     try{
       if(editingRecord){
-        // Edit mode: merge original record with form changes, then PUT.
-        // Start from original record (preserves id, created_at, etc.).
-        const data={};
-        for(const[k,v] of Object.entries(editingRecord)){data[k]=v}
-        // Overwrite with form edits.
-        for(const[k,v] of Object.entries(formData)){data[k]=v}
+        // Edit mode: use PATCH with only changed fields + rev for optimistic locking.
+        const patch={};
+        // Compare form data with original record to find changes.
+        for(const[k,v] of Object.entries(formData)){
+          const origKey=k;
+          const origVal=editingRecord[origKey];
+          if(JSON.stringify(v)!==JSON.stringify(origVal)){
+            patch[k]=v;
+          }
+        }
+        // Always include rev for optimistic locking.
+        if(editingRecord.rev!==undefined)patch.rev=editingRecord.rev;
         const id=String(editingRecord[pk]??editingRecord[toCamel(pk)]??editingRecord.id??'');
-        await api('PUT',basePath+'/'+id,data);
+        if(Object.keys(patch).length<=1&&patch.rev!==undefined){
+          // Only rev, no actual changes.
+          closeCreateDlg();toast('No changes');return;
+        }
+        await api('PATCH',basePath+'/'+id,patch);
         closeCreateDlg();toast(currentResource.name+' updated');
       }else{
         // Create mode: POST.
         await api('POST',basePath,formData);
         closeCreateDlg();toast(currentResource.name+' created');
       }
+      // Hide conflict banner on success.
+      const cb=document.getElementById('conflictBanner');
+      if(cb)cb.style.display='none';
       selectResource(currentResource.name);
-    }catch(e){toast(e.message)}
+    }catch(e){
+      if(e.status===409){
+        // Conflict: show banner, close dialog, refresh data.
+        closeCreateDlg();
+        const cb=document.getElementById('conflictBanner');
+        const cm=document.getElementById('conflictMsg');
+        if(cb&&cm){cb.style.display='flex';cm.textContent='This record was modified by someone else. The page has been refreshed with the latest data.'}
+        selectResource(currentResource.name);
+      }else{
+        toast(e.message);
+      }
+    }
   };
 
   function collectFormData(form){

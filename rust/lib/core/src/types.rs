@@ -36,10 +36,24 @@ impl Default for ListParams {
 }
 
 /// Result wrapper for list operations.
+///
+/// Uses `has_more` instead of `total` — counting is a separate concern
+/// exposed via an optional `@count` endpoint. This keeps list fast
+/// regardless of backend (embedded, distributed, etc.).
 #[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListResult<T: Serialize> {
     pub items: Vec<T>,
-    pub total: usize,
+    pub has_more: bool,
+}
+
+/// Result wrapper for count operations.
+///
+/// Returned by the optional `@count` endpoint. Backends that cannot
+/// efficiently count (e.g. distributed KV) simply don't register this route.
+#[derive(Debug, Clone, Serialize)]
+pub struct CountResult {
+    pub count: usize,
 }
 
 /// Generate a new random ID (UUIDv4, no dashes).

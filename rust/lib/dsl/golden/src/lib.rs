@@ -130,8 +130,10 @@ mod tests {
         assert!(names.contains(&"created_at"), "missing created_at in {:?}", names);
         assert!(names.contains(&"updated_at"), "missing updated_at in {:?}", names);
 
-        // Total: 6 user + 5 common = 11.
-        assert_eq!(fields.len(), 11, "expected 11 fields, got: {:?}", names);
+        assert!(names.contains(&"rev"), "missing rev in {:?}", names);
+
+        // Total: 6 user + 6 common = 12.
+        assert_eq!(fields.len(), 12, "expected 12 fields, got: {:?}", names);
     }
 
     #[test]
@@ -325,6 +327,7 @@ mod tests {
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
+            rev: 0,
         };
         let created = ops.save_new(w).unwrap();
         assert_eq!(created.id.as_str(), "auto-id");
@@ -367,6 +370,7 @@ mod tests {
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
+            rev: 0,
         };
         let json = serde_json::to_value(&w).unwrap();
         // camelCase keys.
@@ -411,8 +415,8 @@ mod tests {
         assert_eq!(ir["resource"], "server");
 
         let fields = ir["fields"].as_array().unwrap();
-        // 9 user + 5 common = 14.
-        assert_eq!(fields.len(), 14, "Server should have 14 fields");
+        // 9 user + 6 common = 15.
+        assert_eq!(fields.len(), 15, "Server should have 15 fields");
 
         // Verify type names in IR.
         let url_f = fields.iter().find(|f| f["name"] == "url").unwrap();
@@ -605,7 +609,8 @@ mod tests {
         let resp = router.clone().oneshot(req).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"].as_array().unwrap().len(), 1);
+        assert_eq!(list["hasMore"], false);
         assert_eq!(list["items"][0]["quantity"], 20);
 
         // 5. DELETE.
@@ -625,7 +630,8 @@ mod tests {
         let resp = router.clone().oneshot(req).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(list["total"], 0);
+        assert_eq!(list["items"].as_array().unwrap().len(), 0);
+        assert_eq!(list["hasMore"], false);
     }
 
     // =====================================================================
@@ -858,5 +864,249 @@ mod tests {
         assert_eq!(overrides[0].apply_to[1], "Item.status");
         assert_eq!(overrides[0].params["rows"], 5);
         assert_eq!(overrides[0].params["placeholder"], "Enter notes...");
+    }
+
+    // =====================================================================
+    // Golden: Pagination via admin router
+    // =====================================================================
+
+    #[tokio::test]
+    async fn golden_admin_pagination() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+        use openerp_store::admin_kv_router;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("page.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(KvOps::<Item>::new(kv), auth, "test", "items", "item");
+
+        // Create 5 items.
+        for i in 0..5 {
+            let body = serde_json::json!({"widgetId": "w1", "quantity": i, "status": "ok"});
+            let req = Request::builder()
+                .method("POST").uri("/items")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&body).unwrap())).unwrap();
+            let resp = router.clone().oneshot(req).await.unwrap();
+            assert_eq!(resp.status(), StatusCode::OK);
+        }
+
+        // Page 1: limit=2.
+        let req = Request::builder().uri("/items?limit=2&offset=0").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list["items"].as_array().unwrap().len(), 2);
+        assert_eq!(list["hasMore"], true);
+
+        // Page 3: offset=4 → 1 item left.
+        let req = Request::builder().uri("/items?limit=2&offset=4").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list["items"].as_array().unwrap().len(), 1);
+        assert_eq!(list["hasMore"], false);
+
+        // Default (no params): all 5.
+        let req = Request::builder().uri("/items").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list["items"].as_array().unwrap().len(), 5);
+        assert_eq!(list["hasMore"], false);
+    }
+
+    // =====================================================================
+    // Golden: @count endpoint via admin router
+    // =====================================================================
+
+    #[tokio::test]
+    async fn golden_admin_count() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+        use openerp_store::admin_kv_router;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("count.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(KvOps::<Item>::new(kv), auth, "test", "items", "item");
+
+        // Empty: count=0.
+        let req = Request::builder().uri("/items/@count").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["count"], 0);
+
+        // Create 3 items.
+        for _ in 0..3 {
+            let body = serde_json::json!({"widgetId": "w1", "quantity": 1, "status": "ok"});
+            let req = Request::builder()
+                .method("POST").uri("/items")
+                .header("content-type", "application/json")
+                .body(Body::from(serde_json::to_string(&body).unwrap())).unwrap();
+            router.clone().oneshot(req).await.unwrap();
+        }
+
+        // count=3.
+        let req = Request::builder().uri("/items/@count").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let result: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(result["count"], 3);
+    }
+
+    // =====================================================================
+    // Golden: Optimistic locking (rev) via admin PUT → 409
+    // =====================================================================
+
+    #[tokio::test]
+    async fn golden_admin_optimistic_lock_409() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+        use openerp_store::admin_kv_router;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("lock.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(KvOps::<Item>::new(kv), auth, "test", "items", "item");
+
+        // Create item → rev=1.
+        let req = Request::builder()
+            .method("POST").uri("/items")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"widgetId":"w1","quantity":10,"status":"new"}"#)).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let id = created["id"].as_str().unwrap();
+        assert_eq!(created["rev"], 1);
+
+        // Simulate two concurrent GETs.
+        let client_a = created.clone();
+        let client_b = created.clone();
+
+        // Client A PUTs first → succeeds, rev becomes 2.
+        let mut update_a = client_a.clone();
+        update_a["quantity"] = serde_json::json!(20);
+        let req = Request::builder()
+            .method("PUT").uri(format!("/items/{}", id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&update_a).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "Client A should succeed");
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let updated_a: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(updated_a["rev"], 2);
+        assert_eq!(updated_a["quantity"], 20);
+
+        // Client B PUTs with stale rev=1 → 409 Conflict.
+        let mut update_b = client_b.clone();
+        update_b["status"] = serde_json::json!("approved");
+        let req = Request::builder()
+            .method("PUT").uri(format!("/items/{}", id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&update_b).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT, "Client B should get 409");
+
+        // Verify data: Client A's changes persist.
+        let req = Request::builder().uri(format!("/items/{}", id)).body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let final_state: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(final_state["quantity"], 20, "Client A's update persists");
+        assert_eq!(final_state["status"], "new", "Client B's update was rejected");
+        assert_eq!(final_state["rev"], 2);
+    }
+
+    // =====================================================================
+    // Golden: PATCH partial update via admin router
+    // =====================================================================
+
+    #[tokio::test]
+    async fn golden_admin_patch() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+        use openerp_store::admin_kv_router;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("patch.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(KvOps::<Item>::new(kv), auth, "test", "items", "item");
+
+        // Create item.
+        let req = Request::builder()
+            .method("POST").uri("/items")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"widgetId":"w1","quantity":10,"status":"draft"}"#)).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let id = created["id"].as_str().unwrap();
+        assert_eq!(created["rev"], 1);
+
+        // PATCH: only change status, include rev for locking.
+        let patch = serde_json::json!({"status": "approved", "rev": 1});
+        let req = Request::builder()
+            .method("PATCH").uri(format!("/items/{}", id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&patch).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "PATCH should succeed");
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let patched: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(patched["status"], "approved", "status should be updated");
+        assert_eq!(patched["quantity"], 10, "quantity should be unchanged");
+        assert_eq!(patched["widgetId"], "w1", "widgetId should be unchanged");
+        assert_eq!(patched["rev"], 2, "rev should be bumped");
+
+        // PATCH with stale rev → 409.
+        let stale_patch = serde_json::json!({"status": "rejected", "rev": 1});
+        let req = Request::builder()
+            .method("PATCH").uri(format!("/items/{}", id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&stale_patch).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::CONFLICT, "Stale PATCH should get 409");
+
+        // PATCH without rev → no conflict check, just updates.
+        let no_rev_patch = serde_json::json!({"quantity": 99});
+        let req = Request::builder()
+            .method("PATCH").uri(format!("/items/{}", id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&no_rev_patch).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK, "PATCH without rev should succeed");
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let patched2: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(patched2["quantity"], 99);
+        assert_eq!(patched2["status"], "approved", "status still from first patch");
+        assert_eq!(patched2["rev"], 3, "rev bumped again");
+
+        // PATCH on nonexistent → 404.
+        let req = Request::builder()
+            .method("PATCH").uri("/items/nonexistent")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"status":"x"}"#)).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
     }
 }

@@ -274,9 +274,9 @@ mod tests {
         let client = ResourceClient::<Employee>::new(&server.base_url, ts);
 
         // 1. List: empty.
-        let list = client.list().await.unwrap();
-        assert_eq!(list.total, 0);
-        assert!(list.items.is_empty());
+        let list = client.list(None).await.unwrap();
+        assert_eq!(list.items.len(), 0);
+        assert!(!list.has_more);
 
         // 2. Create.
         let emp = Employee {
@@ -289,6 +289,7 @@ mod tests {
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
+            rev: 0,
         };
         let created = client.create(&emp).await.unwrap();
         assert!(!created.id.is_empty(), "server should auto-generate id");
@@ -314,16 +315,16 @@ mod tests {
         assert_eq!(result.created_at, created.created_at, "created_at must not change");
 
         // 5. List: one item.
-        let list = client.list().await.unwrap();
-        assert_eq!(list.total, 1);
+        let list = client.list(None).await.unwrap();
+        assert_eq!(list.items.len(), 1);
         assert_eq!(list.items[0].id.as_str(), id);
 
         // 6. Delete.
         client.delete(&id).await.unwrap();
 
         // 7. List: empty again.
-        let list = client.list().await.unwrap();
-        assert_eq!(list.total, 0);
+        let list = client.list(None).await.unwrap();
+        assert_eq!(list.items.len(), 0);
 
         // 8. Get deleted: should be NOT_FOUND.
         let err = client.get(&id).await.unwrap_err();
@@ -347,6 +348,7 @@ mod tests {
             salary: None, display_name: Some("Iso".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         };
         emp_client.create(&emp).await.unwrap();
 
@@ -357,16 +359,17 @@ mod tests {
             display_name: Some("Client Test".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         };
         proj_client.create(&proj).await.unwrap();
 
         // Each module sees only its own records.
-        let emps = emp_client.list().await.unwrap();
-        assert_eq!(emps.total, 1);
+        let emps = emp_client.list(None).await.unwrap();
+        assert_eq!(emps.items.len(), 1);
         assert_eq!(emps.items[0].email.as_str(), "iso@co.com");
 
-        let projs = proj_client.list().await.unwrap();
-        assert_eq!(projs.total, 1);
+        let projs = proj_client.list(None).await.unwrap();
+        assert_eq!(projs.items.len(), 1);
         assert_eq!(projs.items[0].budget, 50000);
     }
 
@@ -391,6 +394,7 @@ mod tests {
                 display_name: Some(name.to_string()),
                 description: None, metadata: None,
                 created_at: DateTime::default(), updated_at: DateTime::default(),
+                rev: 0,
             };
             let created = client.create(&emp).await.unwrap();
             ids.push(created.id.to_string());
@@ -401,8 +405,8 @@ mod tests {
         assert_eq!(unique.len(), 5, "all IDs should be unique");
 
         // List returns all 5.
-        let list = client.list().await.unwrap();
-        assert_eq!(list.total, 5);
+        let list = client.list(None).await.unwrap();
+        assert_eq!(list.items.len(), 5);
 
         // Get each by ID.
         for (i, id) in ids.iter().enumerate() {
@@ -430,6 +434,7 @@ mod tests {
             description: Some("All fields survive edit".into()),
             metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         };
         let created = client.create(&proj).await.unwrap();
         let id = created.id.to_string();
@@ -476,6 +481,7 @@ mod tests {
             salary: None, display_name: Some("Shared".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         };
         emp_client.create(&emp).await.unwrap();
 
@@ -485,11 +491,12 @@ mod tests {
             display_name: Some("Shared".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         };
         proj_client.create(&proj).await.unwrap();
 
-        assert_eq!(emp_client.list().await.unwrap().total, 1);
-        assert_eq!(proj_client.list().await.unwrap().total, 1);
+        assert_eq!(emp_client.list(None).await.unwrap().items.len(), 1);
+        assert_eq!(proj_client.list(None).await.unwrap().items.len(), 1);
     }
 
     // =====================================================================
@@ -557,6 +564,7 @@ mod tests {
             id: Id::new("ghost-emp"), email: Email::new("g@g.com"), active: true,
             salary: None, display_name: None, description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         };
         let err = client.update("ghost-emp", &emp).await.unwrap_err();
 
@@ -583,6 +591,7 @@ mod tests {
             salary: None, display_name: Some("First".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         };
         let created = client.create(&emp).await.unwrap();
         let id = created.id.to_string();
@@ -593,6 +602,7 @@ mod tests {
             salary: None, display_name: Some("Dup".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         };
         let err = client.create(&dup).await.unwrap_err();
 
@@ -619,7 +629,7 @@ mod tests {
             Arc::new(openerp_client::NoAuth),
         );
 
-        let err = client.list().await.unwrap_err();
+        let err = client.list(None).await.unwrap_err();
 
         // Error code: UNAUTHENTICATED (not generic VALIDATION_FAILED).
         assert_eq!(err.error_code(), Some("UNAUTHENTICATED"));
@@ -644,7 +654,7 @@ mod tests {
             Arc::new(StaticToken::new("not.a.valid.jwt")),
         );
 
-        let err = client.list().await.unwrap_err();
+        let err = client.list(None).await.unwrap_err();
 
         assert_eq!(err.error_code(), Some("UNAUTHENTICATED"));
         assert!(err.is_unauthenticated());
@@ -668,7 +678,7 @@ mod tests {
             Arc::new(StaticToken::new(expired_token)),
         );
 
-        let err = client.list().await.unwrap_err();
+        let err = client.list(None).await.unwrap_err();
 
         assert_eq!(err.error_code(), Some("UNAUTHENTICATED"));
         assert!(err.is_unauthenticated());
@@ -688,7 +698,7 @@ mod tests {
         let client = ResourceClient::<Employee>::new(&server.base_url, ts);
 
         // The first CRUD call triggers lazy login, which fails.
-        let err = client.list().await.unwrap_err();
+        let err = client.list(None).await.unwrap_err();
 
         assert!(err.is_auth_error(), "expected Auth variant, got: {:?}", err);
         assert!(!err.is_not_found());
@@ -712,7 +722,7 @@ mod tests {
         let ts = Arc::new(PasswordLogin::new(&server.base_url, "nobody", ROOT_PASSWORD));
         let client = ResourceClient::<Employee>::new(&server.base_url, ts);
 
-        let err = client.list().await.unwrap_err();
+        let err = client.list(None).await.unwrap_err();
 
         assert!(err.is_auth_error());
         let msg = err.message();
@@ -733,7 +743,7 @@ mod tests {
         );
 
         // None of these should panic — all return Err.
-        assert!(client.list().await.is_err(), "list");
+        assert!(client.list(None).await.is_err(), "list");
         assert!(client.get("x").await.is_err(), "get");
         assert!(client.delete("x").await.is_err(), "delete");
 
@@ -741,6 +751,7 @@ mod tests {
             id: Id::default(), email: Email::new("x@x.com"), active: false,
             salary: None, display_name: None, description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         };
         assert!(client.create(&emp).await.is_err(), "create");
         assert!(client.update("x", &emp).await.is_err(), "update");
@@ -766,7 +777,7 @@ mod tests {
         // Auth error display: "auth: ..."
         let bad_ts = Arc::new(PasswordLogin::new(&server.base_url, "root", "bad"));
         let bad_client = ResourceClient::<Employee>::new(&server.base_url, bad_ts);
-        let err = bad_client.list().await.unwrap_err();
+        let err = bad_client.list(None).await.unwrap_err();
         let display = format!("{}", err);
         assert!(display.starts_with("auth:"), "auth display: {}", display);
     }

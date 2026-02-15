@@ -180,8 +180,60 @@ impl<T: SqlStore> SqlOps<T> {
     pub fn list(&self) -> Result<Vec<T>, ServiceError> {
         let sql = format!("SELECT data FROM \"{}\"", T::table_name());
         let rows = self.sql.query(&sql, &[]).map_err(Self::sql_err)?;
+        Self::rows_to_records(&rows)
+    }
+
+    /// List records with pagination (SQL LIMIT/OFFSET).
+    ///
+    /// Uses SQL-native pagination — only the requested page is fetched.
+    /// Fetches limit+1 rows to determine `has_more` without a COUNT query.
+    pub fn list_paginated(
+        &self,
+        params: &openerp_core::ListParams,
+    ) -> Result<openerp_core::ListResult<T>, ServiceError> {
+        let fetch = params.limit + 1; // fetch one extra to detect has_more
+        let sql = format!(
+            "SELECT data FROM \"{}\" LIMIT ?1 OFFSET ?2",
+            T::table_name()
+        );
+        let rows = self
+            .sql
+            .query(
+                &sql,
+                &[
+                    openerp_sql::Value::Integer(fetch as i64),
+                    openerp_sql::Value::Integer(params.offset as i64),
+                ],
+            )
+            .map_err(Self::sql_err)?;
+
+        let mut records = Self::rows_to_records(&rows)?;
+        let has_more = records.len() > params.limit;
+        if has_more {
+            records.truncate(params.limit);
+        }
+        Ok(openerp_core::ListResult {
+            items: records,
+            has_more,
+        })
+    }
+
+    /// Count all records in the table.
+    pub fn count(&self) -> Result<usize, ServiceError> {
+        let sql = format!("SELECT COUNT(*) AS cnt FROM \"{}\"", T::table_name());
+        let rows = self.sql.query(&sql, &[]).map_err(Self::sql_err)?;
+        if let Some(row) = rows.first() {
+            if let Some(openerp_sql::Value::Integer(n)) = row.get("cnt") {
+                return Ok(*n as usize);
+            }
+        }
+        Ok(0)
+    }
+
+    /// Helper: convert query rows to deserialized records.
+    fn rows_to_records(rows: &[openerp_sql::Row]) -> Result<Vec<T>, ServiceError> {
         let mut records = Vec::with_capacity(rows.len());
-        for row in &rows {
+        for row in rows {
             if let Some(openerp_sql::Value::Blob(data)) = row.get("data") {
                 let record: T = serde_json::from_slice(data)
                     .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
@@ -195,16 +247,23 @@ impl<T: SqlStore> SqlOps<T> {
         Ok(records)
     }
 
-    /// Insert a new record. Calls before_create.
+    /// Insert a new record. Calls before_create. Sets version to 1.
     pub fn save_new(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_create();
+
+        // Set initial version.
+        let mut json_val: serde_json::Value = serde_json::to_value(&record)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+        if let Some(obj) = json_val.as_object_mut() {
+            obj.insert("rev".into(), serde_json::json!(1));
+        }
+        let record: T = serde_json::from_value(json_val.clone())
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
 
         let data = serde_json::to_vec(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
 
         let indexed = T::indexed_fields();
-        let json_val: serde_json::Value = serde_json::to_value(&record)
-            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
 
         // Build INSERT.
         let mut col_names = Vec::new();
@@ -244,21 +303,95 @@ impl<T: SqlStore> SqlOps<T> {
         Ok(record)
     }
 
-    /// Update an existing record. Calls before_update.
+    /// Update an existing record with optimistic locking.
+    ///
+    /// Compares the incoming record's `version` with the stored version.
+    /// If they don't match, returns `ServiceError::Conflict` (409).
+    /// On success, increments version by 1 and saves.
     pub fn save(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_update();
 
-        let data = serde_json::to_vec(&record)
+        let pk_values = record.pk_values();
+
+        // Version check: read existing record.
+        let pk_refs: Vec<&str> = pk_values.iter().map(|s| s.as_str()).collect();
+        if let Some(existing) = self.get(&pk_refs)? {
+            let existing_json = serde_json::to_value(&existing)
+                .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+            let incoming_json = serde_json::to_value(&record)
+                .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+
+            let existing_rev = existing_json.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+            let incoming_rev = incoming_json.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+
+            if incoming_rev != existing_rev {
+                return Err(ServiceError::Conflict(format!(
+                    "rev mismatch: expected {}, got {}",
+                    existing_rev, incoming_rev
+                )));
+            }
+        }
+
+        // Bump revision.
+        let mut json_val: serde_json::Value = serde_json::to_value(&record)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+        if let Some(obj) = json_val.as_object_mut() {
+            let rev = obj.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+            obj.insert("rev".into(), serde_json::json!(rev + 1));
+        }
+        let record: T = serde_json::from_value(json_val.clone())
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
+
+        self.exec_update(&record)
+    }
+
+    /// Partially update a record using RFC 7386 JSON Merge Patch.
+    ///
+    /// Reads the existing record, applies the patch, checks rev,
+    /// bumps rev, and saves.
+    pub fn patch(&self, pk: &[&str], patch: &serde_json::Value) -> Result<T, ServiceError> {
+        let existing = self.get_or_err(pk)?;
+        let mut base = serde_json::to_value(&existing)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+
+        // Check rev from patch if provided.
+        if let Some(patch_rev) = patch.get("rev").and_then(|v| v.as_u64()) {
+            let base_rev = base.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+            if patch_rev != base_rev {
+                return Err(ServiceError::Conflict(format!(
+                    "rev mismatch: expected {}, got {}",
+                    base_rev, patch_rev
+                )));
+            }
+        }
+
+        openerp_core::merge_patch(&mut base, patch);
+
+        // Bump rev.
+        if let Some(obj) = base.as_object_mut() {
+            let rev = obj.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+            obj.insert("rev".into(), serde_json::json!(rev + 1));
+        }
+
+        let record: T = serde_json::from_value(base)
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
+
+        self.exec_update(&record)
+    }
+
+    /// Execute an UPDATE statement for the given record.
+    /// Shared by save() and patch() to avoid SQL building duplication.
+    fn exec_update(&self, record: &T) -> Result<T, ServiceError> {
+        let data = serde_json::to_vec(record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
 
         let indexed = T::indexed_fields();
-        let json_val: serde_json::Value = serde_json::to_value(&record)
+        let json_val: serde_json::Value = serde_json::to_value(record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
 
         let pk_fields = T::PK;
         let pk_values = record.pk_values();
 
-        // Build UPDATE.
         let mut set_clauses = Vec::new();
         let mut params: Vec<openerp_sql::Value> = Vec::new();
         let mut idx = 1;
@@ -305,7 +438,7 @@ impl<T: SqlStore> SqlOps<T> {
         );
 
         self.sql.exec(&sql, &params).map_err(Self::sql_err)?;
-        Ok(record)
+        Ok(record.clone())
     }
 
     /// Delete a record by primary key.
@@ -542,5 +675,65 @@ mod tests {
 
         ops.delete(&["100", "1.0.0"]).unwrap();
         assert!(ops.get(&["100", "1.0.0"]).unwrap().is_none());
+    }
+
+    #[test]
+    fn sql_list_paginated() {
+        let (ops, _dir) = make_ops();
+
+        // Insert 5 devices.
+        for i in 0..5 {
+            let d = Device {
+                sn: format!("PG{:03}", i),
+                model: i,
+                status: "active".into(),
+                description: None,
+            };
+            ops.save_new(d).unwrap();
+        }
+
+        // Page 1: limit=2.
+        let params = openerp_core::ListParams { limit: 2, offset: 0, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 2);
+        assert!(result.has_more);
+
+        // Page 2.
+        let params = openerp_core::ListParams { limit: 2, offset: 2, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 2);
+        assert!(result.has_more);
+
+        // Page 3 (last).
+        let params = openerp_core::ListParams { limit: 2, offset: 4, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 1);
+        assert!(!result.has_more);
+
+        // Beyond range.
+        let params = openerp_core::ListParams { limit: 10, offset: 100, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 0);
+        assert!(!result.has_more);
+    }
+
+    #[test]
+    fn sql_count() {
+        let (ops, _dir) = make_ops();
+        assert_eq!(ops.count().unwrap(), 0);
+
+        for i in 0..3 {
+            let d = Device {
+                sn: format!("CNT{}", i),
+                model: i,
+                status: "a".into(),
+                description: None,
+            };
+            ops.save_new(d).unwrap();
+        }
+        assert_eq!(ops.count().unwrap(), 3);
+
+        ops.delete(&["CNT1"]).unwrap();
+        assert_eq!(ops.count().unwrap(), 2);
     }
 }

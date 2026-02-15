@@ -272,18 +272,18 @@ mod tests {
         let emp_ir = Employee::__dsl_ir();
         assert_eq!(emp_ir["module"], "hr");
         assert_eq!(emp_ir["name"], "Employee");
-        // 9 user fields + 5 common = 14
-        assert_eq!(emp_ir["fields"].as_array().unwrap().len(), 14);
+        // 9 user fields + 6 common = 15
+        assert_eq!(emp_ir["fields"].as_array().unwrap().len(), 15);
 
         let dept_ir = Department::__dsl_ir();
         assert_eq!(dept_ir["module"], "hr");
-        // 4 user (id, parent_id, head_employee_id, budget) + 5 common = 9
-        assert_eq!(dept_ir["fields"].as_array().unwrap().len(), 9);
+        // 4 user (id, parent_id, head_employee_id, budget) + 6 common = 10
+        assert_eq!(dept_ir["fields"].as_array().unwrap().len(), 10);
 
         let proj_ir = Project::__dsl_ir();
         assert_eq!(proj_ir["module"], "pm");
-        // 7 user + 5 common = 12
-        assert_eq!(proj_ir["fields"].as_array().unwrap().len(), 12);
+        // 7 user + 6 common = 13
+        assert_eq!(proj_ir["fields"].as_array().unwrap().len(), 13);
     }
 
     // ── 2. Widget inference for all types ──
@@ -478,7 +478,7 @@ mod tests {
         // hr-viewer: can list employees.
         let (s, list) = api_call(&erp.hr_router, "GET", "/employees", None, "hr-viewer").await;
         assert_eq!(s, StatusCode::OK);
-        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"].as_array().unwrap().len(), 1);
 
         // hr-viewer: can GET employee.
         let (s, _) = api_call(&erp.hr_router, "GET", &format!("/employees/{}", emp_id), None, "hr-viewer").await;
@@ -541,12 +541,12 @@ mod tests {
 
         // HR list: only employees, no projects.
         let (_, list) = api_call(&erp.hr_router, "GET", "/employees", None, "root").await;
-        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"].as_array().unwrap().len(), 1);
         assert_eq!(list["items"][0]["email"], "iso@co.com");
 
         // PM list: only projects, no employees.
         let (_, list) = api_call(&erp.pm_router, "GET", "/projects", None, "root").await;
-        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"].as_array().unwrap().len(), 1);
         assert_eq!(list["items"][0]["ownerId"], "emp1");
 
         // KV prefix isolation: scan hr: and pm: prefixes.
@@ -577,8 +577,8 @@ mod tests {
 
         let (s, list) = api_call(&erp.hr_router, "GET", "/employees", None, "root").await;
         assert_eq!(s, StatusCode::OK);
-        assert_eq!(list["total"], 5);
         assert_eq!(list["items"].as_array().unwrap().len(), 5);
+        assert_eq!(list["hasMore"], false);
 
         // All emails should be lowercase.
         for item in list["items"].as_array().unwrap() {
@@ -702,8 +702,7 @@ mod tests {
                     id: d.id.to_string(),
                     display_name: d.display_name.clone(),
                 }).collect();
-                let total = items.len();
-                Json(ListResult { items, total })
+                Json(ListResult { items, has_more: false })
             }))
             .with_state(facet_kv);
 
@@ -713,7 +712,8 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(list["total"], 3);
+        assert_eq!(list["hasMore"], false);
+        assert_eq!(list["items"].as_array().unwrap().len(), 3);
 
         // Facet items should NOT have budget, parent_id, etc.
         let item = &list["items"][0];
@@ -790,7 +790,7 @@ mod tests {
         assert_eq!(ids.len(), 20, "All 20 IDs should be unique");
 
         let (_, list) = api_call(&erp.hr_router, "GET", "/employees", None, "root").await;
-        assert_eq!(list["total"], 20);
+        assert_eq!(list["items"].as_array().unwrap().len(), 20);
     }
 
     // =====================================================================
@@ -904,6 +904,7 @@ mod tests {
             display_name: Some(id.into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
+            rev: 0,
         }).unwrap();
     }
 
@@ -956,7 +957,7 @@ mod tests {
         // only-list: can list but NOT read single.
         let (s, list) = api_call(&erp.km_router, "GET", "/documents", None, "only-list").await;
         assert_eq!(s, StatusCode::OK, "only-list can list");
-        assert!(list["total"].as_u64().unwrap() >= 2);
+        assert!(list["items"].as_array().unwrap().len() >= 2);
         let (s, _) = api_call(&erp.km_router, "GET", &format!("/documents/{}", doc_id), None, "only-list").await;
         assert_eq!(s, StatusCode::FORBIDDEN, "only-list cannot read single");
 

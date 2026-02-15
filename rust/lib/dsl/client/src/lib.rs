@@ -110,6 +110,11 @@ impl ApiError {
         matches!(self, ApiError::Server { code, .. } if code == "READ_ONLY")
     }
 
+    /// True if the server returned CONFLICT (optimistic locking failure).
+    pub fn is_conflict(&self) -> bool {
+        matches!(self, ApiError::Server { code, .. } if code == "CONFLICT")
+    }
+
     /// True if this is a client-side authentication error
     /// (login failure / token source error — not a server 401).
     pub fn is_auth_error(&self) -> bool {
@@ -277,13 +282,32 @@ impl TokenSource for PasswordLogin {
     }
 }
 
-// ── List response ───────────────────────────────────────────────────
+// ── List / Count responses ──────────────────────────────────────────
 
 /// Server list response (matches `ListResult<T>` on the server side).
+///
+/// Uses `has_more` instead of `total` — total count is a separate
+/// concern available via [`ResourceClient::count()`].
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ListResponse<T> {
     pub items: Vec<T>,
-    pub total: usize,
+    pub has_more: bool,
+}
+
+/// Server count response from the `@count` endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CountResponse {
+    pub count: usize,
+}
+
+/// Parameters for paginated list requests.
+#[derive(Debug, Clone, Default)]
+pub struct ListParams {
+    /// Maximum number of items to return. Server default: 50.
+    pub limit: Option<usize>,
+    /// Number of items to skip. Default: 0.
+    pub offset: Option<usize>,
 }
 
 // ── ResourceClient ──────────────────────────────────────────────────
@@ -339,12 +363,47 @@ impl<T: DslModel> ResourceClient<T> {
             .map_err(|e| ApiError::Decode(format!("response body: {}", e)))
     }
 
-    /// List all records.
-    pub async fn list(&self) -> Result<ListResponse<T>, ApiError> {
-        let req = self.http.get(&self.collection_url());
+    /// List records with optional pagination.
+    ///
+    /// ```ignore
+    /// // Default (server decides limit, offset=0):
+    /// let page = client.list(None).await?;
+    ///
+    /// // Explicit pagination:
+    /// let page = client.list(Some(&ListParams { limit: Some(20), offset: Some(40) })).await?;
+    /// while page.has_more { ... }
+    /// ```
+    pub async fn list(&self, params: Option<&ListParams>) -> Result<ListResponse<T>, ApiError> {
+        let mut url = self.collection_url();
+        if let Some(p) = params {
+            let mut parts = Vec::new();
+            if let Some(limit) = p.limit {
+                parts.push(format!("limit={}", limit));
+            }
+            if let Some(offset) = p.offset {
+                parts.push(format!("offset={}", offset));
+            }
+            if !parts.is_empty() {
+                url = format!("{}?{}", url, parts.join("&"));
+            }
+        }
+        let req = self.http.get(&url);
         let req = self.authed(req).await?;
         let resp = req.send().await?;
         Self::parse(resp).await
+    }
+
+    /// Get the total count of records.
+    ///
+    /// Calls the `@count` endpoint. Returns `ApiError` if the backend
+    /// does not support counting.
+    pub async fn count(&self) -> Result<usize, ApiError> {
+        let url = format!("{}/@count", self.collection_url());
+        let req = self.http.get(&url);
+        let req = self.authed(req).await?;
+        let resp = req.send().await?;
+        let cr: CountResponse = Self::parse(resp).await?;
+        Ok(cr.count)
     }
 
     /// Get a record by ID.
@@ -366,6 +425,22 @@ impl<T: DslModel> ResourceClient<T> {
     /// Update an existing record by ID.
     pub async fn update(&self, id: &str, item: &T) -> Result<T, ApiError> {
         let req = self.http.put(&self.item_url(id)).json(item);
+        let req = self.authed(req).await?;
+        let resp = req.send().await?;
+        Self::parse(resp).await
+    }
+
+    /// Partially update a record by ID (RFC 7386 JSON Merge Patch).
+    ///
+    /// Only sends the fields in `patch`. Include `rev` for optimistic
+    /// locking — the server returns 409 Conflict if it doesn't match.
+    ///
+    /// ```ignore
+    /// let patch = serde_json::json!({"displayName": "New Name", "rev": 1});
+    /// let updated = client.patch("abc123", &patch).await?;
+    /// ```
+    pub async fn patch(&self, id: &str, patch: &serde_json::Value) -> Result<T, ApiError> {
+        let req = self.http.patch(&self.item_url(id)).json(patch);
         let req = self.authed(req).await?;
         let resp = req.send().await?;
         Self::parse(resp).await
@@ -501,5 +576,62 @@ mod tests {
         let err = ApiError::Auth("login failed (401): invalid credentials".into());
         let display = format!("{}", err);
         assert_eq!(display, "auth: login failed (401): invalid credentials");
+    }
+
+    // ── Conflict (optimistic locking) ────────────────────────────────
+
+    #[test]
+    fn conflict_error_code_helper() {
+        let body = r#"{"code":"CONFLICT","message":"rev mismatch: expected 2, got 1"}"#;
+        let err = ApiError::from_response_body(409, body);
+        assert!(err.is_conflict());
+        assert!(!err.is_not_found());
+        assert_eq!(err.status(), Some(409));
+        assert_eq!(err.error_code(), Some("CONFLICT"));
+    }
+
+    // ── ListResponse deserialization ─────────────────────────────────
+
+    #[test]
+    fn list_response_deserializes_has_more() {
+        let json = r#"{"items":[{"name":"a"},{"name":"b"}],"hasMore":true}"#;
+        let resp: ListResponse<serde_json::Value> = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.items.len(), 2);
+        assert!(resp.has_more);
+    }
+
+    #[test]
+    fn list_response_deserializes_no_more() {
+        let json = r#"{"items":[],"hasMore":false}"#;
+        let resp: ListResponse<serde_json::Value> = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.items.len(), 0);
+        assert!(!resp.has_more);
+    }
+
+    // ── CountResponse deserialization ────────────────────────────────
+
+    #[test]
+    fn count_response_deserializes() {
+        let json = r#"{"count":42}"#;
+        let resp: CountResponse = serde_json::from_str(json).unwrap();
+        assert_eq!(resp.count, 42);
+    }
+
+    // ── ListParams URL building ─────────────────────────────────────
+
+    #[test]
+    fn list_params_default_is_empty() {
+        let p = ListParams::default();
+        assert!(p.limit.is_none());
+        assert!(p.offset.is_none());
+    }
+
+    #[test]
+    fn list_params_builds_query_string() {
+        let p = ListParams { limit: Some(20), offset: Some(40) };
+        let mut parts = Vec::new();
+        if let Some(limit) = p.limit { parts.push(format!("limit={}", limit)); }
+        if let Some(offset) = p.offset { parts.push(format!("offset={}", offset)); }
+        assert_eq!(parts.join("&"), "limit=20&offset=40");
     }
 }
