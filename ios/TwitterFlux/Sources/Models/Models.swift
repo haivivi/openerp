@@ -76,13 +76,40 @@ struct TweetDetailState: Codable {
     let loading: Bool
 }
 
+// MARK: - search/state
+
+struct SearchState: Codable {
+    let query: String
+    let users: [UserProfile]
+    let tweets: [FeedItem]
+    let loading: Bool
+    let error: String?
+}
+
+// MARK: - settings/state
+
+struct SettingsState: Codable {
+    let displayName: String
+    let bio: String
+    let busy: Bool
+    let saved: Bool
+    let error: String?
+}
+
+// MARK: - settings/password
+
+struct PasswordState: Codable {
+    let busy: Bool
+    let success: Bool
+    let error: String?
+}
+
 // MARK: - app/route
 
 struct AppRoute: Codable {
     let path: String
 
     init(from decoder: Decoder) throws {
-        // AppRoute is serialized as a plain string (tuple struct in Rust).
         let container = try decoder.singleValueContainer()
         path = try container.decode(String.self)
     }

@@ -1,4 +1,4 @@
-// HomeView — timeline/feed page.
+// HomeView — timeline feed with navigation.
 
 import SwiftUI
 
@@ -9,69 +9,50 @@ struct HomeView: View {
     private var feed: TimelineFeed? { store.get("timeline/feed") }
 
     var body: some View {
-        NavigationStack {
-            Group {
-                if let feed = feed {
-                    if feed.items.isEmpty && !feed.loading {
-                        ContentUnavailableView(
-                            "No tweets yet",
-                            systemImage: "bubble.left",
-                            description: Text("Be the first to tweet!")
-                        )
-                    } else {
-                        List(feed.items) { item in
-                            TweetRow(item: item)
-                                .listRowSeparator(.visible)
-                        }
-                        .listStyle(.plain)
-                        .refreshable {
-                            store.emit("timeline/load")
-                        }
-                    }
-                } else {
-                    ProgressView("Loading...")
-                }
-            }
-            .navigationTitle("Home")
-            .toolbar {
-                #if os(iOS)
-                ToolbarItem(placement: .topBarLeading) {
-                    if let user = auth?.user {
-                        Text("@\(user.username)")
-                            .font(.caption)
+        Group {
+            if let feed = feed {
+                if feed.items.isEmpty && !feed.loading {
+                    VStack(spacing: 12) {
+                        Image(systemName: "bubble.left")
+                            .font(.system(size: 48))
+                            .foregroundColor(.secondary)
+                        Text("No tweets yet")
+                            .font(.headline)
+                        Text("Be the first to tweet!")
+                            .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    HStack(spacing: 12) {
-                        NavigationLink(destination: ComposeView()) {
-                            Image(systemName: "square.and.pencil")
+                } else {
+                    List(feed.items) { item in
+                        NavigationLink(destination: TweetDetailView(tweetId: item.tweetId)) {
+                            TweetRow(item: item)
                         }
-                        Button("Logout") {
-                            store.emit("auth/logout")
-                        }
-                        .font(.caption)
+                        .listRowSeparator(.visible)
+                    }
+                    .listStyle(.plain)
+                    .refreshable {
+                        store.emit("timeline/load")
                     }
                 }
-                #else
-                ToolbarItem {
-                    HStack(spacing: 12) {
-                        if let user = auth?.user {
-                            Text("@\(user.username)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        NavigationLink(destination: ComposeView()) {
-                            Image(systemName: "square.and.pencil")
-                        }
-                        Button("Logout") {
-                            store.emit("auth/logout")
-                        }
-                        .font(.caption)
-                    }
-                }
-                #endif
+            } else {
+                ProgressView("Loading...")
             }
+        }
+        .navigationTitle("Home")
+        .toolbar {
+            #if os(iOS)
+            ToolbarItem(placement: .topBarTrailing) {
+                NavigationLink(destination: ComposeView()) {
+                    Image(systemName: "square.and.pencil")
+                }
+            }
+            #else
+            ToolbarItem {
+                NavigationLink(destination: ComposeView()) {
+                    Image(systemName: "square.and.pencil")
+                }
+            }
+            #endif
         }
     }
 }
@@ -84,35 +65,45 @@ struct TweetRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Author
-            HStack(spacing: 8) {
-                Circle()
-                    .fill(Color.blue.opacity(0.2))
-                    .frame(width: 36, height: 36)
-                    .overlay(
-                        Text(String(item.author.displayName.prefix(1)))
-                            .font(.headline)
-                            .foregroundColor(.blue)
-                    )
+            // Author (tappable → profile)
+            NavigationLink(destination: ProfileView(userId: item.author.id)) {
+                HStack(spacing: 8) {
+                    Circle()
+                        .fill(Color.blue.opacity(0.2))
+                        .frame(width: 36, height: 36)
+                        .overlay(
+                            Text(String(item.author.displayName.prefix(1)))
+                                .font(.headline)
+                                .foregroundColor(.blue)
+                        )
 
-                VStack(alignment: .leading) {
-                    Text(item.author.displayName)
-                        .font(.subheadline.bold())
-                    Text("@\(item.author.username)")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                    VStack(alignment: .leading) {
+                        Text(item.author.displayName)
+                            .font(.subheadline.bold())
+                            .foregroundColor(.primary)
+                        Text("@\(item.author.username)")
+                            .font(.caption)
+                            .foregroundColor(.secondary)
+                    }
+
+                    Spacer()
                 }
-
-                Spacer()
             }
+            .buttonStyle(.plain)
 
             // Content
             Text(item.content)
                 .font(.body)
 
+            // Reply indicator
+            if item.replyToId != nil {
+                Label("Reply", systemImage: "arrowshape.turn.up.left")
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+
             // Actions
             HStack(spacing: 24) {
-                // Like
                 Button(action: toggleLike) {
                     HStack(spacing: 4) {
                         Image(systemName: item.likedByMe ? "heart.fill" : "heart")
@@ -124,7 +115,6 @@ struct TweetRow: View {
                 }
                 .buttonStyle(.plain)
 
-                // Reply count
                 HStack(spacing: 4) {
                     Image(systemName: "bubble.right")
                         .foregroundColor(.secondary)

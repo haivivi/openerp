@@ -228,6 +228,19 @@ fn serialize_state(path: &str, value: &StateValue) -> Option<Vec<u8>> {
             .and_then(|v| serde_json::to_vec(v).ok());
     }
 
+    if path == SearchState::PATH {
+        return value.downcast_ref::<SearchState>()
+            .and_then(|v| serde_json::to_vec(v).ok());
+    }
+    if path == SettingsState::PATH {
+        return value.downcast_ref::<SettingsState>()
+            .and_then(|v| serde_json::to_vec(v).ok());
+    }
+    if path == PasswordState::PATH {
+        return value.downcast_ref::<PasswordState>()
+            .and_then(|v| serde_json::to_vec(v).ok());
+    }
+
     // Dynamic paths: profile/{id}, tweet/{id}.
     if path.starts_with("profile/") {
         return value.downcast_ref::<ProfilePage>()
@@ -304,6 +317,31 @@ fn deserialize_request(path: &str, json: &str) -> Option<Arc<dyn Any + Send + Sy
             serde_json::from_str::<serde_json::Value>(json).ok().map(|v| {
                 Arc::new(LoadProfileReq {
                     user_id: v["userId"].as_str().unwrap_or("").to_string(),
+                }) as Arc<dyn Any + Send + Sync>
+            })
+        }
+        "search/query" => {
+            serde_json::from_str::<serde_json::Value>(json).ok().map(|v| {
+                Arc::new(SearchReq {
+                    query: v["query"].as_str().unwrap_or("").to_string(),
+                }) as Arc<dyn Any + Send + Sync>
+            })
+        }
+        "search/clear" => Some(Arc::new(SearchClearReq)),
+        "settings/load" => Some(Arc::new(SettingsLoadReq)),
+        "settings/save" => {
+            serde_json::from_str::<serde_json::Value>(json).ok().map(|v| {
+                Arc::new(SettingsSaveReq {
+                    display_name: v["displayName"].as_str().unwrap_or("").to_string(),
+                    bio: v["bio"].as_str().unwrap_or("").to_string(),
+                }) as Arc<dyn Any + Send + Sync>
+            })
+        }
+        "settings/change-password" => {
+            serde_json::from_str::<serde_json::Value>(json).ok().map(|v| {
+                Arc::new(ChangePasswordReq {
+                    old_password: v["oldPassword"].as_str().unwrap_or("").to_string(),
+                    new_password: v["newPassword"].as_str().unwrap_or("").to_string(),
                 }) as Arc<dyn Any + Send + Sync>
             })
         }

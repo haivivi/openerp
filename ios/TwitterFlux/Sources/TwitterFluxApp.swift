@@ -28,41 +28,57 @@ struct RootView: View {
         (store.get("app/route") as AppRoute?)?.path ?? "/login"
     }
 
+    private var isLoggedIn: Bool {
+        (store.get("auth/state") as AuthState?)?.phase == .authenticated
+    }
+
     var body: some View {
         Group {
-            switch routePrefix {
-            case "/login":
+            if !isLoggedIn {
                 LoginView()
-            case "/home":
-                HomeView()
-            case "/profile":
-                if let userId = routeParam {
-                    NavigationStack {
-                        ProfileView(userId: userId)
-                    }
-                }
-            case "/tweet":
-                if let tweetId = routeParam {
-                    NavigationStack {
-                        TweetDetailView(tweetId: tweetId)
-                    }
-                }
-            default:
-                LoginView()
+            } else {
+                MainTabView()
             }
         }
-        .animation(.default, value: route)
     }
+}
 
-    /// First path component: "/home", "/login", "/profile", "/tweet"
-    private var routePrefix: String {
-        let parts = route.split(separator: "/", maxSplits: 2)
-        return parts.first.map { "/\($0)" } ?? "/login"
-    }
+/// Main tab view — shown after login.
+struct MainTabView: View {
+    @EnvironmentObject var store: FluxStore
+    @State private var selectedTab = 0
 
-    /// Second path component (for /profile/{id}, /tweet/{id}).
-    private var routeParam: String? {
-        let parts = route.split(separator: "/", maxSplits: 2)
-        return parts.count > 1 ? String(parts[1]) : nil
+    var body: some View {
+        TabView(selection: $selectedTab) {
+            // Home tab
+            NavigationStack {
+                HomeView()
+            }
+            .tabItem {
+                Image(systemName: "house.fill")
+                Text("Home")
+            }
+            .tag(0)
+
+            // Search tab
+            NavigationStack {
+                SearchView()
+            }
+            .tabItem {
+                Image(systemName: "magnifyingglass")
+                Text("Search")
+            }
+            .tag(1)
+
+            // Me tab
+            NavigationStack {
+                MeView()
+            }
+            .tabItem {
+                Image(systemName: "person.fill")
+                Text("Me")
+            }
+            .tag(2)
+        }
     }
 }
