@@ -44,6 +44,8 @@ fn main() {
             "//rust/lib/dsl/macro_test:macro_test",
             "//rust/lib/core:core_test",
             "//rust/mod/auth:auth_test",
+            "//rust/mod/pms:pms_test",
+            "//rust/mod/task:task_test",
         ],
     );
     println!("Rust tests passed.");
@@ -135,6 +137,10 @@ fn main() {
         "tests/03-api-auth.test.mjs",
         "tests/04-user-login.test.mjs",
         "tests/05-facet-api.test.mjs",
+        "tests/06-pms-actions.test.mjs",
+        "tests/07-task-actions.test.mjs",
+        "tests/08-put-edit-api.test.mjs",
+        "tests/09-user-password-login.test.mjs",
     ];
     let mut args: Vec<&str> = vec!["--test"];
     args.extend(test_files.iter());

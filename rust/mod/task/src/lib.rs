@@ -47,3 +47,281 @@ pub fn schema_def() -> openerp_store::ModuleDef {
         hierarchy: hierarchy_def::hierarchy(),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+
+    fn test_kv(name: &str) -> Arc<dyn openerp_kv::KVStore> {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join(format!("{}.redb", name))).unwrap(),
+        );
+        std::mem::forget(dir);
+        kv
+    }
+
+    // ── Task CRUD ──
+
+    #[test]
+    fn task_kv_crud() {
+        let kv = test_kv("task");
+        let ops = KvOps::<Task>::new(kv);
+
+        let task = Task {
+            id: openerp_types::Id::default(),
+            task_type: "export".into(),
+            total: 100, success: 0, failed: 0,
+            status: String::new(), // before_create sets "PENDING"
+            message: None, error: None,
+            claimed_by: None,
+            last_active_at: None, created_by: Some("admin".into()),
+            started_at: None, ended_at: None,
+            timeout_secs: 300, retry_count: 0, max_retries: 3,
+            display_name: Some("Export Job".into()),
+            description: Some("Export all users".into()),
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(task).unwrap();
+        assert!(!created.id.is_empty());
+        assert_eq!(created.status, "pending");
+        assert!(!created.created_at.is_empty());
+
+        let fetched = ops.get_or_err(created.id.as_str()).unwrap();
+        assert_eq!(fetched.task_type, "export");
+        assert_eq!(fetched.total, 100);
+
+        // Update.
+        let mut t = fetched;
+        t.success = 50;
+        ops.save(t).unwrap();
+        let updated = ops.get_or_err(created.id.as_str()).unwrap();
+        assert_eq!(updated.success, 50);
+
+        // Delete.
+        ops.delete(created.id.as_str()).unwrap();
+        assert!(ops.get(created.id.as_str()).unwrap().is_none());
+    }
+
+    // ── TaskType CRUD ──
+
+    #[test]
+    fn task_type_kv_crud() {
+        let kv = test_kv("tasktype");
+        let ops = KvOps::<TaskType>::new(kv);
+
+        let tt = TaskType {
+            id: openerp_types::Id::new("firmware-upload"),
+            service: "pms".into(),
+            default_timeout: 600,
+            max_concurrency: 2,
+            display_name: Some("Firmware Upload".into()),
+            description: Some("Upload firmware to device fleet".into()),
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(tt).unwrap();
+        assert_eq!(created.id.as_str(), "firmware-upload");
+        assert!(!created.created_at.is_empty());
+
+        let all = ops.list().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].service, "pms");
+        assert_eq!(all[0].max_concurrency, 2);
+    }
+
+    // ── Schema ──
+
+    #[test]
+    fn task_schema_has_all_resources() {
+        let def = schema_def();
+        assert_eq!(def.id, "task");
+        assert_eq!(def.resources.len(), 2); // Task, TaskType
+    }
+
+    // ── Task lifecycle: claim → progress → complete ──
+
+    #[tokio::test]
+    async fn task_lifecycle_happy_path() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("life.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_router(kv, auth);
+
+        // Create a task.
+        let task_json = serde_json::json!({
+            "taskType": "export", "total": 10,
+            "status": "pending", "timeoutSecs": 60,
+            "maxRetries": 0, "displayName": "Lifecycle Test",
+        });
+        let req = Request::builder()
+            .method("POST").uri("/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&task_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let task: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let task_id = task["id"].as_str().unwrap();
+
+        // Claim.
+        let claim_json = serde_json::json!({"workerId": "worker-1"});
+        let req = Request::builder()
+            .method("POST").uri(format!("/tasks/{}/@claim", task_id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&claim_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let claimed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(claimed["status"], "running");
+
+        // Progress.
+        let prog_json = serde_json::json!({"success": 5, "message": "50%"});
+        let req = Request::builder()
+            .method("POST").uri(format!("/tasks/{}/@progress", task_id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&prog_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Complete.
+        let req = Request::builder()
+            .method("POST").uri(format!("/tasks/{}/@complete", task_id))
+            .header("content-type", "application/json")
+            .body(Body::from("{}")).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let completed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(completed["status"], "completed");
+
+        // Verify final state.
+        let req = Request::builder()
+            .uri(format!("/tasks/{}", task_id)).body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let final_task: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(final_task["status"], "completed");
+        assert_eq!(final_task["success"], 5);
+    }
+
+    // ── Task lifecycle: claim → fail → auto-retry ──
+
+    #[tokio::test]
+    async fn task_fail_with_retry() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("retry.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_router(kv, auth);
+
+        // Create task with max_retries=2.
+        let task_json = serde_json::json!({
+            "taskType": "risky", "total": 1,
+            "status": "pending", "timeoutSecs": 60,
+            "maxRetries": 2, "displayName": "Retry Test",
+        });
+        let req = Request::builder()
+            .method("POST").uri("/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&task_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let task: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let task_id = task["id"].as_str().unwrap();
+
+        // Claim.
+        let req = Request::builder()
+            .method("POST").uri(format!("/tasks/{}/@claim", task_id))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"workerId":"w1"}"#)).unwrap();
+        router.clone().oneshot(req).await.unwrap();
+
+        // Fail — should auto-retry (retry_count 0 < max_retries 2).
+        let req = Request::builder()
+            .method("POST").uri(format!("/tasks/{}/@fail", task_id))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"error":"timeout"}"#)).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let failed: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(failed["status"], "pending", "should be back to pending for retry");
+
+        // Verify retry_count incremented.
+        let req = Request::builder()
+            .uri(format!("/tasks/{}", task_id)).body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let t: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(t["retryCount"], 1);
+    }
+
+    // ── Task cancel ──
+
+    #[tokio::test]
+    async fn task_cancel() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("cancel.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_router(kv, auth);
+
+        // Create task.
+        let task_json = serde_json::json!({
+            "taskType": "cancel-me", "total": 1,
+            "status": "pending", "timeoutSecs": 60,
+            "displayName": "Cancel Test",
+        });
+        let req = Request::builder()
+            .method("POST").uri("/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&task_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let task: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let task_id = task["id"].as_str().unwrap();
+
+        // Cancel pending task.
+        let req = Request::builder()
+            .method("POST").uri(format!("/tasks/{}/@cancel", task_id))
+            .header("content-type", "application/json")
+            .body(Body::from("{}")).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let cancelled: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(cancelled["status"], "cancelled");
+
+        // Can't cancel again.
+        let req = Request::builder()
+            .method("POST").uri(format!("/tasks/{}/@cancel", task_id))
+            .header("content-type", "application/json")
+            .body(Body::from("{}")).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_ne!(resp.status(), StatusCode::OK, "double cancel should fail");
+    }
+}

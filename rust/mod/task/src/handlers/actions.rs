@@ -28,11 +28,13 @@ pub fn routes(kv: Arc<dyn openerp_kv::KVStore>) -> Router {
 // ── Request/Response types ──
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ClaimRequest {
     pub worker_id: String,
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct ProgressRequest {
     pub success: Option<i64>,
     pub failed: Option<i64>,
@@ -40,6 +42,7 @@ pub struct ProgressRequest {
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FailRequest {
     pub error: String,
 }

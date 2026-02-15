@@ -19,6 +19,7 @@ pub fn routes(kv: Arc<dyn openerp_kv::KVStore>) -> Router {
 }
 
 #[derive(serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct FirmwareUploadRequest {
     pub model: u32,
     pub semver: String,

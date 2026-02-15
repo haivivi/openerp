@@ -392,6 +392,399 @@ mod tests {
         assert!(checker.check(&headers, "auth:user:create").is_err());
     }
 
+    // ── Group CRUD ──
+
+    #[test]
+    fn group_kv_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("group.redb")).unwrap(),
+        );
+        let ops = KvOps::<Group>::new(kv);
+
+        let group = Group {
+            id: openerp_types::Id::default(),
+            parent_id: None,
+            external_source: Some("ldap".into()),
+            external_id: Some("cn=eng".into()),
+            display_name: Some("Engineering".into()),
+            description: Some("Engineering team".into()),
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(group).unwrap();
+        assert!(!created.id.is_empty(), "ID auto-generated");
+        assert!(!created.created_at.is_empty(), "created_at auto-filled");
+        assert!(!created.updated_at.is_empty(), "updated_at auto-filled");
+
+        // Update.
+        let mut g = ops.get_or_err(created.id.as_str()).unwrap();
+        let old_updated = g.updated_at.to_string();
+        g.display_name = Some("Eng Team".into());
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let updated = ops.save(g).unwrap();
+        assert_eq!(updated.display_name, Some("Eng Team".into()));
+        assert_ne!(updated.updated_at.to_string(), old_updated, "updated_at should change on update");
+
+        // Delete.
+        ops.delete(created.id.as_str()).unwrap();
+        assert!(ops.get(created.id.as_str()).unwrap().is_none());
+    }
+
+    // ── Policy CRUD ──
+
+    #[test]
+    fn policy_kv_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("policy.redb")).unwrap(),
+        );
+        let ops = KvOps::<Policy>::new(kv);
+
+        let policy = Policy {
+            id: openerp_types::Id::default(),
+            who: "user:abc".into(),
+            what: "role".into(),
+            how: "admin".into(),
+            expires_at: None,
+            display_name: None,
+            description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(policy).unwrap();
+        assert!(!created.id.is_empty(), "Policy ID deterministic from hash(who:what:how)");
+
+        let fetched = ops.get_or_err(created.id.as_str()).unwrap();
+        assert_eq!(fetched.who, "user:abc");
+        assert_eq!(fetched.what, "role");
+        assert_eq!(fetched.how, "admin");
+
+        // Same who/what/how produces same ID.
+        let dup = Policy {
+            id: openerp_types::Id::default(),
+            who: "user:abc".into(), what: "role".into(), how: "admin".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+        let dup_created = ops.save_new(dup);
+        assert!(dup_created.is_err(), "Duplicate policy should fail");
+
+        ops.delete(created.id.as_str()).unwrap();
+        assert_eq!(ops.list().unwrap().len(), 0);
+    }
+
+    // ── Session CRUD ──
+
+    #[test]
+    fn session_kv_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("session.redb")).unwrap(),
+        );
+        let ops = KvOps::<Session>::new(kv);
+
+        let session = Session {
+            id: openerp_types::Id::default(),
+            user_id: openerp_types::Id::new("user123"),
+            issued_at: openerp_types::DateTime::new("2026-01-01T00:00:00Z"),
+            expires_at: openerp_types::DateTime::new("2026-01-02T00:00:00Z"),
+            revoked: false,
+            user_agent: Some("TestAgent/1.0".into()),
+            ip_address: Some("127.0.0.1".into()),
+            display_name: None, description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(session).unwrap();
+        assert!(!created.id.is_empty());
+        assert_eq!(created.user_id.as_str(), "user123");
+        assert!(!created.revoked);
+
+        // Revoke.
+        let mut s = ops.get_or_err(created.id.as_str()).unwrap();
+        s.revoked = true;
+        ops.save(s).unwrap();
+        let fetched = ops.get_or_err(created.id.as_str()).unwrap();
+        assert!(fetched.revoked, "session should be revoked");
+    }
+
+    // ── Provider CRUD ──
+
+    #[test]
+    fn provider_kv_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("provider.redb")).unwrap(),
+        );
+        let ops = KvOps::<Provider>::new(kv);
+
+        let provider = Provider {
+            id: openerp_types::Id::new("github"),
+            provider_type: "oauth2".into(),
+            client_id: "gh-client-id".into(),
+            client_secret: Some(openerp_types::Secret::new("gh-secret")),
+            auth_url: openerp_types::Url::new("https://github.com/login/oauth/authorize"),
+            token_url: openerp_types::Url::new("https://github.com/login/oauth/access_token"),
+            userinfo_url: Some(openerp_types::Url::new("https://api.github.com/user")),
+            scopes: vec!["read:user".into(), "user:email".into()],
+            redirect_url: openerp_types::Url::new("http://localhost:8080/auth/callback"),
+            enabled: true,
+            display_name: Some("GitHub".into()),
+            description: Some("GitHub OAuth2".into()),
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(provider).unwrap();
+        assert_eq!(created.id.as_str(), "github");
+        assert_eq!(created.scopes.len(), 2);
+        assert!(created.enabled);
+        assert!(!created.created_at.is_empty());
+
+        let all = ops.list().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].provider_type, "oauth2");
+    }
+
+    // ── find_roles_for_user ──
+
+    #[test]
+    fn find_roles_for_user_basic() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("roles1.redb")).unwrap(),
+        );
+        let policy_ops = KvOps::<Policy>::new(kv.clone());
+
+        // Create two policies: user1 has roles "admin" and "viewer".
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "role".into(), how: "admin".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "role".into(), how: "viewer".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+        // Another user's policy — should not appear.
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user2".into(), what: "role".into(), how: "editor".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+
+        let roles = store_impls::find_roles_for_user(&kv, "user1").unwrap();
+        assert_eq!(roles.len(), 2);
+        assert!(roles.contains(&"admin".to_string()));
+        assert!(roles.contains(&"viewer".to_string()));
+
+        // user2 should only have editor.
+        let roles2 = store_impls::find_roles_for_user(&kv, "user2").unwrap();
+        assert_eq!(roles2, vec!["editor"]);
+    }
+
+    #[test]
+    fn find_roles_for_user_no_policies() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("roles2.redb")).unwrap(),
+        );
+        let roles = store_impls::find_roles_for_user(&kv, "nobody").unwrap();
+        assert!(roles.is_empty());
+    }
+
+    #[test]
+    fn find_roles_for_user_expired_policy_excluded() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("roles3.redb")).unwrap(),
+        );
+        let policy_ops = KvOps::<Policy>::new(kv.clone());
+
+        // Active policy.
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "role".into(), how: "active-role".into(),
+            expires_at: Some(openerp_types::DateTime::new("2099-12-31T23:59:59Z")),
+            display_name: None, description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+        // Expired policy.
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "role".into(), how: "expired-role".into(),
+            expires_at: Some(openerp_types::DateTime::new("2020-01-01T00:00:00Z")),
+            display_name: None, description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+
+        let roles = store_impls::find_roles_for_user(&kv, "user1").unwrap();
+        assert_eq!(roles.len(), 1);
+        assert_eq!(roles[0], "active-role");
+    }
+
+    #[test]
+    fn find_roles_ignores_non_role_policies() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("roles4.redb")).unwrap(),
+        );
+        let policy_ops = KvOps::<Policy>::new(kv.clone());
+
+        // Role policy.
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "role".into(), how: "admin".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+        // Non-role policy (what != "role").
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "group".into(), how: "eng-team".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+
+        let roles = store_impls::find_roles_for_user(&kv, "user1").unwrap();
+        assert_eq!(roles, vec!["admin"]);
+    }
+
+    // ── AuthChecker multi-role ──
+
+    #[test]
+    fn auth_checker_multi_role_union() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac_mr.redb")).unwrap(),
+        );
+
+        // Two roles with different permissions.
+        let role_ops = KvOps::<Role>::new(kv.clone());
+        role_ops.save_new(Role {
+            id: openerp_types::Id::new("reader"),
+            permissions: vec!["auth:user:read".into(), "auth:user:list".into()],
+            display_name: None, description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+        role_ops.save_new(Role {
+            id: openerp_types::Id::new("writer"),
+            permissions: vec!["auth:user:create".into(), "auth:user:update".into()],
+            display_name: None, description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+
+        let checker = handlers::policy_check::AuthChecker::new(kv, "test-secret", "auth:root");
+
+        // JWT with both roles.
+        let claims = serde_json::json!({
+            "sub": "multi", "roles": ["reader", "writer"],
+            "iat": chrono::Utc::now().timestamp(),
+            "exp": chrono::Utc::now().timestamp() + 3600,
+        });
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
+        ).unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        // Union of permissions: can read AND create.
+        assert!(checker.check(&headers, "auth:user:read").is_ok());
+        assert!(checker.check(&headers, "auth:user:create").is_ok());
+        assert!(checker.check(&headers, "auth:user:list").is_ok());
+        assert!(checker.check(&headers, "auth:user:update").is_ok());
+        // Still can't delete.
+        assert!(checker.check(&headers, "auth:user:delete").is_err());
+    }
+
+    // ── Integration: admin PUT update ──
+
+    #[tokio::test]
+    async fn integration_admin_put_update() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("put.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_router(kv, auth);
+
+        // Create a user.
+        let user_json = serde_json::json!({
+            "displayName": "Before Update",
+            "email": "before@test.com",
+            "active": true,
+        });
+        let req = Request::builder()
+            .method("POST").uri("/users")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&user_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let id = created["id"].as_str().unwrap();
+        let created_at = created["createdAt"].as_str().unwrap().to_string();
+
+        // PUT update: start from full created record, change fields.
+        let mut update_json = created.clone();
+        update_json["displayName"] = serde_json::json!("After Update");
+        update_json["email"] = serde_json::json!("after@test.com");
+        let req = Request::builder()
+            .method("PUT").uri(format!("/users/{}", id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&update_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let updated: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(updated["id"], id, "ID must not change");
+        assert_eq!(updated["displayName"], "After Update");
+        assert_eq!(updated["email"], "after@test.com");
+        // created_at should be preserved from original.
+        assert_eq!(updated["createdAt"].as_str().unwrap(), created_at, "createdAt must not change on update");
+
+        // Verify only 1 user exists (no duplicate).
+        let req = Request::builder().uri("/users").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list["total"], 1, "Should have exactly 1 user, not a duplicate");
+    }
+
     // ── Integration: admin API with AuthChecker ──
 
     #[tokio::test]

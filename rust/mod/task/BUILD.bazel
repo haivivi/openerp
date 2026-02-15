@@ -28,5 +28,7 @@ rust_test(
     crate = ":task",
     deps = [
         "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tower",
     ],
 )
