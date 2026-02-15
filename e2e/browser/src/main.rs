@@ -309,25 +309,44 @@ mod tests {
 
     // ── Binary discovery ──
 
-    fn find_lightpanda() -> PathBuf {
-        // 1. Env var.
-        if let Ok(p) = std::env::var("LIGHTPANDA_PATH") {
-            return PathBuf::from(p);
-        }
-        // 2. Bazel runfiles.
-        let candidates = [
-            "external/lightpanda_macos_arm64/file/lightpanda-aarch64-macos",
-            "external/lightpanda_linux_x86_64/file/lightpanda-x86_64-linux",
-            "external/lightpanda_linux_arm64/file/lightpanda-aarch64-linux",
-        ];
-        for c in &candidates {
-            let p = PathBuf::from(c);
-            if p.exists() {
-                return p;
+    /// Find a file in Bazel runfiles or env override.
+    /// Checks multiple candidate paths to handle different Bazel versions
+    /// and both in-runfiles and standalone execution.
+    fn find_in_runfiles(candidates: &[&str], env_key: &str, desc: &str) -> PathBuf {
+        // 1. Explicit env override.
+        if let Ok(p) = std::env::var(env_key) {
+            let pb = PathBuf::from(&p);
+            if pb.exists() {
+                return pb;
             }
         }
-        // 3. PATH.
-        if let Ok(output) = Command::new("which").arg("lightpanda").output() {
+
+        // 2. Bazel runfiles: TEST_SRCDIR / RUNFILES_DIR set by bazel test.
+        let runfiles_dirs: Vec<PathBuf> = [
+            std::env::var("TEST_SRCDIR").ok(),
+            std::env::var("RUNFILES_DIR").ok(),
+            Some(".".to_string()),
+        ]
+        .into_iter()
+        .flatten()
+        .map(PathBuf::from)
+        .collect();
+
+        for base in &runfiles_dirs {
+            for c in candidates {
+                let p = base.join(c);
+                if p.exists() {
+                    return p;
+                }
+            }
+        }
+
+        // 3. PATH lookup (for standalone execution).
+        let bin_name = candidates
+            .last()
+            .and_then(|c| c.rsplit('/').next())
+            .unwrap_or(desc);
+        if let Ok(output) = Command::new("which").arg(bin_name).output() {
             if output.status.success() {
                 let p = String::from_utf8_lossy(&output.stdout).trim().to_string();
                 if !p.is_empty() {
@@ -335,30 +354,35 @@ mod tests {
                 }
             }
         }
-        panic!("lightpanda binary not found; set LIGHTPANDA_PATH or install lightpanda");
+
+        panic!(
+            "{desc} not found. Candidates: {:?}. Set {env_key} or run via bazel test.",
+            candidates
+        );
+    }
+
+    fn find_lightpanda() -> PathBuf {
+        find_in_runfiles(
+            &[
+                // Bazel bzlmod http_file runfiles paths.
+                "+http_file+lightpanda_macos_arm64/file/downloaded",
+                "+http_file+lightpanda_linux_x86_64/file/downloaded",
+                "+http_file+lightpanda_linux_arm64/file/downloaded",
+            ],
+            "LIGHTPANDA_PATH",
+            "lightpanda",
+        )
     }
 
     fn find_binary(name: &str, env_key: &str) -> PathBuf {
-        if let Ok(p) = std::env::var(env_key) {
-            return PathBuf::from(p);
-        }
         let candidates = [
+            // Bazel runfiles path (bzlmod: _main/ prefix).
+            format!("_main/rust/bin/{name}/{name}"),
+            // Fallback: no prefix.
             format!("rust/bin/{name}/{name}"),
-            format!("../rust/bin/{name}/{name}"),
         ];
-        if let Ok(ws) = std::env::var("BUILD_WORKSPACE_DIRECTORY") {
-            let p = PathBuf::from(&ws).join(format!("bazel-bin/rust/bin/{name}/{name}"));
-            if p.exists() {
-                return p;
-            }
-        }
-        for c in &candidates {
-            let p = PathBuf::from(c);
-            if p.exists() {
-                return p;
-            }
-        }
-        panic!("{name} binary not found; build with bazel or set {env_key}");
+        let refs: Vec<&str> = candidates.iter().map(|s| s.as_str()).collect();
+        find_in_runfiles(&refs, env_key, name)
     }
 
     // ── Network helpers ──

@@ -4,8 +4,7 @@ rust_test(
     name = "browser_test",
     srcs = ["src/main.rs"],
     edition = "2021",
-    # Tag as manual — requires Lightpanda + starts openerpd, not for default CI.
-    tags = ["manual", "e2e"],
+    tags = ["e2e"],
     deps = [
         "@crates//:chromiumoxide",
         "@crates//:futures",
