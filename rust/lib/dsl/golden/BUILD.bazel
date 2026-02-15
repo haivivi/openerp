@@ -13,10 +13,13 @@ rust_test(
         "//rust/lib/dsl/types",
         "//rust/lib/core",
         "//rust/lib/kv",
+        "@crates//:axum",
         "@crates//:serde",
         "@crates//:serde_json",
         "@crates//:chrono",
         "@crates//:uuid",
         "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tower",
     ],
 )

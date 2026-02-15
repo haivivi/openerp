@@ -49,6 +49,54 @@ mod tests {
         pub status: String,
     }
 
+    impl KvStore for Item {
+        const KEY: Field = Self::id;
+        fn kv_prefix() -> &'static str { "test:item:" }
+        fn key_value(&self) -> String { self.id.to_string() }
+        fn before_create(&mut self) {
+            if self.id.is_empty() {
+                self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
+            }
+            let now = chrono::Utc::now().to_rfc3339();
+            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
+            self.updated_at = DateTime::new(&now);
+        }
+        fn before_update(&mut self) {
+            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
+        }
+    }
+
+    // A model with complex field types.
+    #[model(module = "infra")]
+    pub struct Server {
+        pub id: Id,
+        pub hostname: String,
+        pub ip_address: String,
+        pub url: Url,
+        pub secret_key: Option<Secret>,
+        pub version: SemVer,
+        pub active: bool,
+        pub tags: Vec<String>,
+        pub max_connections: u64,
+    }
+
+    impl KvStore for Server {
+        const KEY: Field = Self::id;
+        fn kv_prefix() -> &'static str { "infra:server:" }
+        fn key_value(&self) -> String { self.id.to_string() }
+        fn before_create(&mut self) {
+            if self.id.is_empty() {
+                self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
+            }
+            let now = chrono::Utc::now().to_rfc3339();
+            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
+            self.updated_at = DateTime::new(&now);
+        }
+        fn before_update(&mut self) {
+            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
+        }
+    }
+
     // =====================================================================
     // Golden: Model IR structure
     // =====================================================================
@@ -334,5 +382,475 @@ mod tests {
         assert!(w.email.is_none()); // default Option
         assert!(w.tags.is_empty()); // default Vec
         assert!(w.display_name.is_none()); // common field default
+    }
+
+    // =====================================================================
+    // Golden: Complex type widget inference (Server model)
+    // =====================================================================
+
+    #[test]
+    fn golden_complex_type_inference() {
+        assert_eq!(Server::id.widget, "readonly");
+        assert_eq!(Server::url.widget, "url");
+        assert_eq!(Server::secret_key.widget, "hidden"); // Secret → hidden
+        assert_eq!(Server::version.widget, "text");      // SemVer → text
+        assert_eq!(Server::active.widget, "switch");
+        assert_eq!(Server::tags.widget, "tags");
+        assert_eq!(Server::max_connections.widget, "text"); // u64 → text
+    }
+
+    #[test]
+    fn golden_complex_type_ir() {
+        let ir = Server::__dsl_ir();
+        assert_eq!(ir["module"], "infra");
+        assert_eq!(ir["name"], "Server");
+        assert_eq!(ir["resource"], "server");
+
+        let fields = ir["fields"].as_array().unwrap();
+        // 9 user + 5 common = 14.
+        assert_eq!(fields.len(), 14, "Server should have 14 fields");
+
+        // Verify type names in IR.
+        let url_f = fields.iter().find(|f| f["name"] == "url").unwrap();
+        assert_eq!(url_f["ty"], "Url");
+
+        let secret_f = fields.iter().find(|f| f["name"] == "secret_key").unwrap();
+        assert!(secret_f["ty"].as_str().unwrap().contains("Secret"));
+        assert_eq!(secret_f["widget"], "hidden");
+    }
+
+    // =====================================================================
+    // Golden: Multi-module schema
+    // =====================================================================
+
+    #[test]
+    fn golden_multi_module_schema() {
+        let schema = build_schema(
+            "MultiApp",
+            vec![
+                ModuleDef {
+                    id: "test",
+                    label: "Test Module",
+                    icon: "flask",
+                    resources: vec![
+                        ResourceDef::from_ir("test", Widget::__dsl_ir()),
+                        ResourceDef::from_ir("test", Item::__dsl_ir()),
+                    ],
+                    hierarchy: vec![
+                        HierarchyNode {
+                            resource: "widget", label: "Widgets", icon: "cube",
+                            description: "Widgets", children: vec![
+                                HierarchyNode::leaf("item", "Items", "file", "Items"),
+                            ],
+                        },
+                    ],
+                },
+                ModuleDef {
+                    id: "infra",
+                    label: "Infrastructure",
+                    icon: "server",
+                    resources: vec![
+                        ResourceDef::from_ir("infra", Server::__dsl_ir()),
+                    ],
+                    hierarchy: vec![
+                        HierarchyNode::leaf("server", "Servers", "desktop", "Servers"),
+                    ],
+                },
+            ],
+        );
+
+        assert_eq!(schema["name"], "MultiApp");
+        let modules = schema["modules"].as_array().unwrap();
+        assert_eq!(modules.len(), 2);
+
+        // Module isolation: each has its own resources.
+        assert_eq!(modules[0]["id"], "test");
+        assert_eq!(modules[0]["resources"].as_array().unwrap().len(), 2);
+        assert_eq!(modules[1]["id"], "infra");
+        assert_eq!(modules[1]["resources"].as_array().unwrap().len(), 1);
+
+        // Permissions are per-module.
+        assert!(schema["permissions"]["test"]["widget"].is_object());
+        assert!(schema["permissions"]["test"]["item"].is_object());
+        assert!(schema["permissions"]["infra"]["server"].is_object());
+        // No cross-contamination.
+        assert!(schema["permissions"]["test"]["server"].is_null());
+        assert!(schema["permissions"]["infra"]["widget"].is_null());
+    }
+
+    // =====================================================================
+    // Golden: Admin router — Authenticator hook (AllowAll vs DenyAll)
+    // =====================================================================
+
+    #[tokio::test]
+    async fn golden_admin_router_allow_all() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+        use openerp_store::admin_kv_router;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("allow.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(KvOps::<Widget>::new(kv), auth, "test", "widgets", "widget");
+
+        // AllowAll: any request should succeed.
+        let req = Request::builder().uri("/widgets").body(Body::empty()).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[tokio::test]
+    async fn golden_admin_router_deny_all() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+        use openerp_store::admin_kv_router;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("deny.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::DenyAll);
+        let router = admin_kv_router(KvOps::<Widget>::new(kv), auth, "test", "widgets", "widget");
+
+        // DenyAll: every request should be rejected.
+        let req = Request::builder().uri("/widgets").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "DenyAll should reject list");
+
+        let req = Request::builder()
+            .method("POST").uri("/widgets")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"count":1}"#)).unwrap();
+        let resp = router.oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "DenyAll should reject create");
+    }
+
+    // =====================================================================
+    // Golden: Admin router full CRUD with hooks verified
+    // =====================================================================
+
+    #[tokio::test]
+    async fn golden_admin_crud_with_hooks() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+        use openerp_store::admin_kv_router;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("crud.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(KvOps::<Item>::new(kv), auth, "test", "items", "item");
+
+        // 1. POST: create — before_create fills id + timestamps.
+        let req = Request::builder()
+            .method("POST").uri("/items")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"widgetId":"w1","quantity":10,"status":"draft"}"#)).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        let id = created["id"].as_str().unwrap();
+        assert!(!id.is_empty(), "before_create should auto-generate id");
+        assert!(created["createdAt"].as_str().unwrap().contains("T"), "created_at should be ISO datetime");
+        assert!(created["updatedAt"].as_str().unwrap().contains("T"), "updated_at should be set");
+        assert_eq!(created["widgetId"], "w1");
+        assert_eq!(created["quantity"], 10);
+        assert_eq!(created["status"], "draft");
+
+        // 2. GET by id.
+        let req = Request::builder()
+            .uri(format!("/items/{}", id)).body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let fetched: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(fetched["id"], id);
+        assert_eq!(fetched["quantity"], 10);
+
+        // 3. PUT: update — before_update changes updated_at.
+        let old_updated_at = created["updatedAt"].as_str().unwrap().to_string();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let mut update = created.clone();
+        update["quantity"] = serde_json::json!(20);
+        update["status"] = serde_json::json!("approved");
+        let req = Request::builder()
+            .method("PUT").uri(format!("/items/{}", id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&update).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let updated: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(updated["id"], id, "id must not change");
+        assert_eq!(updated["quantity"], 20);
+        assert_eq!(updated["status"], "approved");
+        assert_eq!(updated["createdAt"], created["createdAt"], "createdAt must be preserved");
+        assert_ne!(updated["updatedAt"].as_str().unwrap(), old_updated_at, "updatedAt should change");
+
+        // 4. GET list — should have exactly 1 item.
+        let req = Request::builder().uri("/items").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"][0]["quantity"], 20);
+
+        // 5. DELETE.
+        let req = Request::builder()
+            .method("DELETE").uri(format!("/items/{}", id)).body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 6. GET after delete → 404.
+        let req = Request::builder()
+            .uri(format!("/items/{}", id)).body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // 7. List is empty.
+        let req = Request::builder().uri("/items").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list["total"], 0);
+    }
+
+    // =====================================================================
+    // Golden: Admin router error responses
+    // =====================================================================
+
+    #[tokio::test]
+    async fn golden_admin_error_responses() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+        use openerp_store::admin_kv_router;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("err.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(KvOps::<Widget>::new(kv), auth, "test", "widgets", "widget");
+
+        // GET non-existent → 404 with error message.
+        let req = Request::builder()
+            .uri("/widgets/nonexistent").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let err: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(err["error"].as_str().unwrap().contains("not found"));
+
+        // PUT non-existent → 404.
+        let req = Request::builder()
+            .method("PUT").uri("/widgets/ghost")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"id":"ghost","count":1}"#)).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // DELETE non-existent → 404.
+        let req = Request::builder()
+            .method("DELETE").uri("/widgets/ghost").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::NOT_FOUND);
+
+        // POST malformed JSON → 4xx (axum returns 400 or 422 depending on version).
+        let req = Request::builder()
+            .method("POST").uri("/widgets")
+            .header("content-type", "application/json")
+            .body(Body::from("not json")).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert!(resp.status().is_client_error(), "Malformed JSON should return 4xx, got {}", resp.status());
+
+        // POST duplicate → validation error.
+        let req = Request::builder()
+            .method("POST").uri("/widgets")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"count":1}"#)).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // Second POST with same auto-id "auto-id" → duplicate.
+        let req = Request::builder()
+            .method("POST").uri("/widgets")
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"count":2}"#)).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "Duplicate should return 400");
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let err: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(err["error"].as_str().unwrap().contains("already exists"));
+    }
+
+    // =====================================================================
+    // Golden: Serde roundtrip — JSON → KV → JSON preserves all fields
+    // =====================================================================
+
+    #[tokio::test]
+    async fn golden_serde_roundtrip_through_admin() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+        use openerp_store::admin_kv_router;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("rt.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(KvOps::<Server>::new(kv), auth, "infra", "servers", "server");
+
+        // Create with all field types.
+        let server_json = serde_json::json!({
+            "hostname": "web-01",
+            "ipAddress": "10.0.0.1",
+            "url": "https://web-01.internal:8443",
+            "secretKey": "s3cr3t-k3y",
+            "version": "2.5.1",
+            "active": true,
+            "tags": ["prod", "us-east", "critical"],
+            "maxConnections": 10000,
+            "displayName": "Web Server 01",
+            "description": "Primary web server",
+        });
+
+        let req = Request::builder()
+            .method("POST").uri("/servers")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&server_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let id = created["id"].as_str().unwrap();
+
+        // Fetch back and verify every field.
+        let req = Request::builder()
+            .uri(format!("/servers/{}", id)).body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let fetched: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(fetched["hostname"], "web-01");
+        assert_eq!(fetched["ipAddress"], "10.0.0.1");
+        assert_eq!(fetched["url"], "https://web-01.internal:8443");
+        assert_eq!(fetched["secretKey"], "s3cr3t-k3y");
+        assert_eq!(fetched["version"], "2.5.1");
+        assert_eq!(fetched["active"], true);
+        assert_eq!(fetched["tags"].as_array().unwrap().len(), 3);
+        assert_eq!(fetched["tags"][0], "prod");
+        assert_eq!(fetched["tags"][2], "critical");
+        assert_eq!(fetched["maxConnections"], 10000);
+        assert_eq!(fetched["displayName"], "Web Server 01");
+        assert_eq!(fetched["description"], "Primary web server");
+        // Auto-filled fields.
+        assert!(!fetched["id"].as_str().unwrap().is_empty());
+        assert!(fetched["createdAt"].as_str().unwrap().contains("T"));
+        assert!(fetched["updatedAt"].as_str().unwrap().contains("T"));
+    }
+
+    // =====================================================================
+    // Golden: Permission string format
+    // =====================================================================
+
+    #[test]
+    fn golden_permission_format() {
+        // Verify the exact permission strings generated.
+        let schema = build_schema(
+            "PermApp",
+            vec![
+                ModuleDef {
+                    id: "crm",
+                    label: "CRM",
+                    icon: "users",
+                    resources: vec![
+                        ResourceDef::from_ir("crm", Widget::__dsl_ir())
+                            .with_action("crm", "export")
+                            .with_action("crm", "archive"),
+                    ],
+                    hierarchy: vec![HierarchyNode::leaf("widget", "Widgets", "cube", "")],
+                },
+            ],
+        );
+
+        let perms = &schema["permissions"]["crm"]["widget"]["actions"];
+        let perm_strings: Vec<&str> = perms.as_array().unwrap().iter()
+            .map(|p| p["perm"].as_str().unwrap())
+            .collect();
+
+        // Standard CRUD.
+        assert!(perm_strings.contains(&"crm:widget:create"));
+        assert!(perm_strings.contains(&"crm:widget:read"));
+        assert!(perm_strings.contains(&"crm:widget:update"));
+        assert!(perm_strings.contains(&"crm:widget:delete"));
+        assert!(perm_strings.contains(&"crm:widget:list"));
+        // Custom actions.
+        assert!(perm_strings.contains(&"crm:widget:export"));
+        assert!(perm_strings.contains(&"crm:widget:archive"));
+        // Total 7.
+        assert_eq!(perm_strings.len(), 7);
+
+        // Each entry has action + desc.
+        let export = perms.as_array().unwrap().iter()
+            .find(|p| p["perm"] == "crm:widget:export").unwrap();
+        assert_eq!(export["action"], "export");
+        assert!(export["desc"].is_string());
+    }
+
+    // =====================================================================
+    // Golden: Field constants are compile-time accessible
+    // =====================================================================
+
+    #[test]
+    fn golden_field_const_properties() {
+        // Field consts carry name + type + widget at compile time.
+        let f = Widget::email;
+        assert_eq!(f.name, "email");
+        assert!(f.ty.contains("Email"), "type should contain Email, got: {}", f.ty);
+        assert_eq!(f.widget, "email");
+
+        let f = Server::secret_key;
+        assert_eq!(f.name, "secret_key");
+        assert!(f.ty.contains("Secret"));
+        assert_eq!(f.widget, "hidden");
+
+        // Common fields are also consts.
+        let f = Widget::created_at;
+        assert_eq!(f.name, "created_at");
+        assert_eq!(f.widget, "datetime");
+    }
+
+    // =====================================================================
+    // Golden: widget! macro with multiple fields
+    // =====================================================================
+
+    #[test]
+    fn golden_widget_macro_multi_field() {
+        let overrides = vec![
+            openerp_store::widget!(textarea { rows: 5, placeholder: "Enter notes..." } => [
+                Widget.description,
+                Item.status
+            ]),
+        ];
+
+        assert_eq!(overrides.len(), 1);
+        assert_eq!(overrides[0].widget, "textarea");
+        assert_eq!(overrides[0].apply_to.len(), 2);
+        assert_eq!(overrides[0].apply_to[0], "Widget.description");
+        assert_eq!(overrides[0].apply_to[1], "Item.status");
+        assert_eq!(overrides[0].params["rows"], 5);
+        assert_eq!(overrides[0].params["placeholder"], "Enter notes...");
     }
 }
