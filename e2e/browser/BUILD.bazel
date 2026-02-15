@@ -1,27 +1,21 @@
-load("@rules_rust//rust:defs.bzl", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_binary")
 
-rust_test(
-    name = "browser_test",
-    srcs = ["src/main.rs"],
+# Runner: starts openerpd, then runs the Puppeteer + Chromium test.
+# Puppeteer auto-downloads Chromium via npm install.
+rust_binary(
+    name = "runner",
+    srcs = ["src/runner.rs"],
     edition = "2021",
-    tags = ["e2e"],
     deps = [
-        "@crates//:chromiumoxide",
-        "@crates//:futures",
         "@crates//:reqwest",
-        "@crates//:serde_json",
         "@crates//:tempfile",
-        "@crates//:tokio",
     ],
     data = [
         "//rust/bin/openerpd",
         "//rust/bin/openerp",
-    ] + select({
-        "@platforms//os:macos": ["@lightpanda_macos_arm64//file"],
-        "@platforms//os:linux": ["@lightpanda_linux_x86_64//file"],
-    }),
-    env = {
-        "LIGHTPANDA_DISABLE_TELEMETRY": "true",
-    },
-    size = "large",
+        "dashboard.test.mjs",
+        "package.json",
+    ],
+    tags = ["e2e"],
+    visibility = ["//visibility:public"],
 )

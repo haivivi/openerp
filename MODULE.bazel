@@ -75,37 +75,8 @@ crate.spec(package = "base64", version = "0.22")
 crate.spec(package = "tempfile", version = "3")
 crate.spec(package = "criterion", version = "0.5", features = ["html_reports"])
 
-# E2E browser tests (Rust + Lightpanda via CDP)
-crate.spec(package = "chromiumoxide", version = "0.7", features = ["tokio-runtime"], default_features = False)
-crate.spec(package = "futures", version = "0.3")
-
 # Pin: 0.3.37+ needs nightly
 crate.spec(package = "time", version = ">=0.3.20, <0.3.37")
 
 crate.from_specs()
 use_repo(crate, "crates")
-
-# ── Lightpanda headless browser (for E2E browser tests) ──
-http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")
-
-# Lightpanda v0.2.3 — pinned release with sha256.
-http_file(
-    name = "lightpanda_macos_arm64",
-    url = "https://github.com/lightpanda-io/browser/releases/download/v0.2.3/lightpanda-aarch64-macos",
-    sha256 = "f7567fd7cd252d32c12e6302ebb66acf8e19fd5a944184814c2f1d048b7cd847",
-    executable = True,
-)
-
-http_file(
-    name = "lightpanda_linux_x86_64",
-    url = "https://github.com/lightpanda-io/browser/releases/download/v0.2.3/lightpanda-x86_64-linux",
-    sha256 = "40282bdb2468fdff07af02aaa4622eead430fe5bf58400ea47801e30d99e8be2",
-    executable = True,
-)
-
-http_file(
-    name = "lightpanda_linux_arm64",
-    url = "https://github.com/lightpanda-io/browser/releases/download/v0.2.3/lightpanda-aarch64-linux",
-    sha256 = "ba17eb70c08dc53e52b0e7ebaebe2c9e48ec78680ad40c80da4b530a60775127",
-    executable = True,
-)
