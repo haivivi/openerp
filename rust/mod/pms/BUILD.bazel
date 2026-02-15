@@ -2,22 +2,23 @@ load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 rust_library(
     name = "pms",
-    srcs = glob(["src/**/*.rs"]),
+    crate_name = "pms",
+    srcs = glob(["dsl/**/*.rs", "src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2021",
     visibility = ["//rust:__subpackages__"],
+    proc_macro_deps = [
+        "//rust/lib/dsl/macro",
+    ],
     deps = [
+        "//rust/lib/dsl/store",
+        "//rust/lib/dsl/types",
         "//rust/lib/core",
         "//rust/lib/kv",
-        "//rust/lib/sql",
-        "//rust/lib/search",
-        "//rust/lib/blob",
         "@crates//:axum",
         "@crates//:chrono",
-        "@crates//:rand",
         "@crates//:serde",
         "@crates//:serde_json",
-        "@crates//:serde_yml",
-        "@crates//:thiserror",
-        "@crates//:tracing",
         "@crates//:uuid",
     ],
 )
@@ -25,4 +26,9 @@ rust_library(
 rust_test(
     name = "pms_test",
     crate = ":pms",
+    deps = [
+        "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tower",
+    ],
 )

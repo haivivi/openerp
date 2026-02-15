@@ -1,0 +1,15 @@
+load("@rules_rust//rust:defs.bzl", "rust_test")
+
+rust_test(
+    name = "macro_test",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    proc_macro_deps = [
+        "//rust/lib/dsl/macro",
+    ],
+    deps = [
+        "//rust/lib/dsl/types",
+        "@crates//:serde",
+        "@crates//:serde_json",
+    ],
+)

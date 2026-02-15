@@ -2,24 +2,26 @@ load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 rust_library(
     name = "auth",
-    srcs = glob(["src/**/*.rs"]),
+    crate_name = "auth",
+    srcs = glob(["dsl/**/*.rs", "src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2021",
     visibility = ["//rust:__subpackages__"],
+    proc_macro_deps = [
+        "//rust/lib/dsl/macro",
+    ],
     deps = [
+        "//rust/lib/dsl/store",
+        "//rust/lib/dsl/types",
         "//rust/lib/core",
         "//rust/lib/kv",
-        "//rust/lib/sql",
+        "@crates//:argon2",
         "@crates//:axum",
-        "@crates//:base64",
-        "@crates//:chrono",
         "@crates//:jsonwebtoken",
-        "@crates//:reqwest",
+        "@crates//:chrono",
+        "@crates//:password-hash",
         "@crates//:serde",
         "@crates//:serde_json",
-        "@crates//:sha2",
-        "@crates//:thiserror",
-        "@crates//:tokio",
-        "@crates//:tower-http",
-        "@crates//:tracing",
         "@crates//:uuid",
     ],
 )
@@ -28,6 +30,10 @@ rust_test(
     name = "auth_test",
     crate = ":auth",
     deps = [
+        "@crates//:chrono",
+        "@crates//:jsonwebtoken",
         "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tower",
     ],
 )

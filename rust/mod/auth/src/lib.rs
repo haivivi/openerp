@@ -1,66 +1,906 @@
-//! Auth module — federation authentication + hierarchical groups + policy ACL.
+//! Auth module v2 — built with the DSL framework.
 //!
-//! # Resources
-//!
-//! - **User** — identity with linked OAuth accounts
-//! - **Group** — hierarchical organization unit (tree + external sync)
-//! - **Provider** — OAuth provider configuration (Feishu/GitHub/Google/custom)
-//! - **Role** — named permission set registered by services
-//! - **Policy** — ACL quad (who, what?, how, time?)
-//! - **Session** — JWT issuance record
-//!
-//! # Usage
-//!
-//! ```ignore
-//! use auth::{AuthModule, service::AuthConfig};
-//!
-//! let module = AuthModule::new(sql, kv, AuthConfig::default())?;
-//! let router = module.routes(); // Mount under /auth
-//! ```
+//! DSL model definitions in `dsl/model/`.
+//! KvStore impls + hooks in this file.
+//! Custom handlers in `src/handlers/`.
 
+// DSL definitions.
+#[path = "../dsl/model/mod.rs"]
 pub mod model;
-pub mod service;
-pub mod api;
+#[path = "../dsl/hierarchy/mod.rs"]
+pub mod hierarchy_def;
+#[path = "../dsl/ui/mod.rs"]
+pub mod ui_defs;
+
+pub mod handlers;
+pub mod store_impls;
 
 use std::sync::Arc;
 
 use axum::Router;
+use openerp_store::{admin_kv_router, KvOps};
 
-use openerp_core::Module;
+use model::*;
 
-use crate::service::{AuthConfig, AuthService};
+/// Build the admin router for all auth resources.
+pub fn admin_router(
+    kv: Arc<dyn openerp_kv::KVStore>,
+    auth: Arc<dyn openerp_core::Authenticator>,
+) -> Router {
+    let mut router = Router::new();
 
-/// Auth module implementing the Module trait.
-///
-/// Holds the AuthService and provides HTTP routes for all auth endpoints.
-pub struct AuthModule {
-    service: Arc<AuthService>,
+    router = router.merge(admin_kv_router(
+        KvOps::<User>::new(kv.clone()), auth.clone(), "auth", "users", "user",
+    ));
+    router = router.merge(admin_kv_router(
+        KvOps::<Role>::new(kv.clone()), auth.clone(), "auth", "roles", "role",
+    ));
+    router = router.merge(admin_kv_router(
+        KvOps::<Group>::new(kv.clone()), auth.clone(), "auth", "groups", "group",
+    ));
+    router = router.merge(admin_kv_router(
+        KvOps::<Policy>::new(kv.clone()), auth.clone(), "auth", "policies", "policy",
+    ));
+    router = router.merge(admin_kv_router(
+        KvOps::<Session>::new(kv.clone()), auth.clone(), "auth", "sessions", "session",
+    ));
+    router = router.merge(admin_kv_router(
+        KvOps::<Provider>::new(kv.clone()), auth.clone(), "auth", "providers", "provider",
+    ));
+
+    router
 }
 
-impl AuthModule {
-    /// Create a new AuthModule.
-    pub fn new(
-        sql: Box<dyn openerp_sql::SQLStore>,
-        kv: Box<dyn openerp_kv::KVStore>,
-        config: AuthConfig,
-    ) -> Result<Self, openerp_core::ServiceError> {
-        let service = AuthService::new(sql, kv, config)
-            .map_err(openerp_core::ServiceError::from)?;
-        Ok(Self { service })
-    }
+/// Facet routers for this module. Empty for now — add facets as needed.
+pub fn facet_routers(_kv: Arc<dyn openerp_kv::KVStore>) -> Vec<openerp_store::FacetDef> {
+    vec![]
+}
 
-    /// Get a reference to the underlying AuthService.
-    pub fn service(&self) -> &Arc<AuthService> {
-        &self.service
+/// Get UI widget overrides defined in dsl/ui/.
+pub fn ui_overrides() -> Vec<openerp_store::WidgetOverride> {
+    ui_defs::overrides()
+}
+
+/// Build schema definition for this module.
+/// Auto-derived from #[model] IR — no hand-written field lists.
+pub fn schema_def() -> openerp_store::ModuleDef {
+    use openerp_store::ResourceDef;
+    openerp_store::ModuleDef {
+        id: "auth",
+        label: "Authentication",
+        icon: "shield",
+        resources: vec![
+            ResourceDef::from_ir("auth", User::__dsl_ir())
+                .with_desc("User identity and account management"),
+            ResourceDef::from_ir("auth", Role::__dsl_ir())
+                .with_desc("Permission roles for access control"),
+            ResourceDef::from_ir("auth", Group::__dsl_ir())
+                .with_desc("Organizational groups and hierarchy"),
+            ResourceDef::from_ir("auth", Policy::__dsl_ir())
+                .with_desc("Access control policies (who-what-how)"),
+            ResourceDef::from_ir("auth", Session::__dsl_ir())
+                .with_desc("Login sessions and JWT tracking"),
+            ResourceDef::from_ir("auth", Provider::__dsl_ir())
+                .with_desc("OAuth provider configuration"),
+        ],
+        hierarchy: hierarchy_def::hierarchy(),
     }
 }
 
-impl Module for AuthModule {
-    fn name(&self) -> &str {
-        "auth"
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::Arc;
+    use openerp_core::Authenticator;
+
+    #[test]
+    fn user_kv_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("test.redb")).unwrap(),
+        );
+        let ops = KvOps::<User>::new(kv);
+
+        let user = User {
+            id: openerp_types::Id::default(),
+            email: Some(openerp_types::Email::new("alice@test.com")),
+            avatar: None,
+            active: true,
+            password_hash: None,
+            linked_accounts: None,
+            display_name: Some("Alice".into()),
+            description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(user).unwrap();
+        assert!(!created.id.is_empty(), "ID auto-generated by before_create");
+        assert!(!created.created_at.is_empty(), "created_at auto-filled");
+
+        let fetched = ops.get_or_err(created.id.as_str()).unwrap();
+        assert_eq!(fetched.display_name, Some("Alice".into()));
+
+        let all = ops.list().unwrap();
+        assert_eq!(all.len(), 1);
     }
 
-    fn routes(&self) -> Router {
-        api::build_router(self.service.clone())
+    #[test]
+    fn role_kv_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("test2.redb")).unwrap(),
+        );
+        let ops = KvOps::<Role>::new(kv);
+
+        let role = Role {
+            id: openerp_types::Id::new("pms:admin"),
+            permissions: vec!["pms:device:read".into(), "pms:device:write".into()],
+            display_name: Some("PMS Admin".into()),
+            description: Some("Full PMS access".into()),
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(role).unwrap();
+        assert_eq!(created.id.as_str(), "pms:admin");
+        assert_eq!(created.permissions.len(), 2);
+    }
+
+    #[test]
+    fn schema_def_has_all_resources() {
+        let def = schema_def();
+        assert_eq!(def.id, "auth");
+        assert_eq!(def.resources.len(), 6);
+        assert_eq!(def.resources[0].name, "user");
+        assert_eq!(def.resources[0].permissions.len(), 5);
+    }
+
+    #[tokio::test]
+    async fn admin_router_responds() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("test3.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_router(kv, auth);
+
+        // GET /users should return empty list.
+        let req = Request::builder()
+            .uri("/users")
+            .body(Body::empty())
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(json["total"], 0);
+        assert_eq!(json["items"].as_array().unwrap().len(), 0);
+
+        // POST /users to create.
+        let user_json = serde_json::json!({
+            "displayName": "Bob",
+            "email": "bob@test.com",
+            "active": true,
+        });
+        let req = Request::builder()
+            .method("POST")
+            .uri("/users")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&user_json).unwrap()))
+            .unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(created["displayName"], "Bob");
+        assert!(!created["id"].as_str().unwrap().is_empty());
+    }
+
+    // ── Password tests ──
+
+    #[test]
+    fn password_hash_and_verify() {
+        let hash = store_impls::hash_password("mypassword").unwrap();
+        assert!(hash.starts_with("$argon2id$"), "should be argon2id hash");
+        assert!(store_impls::verify_password("mypassword", &hash));
+        assert!(!store_impls::verify_password("wrong", &hash));
+    }
+
+    #[test]
+    fn password_verify_invalid_hash() {
+        assert!(!store_impls::verify_password("test", "not-a-hash"));
+        assert!(!store_impls::verify_password("test", ""));
+    }
+
+    // ── find_user_by_email tests ──
+
+    #[test]
+    fn find_user_by_email_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("find1.redb")).unwrap(),
+        );
+        let ops = KvOps::<User>::new(kv.clone());
+
+        let user = User {
+            id: openerp_types::Id::default(),
+            email: Some(openerp_types::Email::new("find@test.com")),
+            avatar: None, active: true, password_hash: None, linked_accounts: None,
+            display_name: Some("Finder".into()),
+            description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+        ops.save_new(user).unwrap();
+
+        let found = store_impls::find_user_by_email(&kv, "find@test.com").unwrap();
+        assert!(found.is_some());
+        assert_eq!(found.unwrap().display_name, Some("Finder".into()));
+    }
+
+    #[test]
+    fn find_user_by_email_not_found() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("find2.redb")).unwrap(),
+        );
+
+        let found = store_impls::find_user_by_email(&kv, "nobody@test.com").unwrap();
+        assert!(found.is_none());
+    }
+
+    // ── AuthChecker tests ──
+
+    #[test]
+    fn auth_checker_missing_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac1.redb")).unwrap(),
+        );
+        let checker = handlers::policy_check::AuthChecker::new(kv, "test-secret", "auth:root");
+        let headers = axum::http::HeaderMap::new();
+
+        let result = checker.check(&headers, "auth:user:read");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("missing"));
+    }
+
+    #[test]
+    fn auth_checker_invalid_token() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac2.redb")).unwrap(),
+        );
+        let checker = handlers::policy_check::AuthChecker::new(kv, "test-secret", "auth:root");
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", "Bearer invalid.jwt.token".parse().unwrap());
+
+        let result = checker.check(&headers, "auth:user:read");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("invalid token"));
+    }
+
+    #[test]
+    fn auth_checker_root_bypasses() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac3.redb")).unwrap(),
+        );
+        let checker = handlers::policy_check::AuthChecker::new(
+            kv, "test-secret", "auth:root",
+        );
+
+        // Create a valid JWT with auth:root role.
+        let claims = serde_json::json!({
+            "sub": "root", "roles": ["auth:root"],
+            "iat": chrono::Utc::now().timestamp(),
+            "exp": chrono::Utc::now().timestamp() + 3600,
+        });
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
+        ).unwrap();
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        // Root should pass any permission.
+        assert!(checker.check(&headers, "anything:goes:here").is_ok());
+    }
+
+    #[test]
+    fn auth_checker_user_without_role_denied() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac4.redb")).unwrap(),
+        );
+        let checker = handlers::policy_check::AuthChecker::new(
+            kv, "test-secret", "auth:root",
+        );
+
+        // JWT with no roles.
+        let claims = serde_json::json!({
+            "sub": "user1", "roles": [],
+            "iat": chrono::Utc::now().timestamp(),
+            "exp": chrono::Utc::now().timestamp() + 3600,
+        });
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
+        ).unwrap();
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        let result = checker.check(&headers, "auth:user:read");
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("permission denied"));
+    }
+
+    #[test]
+    fn auth_checker_user_with_matching_role() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac5.redb")).unwrap(),
+        );
+
+        // Create a role in KV with the needed permission.
+        let role_ops = KvOps::<Role>::new(kv.clone());
+        let role = Role {
+            id: openerp_types::Id::new("viewer"),
+            permissions: vec!["auth:user:read".into(), "auth:user:list".into()],
+            display_name: Some("Viewer".into()),
+            description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+        role_ops.save_new(role).unwrap();
+
+        let checker = handlers::policy_check::AuthChecker::new(
+            kv, "test-secret", "auth:root",
+        );
+
+        // JWT with "viewer" role.
+        let claims = serde_json::json!({
+            "sub": "user1", "roles": ["viewer"],
+            "iat": chrono::Utc::now().timestamp(),
+            "exp": chrono::Utc::now().timestamp() + 3600,
+        });
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
+        ).unwrap();
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        // Should pass: viewer role has auth:user:read.
+        assert!(checker.check(&headers, "auth:user:read").is_ok());
+        // Should fail: viewer role doesn't have auth:user:create.
+        assert!(checker.check(&headers, "auth:user:create").is_err());
+    }
+
+    // ── Group CRUD ──
+
+    #[test]
+    fn group_kv_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("group.redb")).unwrap(),
+        );
+        let ops = KvOps::<Group>::new(kv);
+
+        let group = Group {
+            id: openerp_types::Id::default(),
+            parent_id: None,
+            external_source: Some("ldap".into()),
+            external_id: Some("cn=eng".into()),
+            display_name: Some("Engineering".into()),
+            description: Some("Engineering team".into()),
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(group).unwrap();
+        assert!(!created.id.is_empty(), "ID auto-generated");
+        assert!(!created.created_at.is_empty(), "created_at auto-filled");
+        assert!(!created.updated_at.is_empty(), "updated_at auto-filled");
+
+        // Update.
+        let mut g = ops.get_or_err(created.id.as_str()).unwrap();
+        let old_updated = g.updated_at.to_string();
+        g.display_name = Some("Eng Team".into());
+        std::thread::sleep(std::time::Duration::from_millis(10));
+        let updated = ops.save(g).unwrap();
+        assert_eq!(updated.display_name, Some("Eng Team".into()));
+        assert_ne!(updated.updated_at.to_string(), old_updated, "updated_at should change on update");
+
+        // Delete.
+        ops.delete(created.id.as_str()).unwrap();
+        assert!(ops.get(created.id.as_str()).unwrap().is_none());
+    }
+
+    // ── Policy CRUD ──
+
+    #[test]
+    fn policy_kv_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("policy.redb")).unwrap(),
+        );
+        let ops = KvOps::<Policy>::new(kv);
+
+        let policy = Policy {
+            id: openerp_types::Id::default(),
+            who: "user:abc".into(),
+            what: "role".into(),
+            how: "admin".into(),
+            expires_at: None,
+            display_name: None,
+            description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(policy).unwrap();
+        assert!(!created.id.is_empty(), "Policy ID deterministic from hash(who:what:how)");
+
+        let fetched = ops.get_or_err(created.id.as_str()).unwrap();
+        assert_eq!(fetched.who, "user:abc");
+        assert_eq!(fetched.what, "role");
+        assert_eq!(fetched.how, "admin");
+
+        // Same who/what/how produces same ID.
+        let dup = Policy {
+            id: openerp_types::Id::default(),
+            who: "user:abc".into(), what: "role".into(), how: "admin".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+        let dup_created = ops.save_new(dup);
+        assert!(dup_created.is_err(), "Duplicate policy should fail");
+
+        ops.delete(created.id.as_str()).unwrap();
+        assert_eq!(ops.list().unwrap().len(), 0);
+    }
+
+    // ── Session CRUD ──
+
+    #[test]
+    fn session_kv_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("session.redb")).unwrap(),
+        );
+        let ops = KvOps::<Session>::new(kv);
+
+        let session = Session {
+            id: openerp_types::Id::default(),
+            user_id: openerp_types::Id::new("user123"),
+            issued_at: openerp_types::DateTime::new("2026-01-01T00:00:00Z"),
+            expires_at: openerp_types::DateTime::new("2026-01-02T00:00:00Z"),
+            revoked: false,
+            user_agent: Some("TestAgent/1.0".into()),
+            ip_address: Some("127.0.0.1".into()),
+            display_name: None, description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(session).unwrap();
+        assert!(!created.id.is_empty());
+        assert_eq!(created.user_id.as_str(), "user123");
+        assert!(!created.revoked);
+
+        // Revoke.
+        let mut s = ops.get_or_err(created.id.as_str()).unwrap();
+        s.revoked = true;
+        ops.save(s).unwrap();
+        let fetched = ops.get_or_err(created.id.as_str()).unwrap();
+        assert!(fetched.revoked, "session should be revoked");
+    }
+
+    // ── Provider CRUD ──
+
+    #[test]
+    fn provider_kv_crud() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("provider.redb")).unwrap(),
+        );
+        let ops = KvOps::<Provider>::new(kv);
+
+        let provider = Provider {
+            id: openerp_types::Id::new("github"),
+            provider_type: "oauth2".into(),
+            client_id: "gh-client-id".into(),
+            client_secret: Some(openerp_types::Secret::new("gh-secret")),
+            auth_url: openerp_types::Url::new("https://github.com/login/oauth/authorize"),
+            token_url: openerp_types::Url::new("https://github.com/login/oauth/access_token"),
+            userinfo_url: Some(openerp_types::Url::new("https://api.github.com/user")),
+            scopes: vec!["read:user".into(), "user:email".into()],
+            redirect_url: openerp_types::Url::new("http://localhost:8080/auth/callback"),
+            enabled: true,
+            display_name: Some("GitHub".into()),
+            description: Some("GitHub OAuth2".into()),
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+
+        let created = ops.save_new(provider).unwrap();
+        assert_eq!(created.id.as_str(), "github");
+        assert_eq!(created.scopes.len(), 2);
+        assert!(created.enabled);
+        assert!(!created.created_at.is_empty());
+
+        let all = ops.list().unwrap();
+        assert_eq!(all.len(), 1);
+        assert_eq!(all[0].provider_type, "oauth2");
+    }
+
+    // ── find_roles_for_user ──
+
+    #[test]
+    fn find_roles_for_user_basic() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("roles1.redb")).unwrap(),
+        );
+        let policy_ops = KvOps::<Policy>::new(kv.clone());
+
+        // Create two policies: user1 has roles "admin" and "viewer".
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "role".into(), how: "admin".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "role".into(), how: "viewer".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+        // Another user's policy — should not appear.
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user2".into(), what: "role".into(), how: "editor".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+
+        let roles = store_impls::find_roles_for_user(&kv, "user1").unwrap();
+        assert_eq!(roles.len(), 2);
+        assert!(roles.contains(&"admin".to_string()));
+        assert!(roles.contains(&"viewer".to_string()));
+
+        // user2 should only have editor.
+        let roles2 = store_impls::find_roles_for_user(&kv, "user2").unwrap();
+        assert_eq!(roles2, vec!["editor"]);
+    }
+
+    #[test]
+    fn find_roles_for_user_no_policies() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("roles2.redb")).unwrap(),
+        );
+        let roles = store_impls::find_roles_for_user(&kv, "nobody").unwrap();
+        assert!(roles.is_empty());
+    }
+
+    #[test]
+    fn find_roles_for_user_expired_policy_excluded() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("roles3.redb")).unwrap(),
+        );
+        let policy_ops = KvOps::<Policy>::new(kv.clone());
+
+        // Active policy.
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "role".into(), how: "active-role".into(),
+            expires_at: Some(openerp_types::DateTime::new("2099-12-31T23:59:59Z")),
+            display_name: None, description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+        // Expired policy.
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "role".into(), how: "expired-role".into(),
+            expires_at: Some(openerp_types::DateTime::new("2020-01-01T00:00:00Z")),
+            display_name: None, description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+
+        let roles = store_impls::find_roles_for_user(&kv, "user1").unwrap();
+        assert_eq!(roles.len(), 1);
+        assert_eq!(roles[0], "active-role");
+    }
+
+    #[test]
+    fn find_roles_ignores_non_role_policies() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("roles4.redb")).unwrap(),
+        );
+        let policy_ops = KvOps::<Policy>::new(kv.clone());
+
+        // Role policy.
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "role".into(), how: "admin".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+        // Non-role policy (what != "role").
+        policy_ops.save_new(Policy {
+            id: openerp_types::Id::default(),
+            who: "user1".into(), what: "group".into(), how: "eng-team".into(),
+            expires_at: None, display_name: None, description: None,
+            metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+
+        let roles = store_impls::find_roles_for_user(&kv, "user1").unwrap();
+        assert_eq!(roles, vec!["admin"]);
+    }
+
+    // ── AuthChecker multi-role ──
+
+    #[test]
+    fn auth_checker_multi_role_union() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac_mr.redb")).unwrap(),
+        );
+
+        // Two roles with different permissions.
+        let role_ops = KvOps::<Role>::new(kv.clone());
+        role_ops.save_new(Role {
+            id: openerp_types::Id::new("reader"),
+            permissions: vec!["auth:user:read".into(), "auth:user:list".into()],
+            display_name: None, description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+        role_ops.save_new(Role {
+            id: openerp_types::Id::new("writer"),
+            permissions: vec!["auth:user:create".into(), "auth:user:update".into()],
+            display_name: None, description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        }).unwrap();
+
+        let checker = handlers::policy_check::AuthChecker::new(kv, "test-secret", "auth:root");
+
+        // JWT with both roles.
+        let claims = serde_json::json!({
+            "sub": "multi", "roles": ["reader", "writer"],
+            "iat": chrono::Utc::now().timestamp(),
+            "exp": chrono::Utc::now().timestamp() + 3600,
+        });
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
+        ).unwrap();
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        // Union of permissions: can read AND create.
+        assert!(checker.check(&headers, "auth:user:read").is_ok());
+        assert!(checker.check(&headers, "auth:user:create").is_ok());
+        assert!(checker.check(&headers, "auth:user:list").is_ok());
+        assert!(checker.check(&headers, "auth:user:update").is_ok());
+        // Still can't delete.
+        assert!(checker.check(&headers, "auth:user:delete").is_err());
+    }
+
+    #[test]
+    fn auth_checker_expired_jwt_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac_exp.redb")).unwrap(),
+        );
+        let checker = handlers::policy_check::AuthChecker::new(kv, "test-secret", "auth:root");
+
+        // JWT with exp in the past.
+        let claims = serde_json::json!({
+            "sub": "root", "roles": ["auth:root"],
+            "iat": chrono::Utc::now().timestamp() - 7200,
+            "exp": chrono::Utc::now().timestamp() - 3600, // expired 1h ago
+        });
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
+        ).unwrap();
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        let result = checker.check(&headers, "anything");
+        assert!(result.is_err(), "Expired JWT should be rejected");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("invalid token") || err_msg.contains("expired"),
+            "Error should mention invalid/expired, got: {}", err_msg);
+    }
+
+    // ── Integration: admin PUT update ──
+
+    #[tokio::test]
+    async fn integration_admin_put_update() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("put.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_router(kv, auth);
+
+        // Create a user.
+        let user_json = serde_json::json!({
+            "displayName": "Before Update",
+            "email": "before@test.com",
+            "active": true,
+        });
+        let req = Request::builder()
+            .method("POST").uri("/users")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&user_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let id = created["id"].as_str().unwrap();
+        let created_at = created["createdAt"].as_str().unwrap().to_string();
+
+        // PUT update: start from full created record, change fields.
+        let mut update_json = created.clone();
+        update_json["displayName"] = serde_json::json!("After Update");
+        update_json["email"] = serde_json::json!("after@test.com");
+        let req = Request::builder()
+            .method("PUT").uri(format!("/users/{}", id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&update_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let updated: serde_json::Value = serde_json::from_slice(&body).unwrap();
+
+        assert_eq!(updated["id"], id, "ID must not change");
+        assert_eq!(updated["displayName"], "After Update");
+        assert_eq!(updated["email"], "after@test.com");
+        // created_at should be preserved from original.
+        assert_eq!(updated["createdAt"].as_str().unwrap(), created_at, "createdAt must not change on update");
+
+        // Verify only 1 user exists (no duplicate).
+        let req = Request::builder().uri("/users").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(list["total"], 1, "Should have exactly 1 user, not a duplicate");
+    }
+
+    // ── Integration: admin API with AuthChecker ──
+
+    #[tokio::test]
+    async fn integration_admin_api_with_auth_checker() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("integ.redb")).unwrap(),
+        );
+
+        // Use AuthChecker instead of AllowAll.
+        let checker = Arc::new(handlers::policy_check::AuthChecker::new(
+            kv.clone(), "integ-secret", "auth:root",
+        ));
+        let router = admin_router(kv.clone(), checker);
+
+        // Helper: create JWT.
+        let make_jwt = |roles: Vec<&str>| -> String {
+            let claims = serde_json::json!({
+                "sub": "test-user", "roles": roles,
+                "iat": chrono::Utc::now().timestamp(),
+                "exp": chrono::Utc::now().timestamp() + 3600,
+            });
+            jsonwebtoken::encode(
+                &jsonwebtoken::Header::default(),
+                &claims,
+                &jsonwebtoken::EncodingKey::from_secret(b"integ-secret"),
+            ).unwrap()
+        };
+
+        // 1. No auth → 400.
+        let req = Request::builder().uri("/users").body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+
+        // 2. Root token → 200.
+        let root_token = make_jwt(vec!["auth:root"]);
+        let req = Request::builder()
+            .uri("/users")
+            .header("authorization", format!("Bearer {}", root_token))
+            .body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 3. Create a role with auth:user:list permission.
+        let role = Role {
+            id: openerp_types::Id::new("test:viewer"),
+            permissions: vec!["auth:user:list".into()],
+            display_name: Some("Viewer".into()),
+            description: None, metadata: None,
+            created_at: openerp_types::DateTime::default(),
+            updated_at: openerp_types::DateTime::default(),
+        };
+        KvOps::<Role>::new(kv.clone()).save_new(role).unwrap();
+
+        // 4. User with viewer role → can list users.
+        let viewer_token = make_jwt(vec!["test:viewer"]);
+        let req = Request::builder()
+            .uri("/users")
+            .header("authorization", format!("Bearer {}", viewer_token))
+            .body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+
+        // 5. User with viewer role → cannot create users.
+        let user_json = serde_json::json!({"displayName": "Integ User", "email": "integ@test.com"});
+        let req = Request::builder()
+            .method("POST")
+            .uri("/users")
+            .header("authorization", format!("Bearer {}", viewer_token))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&user_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST); // permission denied
+
+        // 6. Root creates user → succeeds.
+        let req = Request::builder()
+            .method("POST")
+            .uri("/users")
+            .header("authorization", format!("Bearer {}", root_token))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&user_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
     }
 }

@@ -2,20 +2,24 @@ load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
 
 rust_library(
     name = "task",
-    srcs = glob(["src/**/*.rs"]),
+    crate_name = "task",
+    srcs = glob(["dsl/**/*.rs", "src/**/*.rs"]),
+    crate_root = "src/lib.rs",
+    edition = "2021",
     visibility = ["//rust:__subpackages__"],
+    proc_macro_deps = [
+        "//rust/lib/dsl/macro",
+    ],
     deps = [
+        "//rust/lib/dsl/store",
+        "//rust/lib/dsl/types",
         "//rust/lib/core",
         "//rust/lib/kv",
-        "//rust/lib/sql",
-        "//rust/lib/tsdb",
         "@crates//:axum",
         "@crates//:chrono",
         "@crates//:serde",
         "@crates//:serde_json",
-        "@crates//:tokio",
-        "@crates//:tokio-util",
-        "@crates//:tracing",
+        "@crates//:uuid",
     ],
 )
 
@@ -25,5 +29,6 @@ rust_test(
     deps = [
         "@crates//:tempfile",
         "@crates//:tokio",
+        "@crates//:tower",
     ],
 )

@@ -1,0 +1,24 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_test")
+
+rust_binary(
+    name = "openerp",
+    srcs = glob(["src/**/*.rs"]),
+    visibility = ["//visibility:public"],
+    deps = [
+        "@crates//:anyhow",
+        "@crates//:argon2",
+        "@crates//:clap",
+        "@crates//:password-hash",
+        "@crates//:rand",
+        "@crates//:reqwest",
+        "@crates//:rpassword",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:toml",
+    ],
+)
+
+rust_test(
+    name = "openerp_test",
+    crate = ":openerp",
+)

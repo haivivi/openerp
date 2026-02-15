@@ -1,0 +1,11 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary")
+
+rust_binary(
+    name = "runner",
+    srcs = ["src/main.rs"],
+    deps = [
+        "@crates//:reqwest",
+        "@crates//:tempfile",
+    ],
+    visibility = ["//visibility:public"],
+)

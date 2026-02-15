@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>OpenERP</title>
+<style>
+  *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:oklch(.145 0 0);--card:oklch(.178 0 0);--card-fg:oklch(.985 0 0);
+    --border:oklch(.274 0 0);--input:oklch(.274 0 0);
+    --primary:oklch(.985 0 0);--primary-fg:oklch(.205 0 0);
+    --muted:oklch(.274 0 0);--muted-fg:oklch(.556 0 0);
+    --accent:oklch(.274 0 0);--accent-fg:oklch(.985 0 0);
+    --destructive:oklch(.577 .245 27.325);
+    --ring:oklch(.708 0 0);
+    --radius:0.625rem;
+    --font:-apple-system,BlinkMacSystemFont,'Segoe UI','Noto Sans',Helvetica,Arial,sans-serif
+  }
+  body{font-family:var(--font);background:var(--bg);color:var(--card-fg);min-height:100vh;display:flex}
+
+  /* Left panel */
+  .left{flex:1;display:flex;flex-direction:column;justify-content:space-between;padding:40px;background:var(--bg);border-right:1px solid var(--border);position:relative;overflow:hidden}
+  .left::before{content:'';position:absolute;inset:0;background:linear-gradient(135deg,oklch(.2 .02 260),oklch(.15 0 0));z-index:0}
+  .left>*{position:relative;z-index:1}
+  .brand{display:flex;align-items:center;gap:10px;font-size:18px;font-weight:600;letter-spacing:-.02em}
+  .brand svg{width:24px;height:24px;fill:currentColor}
+  .quote{max-width:420px}
+  .quote blockquote{font-size:17px;line-height:1.6;font-weight:400;margin-bottom:16px}
+  .quote cite{font-size:14px;color:var(--muted-fg);font-style:normal}
+
+  /* Right panel */
+  .right{width:480px;min-width:420px;display:flex;align-items:center;justify-content:center;padding:40px}
+  .form-container{width:100%;max-width:350px}
+  .form-container h1{font-size:24px;font-weight:600;letter-spacing:-.025em;margin-bottom:6px}
+  .form-container p.sub{font-size:14px;color:var(--muted-fg);margin-bottom:24px}
+
+  .form-group{margin-bottom:16px}
+  .form-group label{display:block;font-size:14px;font-weight:500;margin-bottom:6px}
+  .form-group input{
+    width:100%;height:40px;padding:0 12px;
+    background:transparent;border:1px solid var(--input);border-radius:calc(var(--radius) - 2px);
+    color:var(--card-fg);font-size:14px;outline:none;transition:box-shadow .15s,border-color .15s;
+  }
+  .form-group input::placeholder{color:var(--muted-fg)}
+  .form-group input:focus{border-color:var(--ring);box-shadow:0 0 0 3px oklch(.708 0 0/.15)}
+
+  .btn-primary{
+    width:100%;height:40px;border:none;border-radius:calc(var(--radius) - 2px);
+    background:var(--primary);color:var(--primary-fg);font-size:14px;font-weight:500;
+    cursor:pointer;transition:opacity .15s;display:inline-flex;align-items:center;justify-content:center;
+  }
+  .btn-primary:hover{opacity:.9}
+  .btn-primary:disabled{opacity:.5;cursor:not-allowed}
+
+  .divider{display:flex;align-items:center;gap:12px;margin:20px 0;color:var(--muted-fg);font-size:12px;text-transform:uppercase;letter-spacing:.05em}
+  .divider::before,.divider::after{content:'';flex:1;height:1px;background:var(--border)}
+
+  .msg{font-size:13px;text-align:center;margin-top:12px;display:none}
+  .msg-error{color:var(--destructive)}
+  .msg-success{color:oklch(.696 .17 162.48)}
+
+  .footer-text{text-align:center;margin-top:24px;font-size:13px;color:var(--muted-fg)}
+  .footer-text a{color:var(--muted-fg);text-decoration:underline;text-underline-offset:4px}
+  .footer-text a:hover{color:var(--card-fg)}
+
+  @media(max-width:900px){.left{display:none}.right{width:100%;min-width:0}}
+</style>
+<link rel="stylesheet" href="https://unpkg.com/@phosphor-icons/web@2/src/regular/style.css">
+</head>
+<body>
+
+<div class="left">
+  <div class="brand">
+    <i class="ph ph-stack" style="font-size:24px"></i>
+    OpenERP
+  </div>
+  <div class="quote">
+    <blockquote>&ldquo;A unified platform for authentication, product management, and task orchestration &mdash; all in a single binary.&rdquo;</blockquote>
+    <cite>OpenERP v0.1</cite>
+  </div>
+</div>
+
+<div class="right">
+  <div class="form-container">
+    <h1>Welcome back</h1>
+    <p class="sub">Sign in to your OpenERP account</p>
+
+    <form id="loginForm">
+      <div class="form-group">
+        <label for="username">Username</label>
+        <input type="text" id="username" name="username" value="root" placeholder="root" autocomplete="username" required>
+      </div>
+      <div class="form-group">
+        <label for="password">Password</label>
+        <input type="password" id="password" name="password" placeholder="Enter your password" autocomplete="current-password" required autofocus>
+      </div>
+      <button type="submit" class="btn-primary" id="submitBtn">Sign In</button>
+      <div class="msg msg-error" id="errorMsg"></div>
+      <div class="msg msg-success" id="successMsg"></div>
+    </form>
+
+    <div class="footer-text">
+      <p>Managed by <a href="#">OpenERP Server</a></p>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  if(localStorage.getItem('openerp_token')){window.location.href='/dashboard';return}
+  const form=document.getElementById('loginForm'),err=document.getElementById('errorMsg'),ok=document.getElementById('successMsg'),btn=document.getElementById('submitBtn');
+  form.addEventListener('submit',async function(e){
+    e.preventDefault();err.style.display='none';ok.style.display='none';btn.disabled=true;btn.textContent='Signing in\u2026';
+    try{
+      const r=await fetch('/auth/login',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({username:document.getElementById('username').value.trim(),password:document.getElementById('password').value})});
+      const d=await r.json();if(!r.ok)throw new Error(d.error||'Login failed');
+      localStorage.setItem('openerp_token',d.access_token);ok.textContent='Success! Redirecting\u2026';ok.style.display='block';
+      setTimeout(()=>window.location.href='/dashboard',250);
+    }catch(ex){err.textContent=ex.message;err.style.display='block'}finally{btn.disabled=false;btn.textContent='Sign In'}
+  });
+})();
+</script>
+</body>
+</html>
