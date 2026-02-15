@@ -1183,4 +1183,955 @@ mod twitter {
         let item = feed.items.iter().find(|i| i.tweet_id == tweet_id).unwrap();
         assert_eq!(item.like_count, 1); // only 1, not 2
     }
+
+    // =====================================================================
+    // ERROR SCENARIOS
+    // =====================================================================
+
+    // --- Error 1: Login with empty username ---
+
+    #[tokio::test]
+    async fn error_login_empty_username() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "".into() }).await;
+
+        let auth = get_auth(&app);
+        assert_eq!(auth.phase, "unauthenticated");
+        assert!(auth.error.is_some());
+        assert_eq!(get_route(&app), "/login");
+    }
+
+    // --- Error 2: Tweet when not logged in ---
+
+    #[tokio::test]
+    async fn error_tweet_not_logged_in() {
+        let app = setup_twitter();
+        app.flux.emit("app/initialize", ()).await;
+
+        // No login — current_user_id returns empty string.
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "Ghost tweet".into(), reply_to_id: None,
+        }).await;
+
+        // Tweet is created with empty author_id — not ideal but shouldn't crash.
+        // Compose should still be cleared since save_new succeeds.
+        let compose = get_compose(&app);
+        assert!(!compose.busy);
+    }
+
+    // --- Error 3: Like non-existent tweet ---
+
+    #[tokio::test]
+    async fn error_like_nonexistent_tweet() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Like a tweet that doesn't exist — like record is created, but
+        // tweet like_count update silently skips.
+        app.flux.emit("tweet/like", LikeTweetReq {
+            tweet_id: "nonexistent-id".into(),
+        }).await;
+
+        // Should not crash. Timeline should still be valid.
+        let feed = get_feed(&app);
+        assert!(!feed.loading);
+    }
+
+    // --- Error 4: Unlike a tweet not liked ---
+
+    #[tokio::test]
+    async fn error_unlike_not_liked() {
+        let app = setup_twitter();
+        seed_users(&app);
+        seed_tweets(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        let feed = get_feed(&app);
+        let tweet_id = feed.items[0].tweet_id.clone();
+
+        // Unlike without liking first — delete fails silently.
+        app.flux.emit("tweet/unlike", UnlikeTweetReq {
+            tweet_id: tweet_id.clone(),
+        }).await;
+
+        // Like count should remain 0.
+        let feed = get_feed(&app);
+        let item = feed.items.iter().find(|i| i.tweet_id == tweet_id).unwrap();
+        assert_eq!(item.like_count, 0);
+        assert!(!item.liked_by_me);
+    }
+
+    // --- Error 5: Follow yourself ---
+
+    #[tokio::test]
+    async fn error_follow_self() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Follow yourself.
+        app.flux.emit("user/follow", FollowUserReq { user_id: "alice".into() }).await;
+
+        // Technically succeeds (no guard), but count updates on same user.
+        let auth = get_auth(&app);
+        let user = auth.user.unwrap();
+        // Both follower and following count increment on the same user.
+        assert_eq!(user.following_count, 1);
+        let alice = app.backend.users.get("alice").unwrap().unwrap();
+        assert_eq!(alice.follower_count, 1);
+    }
+
+    // --- Error 6: Double follow is idempotent ---
+
+    #[tokio::test]
+    async fn error_double_follow_idempotent() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Follow bob twice.
+        app.flux.emit("user/follow", FollowUserReq { user_id: "bob".into() }).await;
+        app.flux.emit("user/follow", FollowUserReq { user_id: "bob".into() }).await;
+
+        // Second follow fails (duplicate key), so count stays at 1.
+        let auth = get_auth(&app);
+        assert_eq!(auth.user.unwrap().following_count, 1);
+        let bob = app.backend.users.get("bob").unwrap().unwrap();
+        assert_eq!(bob.follower_count, 1);
+    }
+
+    // --- Error 7: Unfollow someone not followed ---
+
+    #[tokio::test]
+    async fn error_unfollow_not_followed() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Unfollow bob without following first.
+        app.flux.emit("user/unfollow", UnfollowUserReq { user_id: "bob".into() }).await;
+
+        // Should not crash. Counts should remain 0.
+        let auth = get_auth(&app);
+        assert_eq!(auth.user.unwrap().following_count, 0);
+        let bob = app.backend.users.get("bob").unwrap().unwrap();
+        assert_eq!(bob.follower_count, 0);
+    }
+
+    // --- Error 8: Load profile of non-existent user ---
+
+    #[tokio::test]
+    async fn error_load_nonexistent_profile() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Load profile of user that doesn't exist.
+        app.flux.emit("profile/load", LoadProfileReq { user_id: "nobody".into() }).await;
+
+        // No profile state should be set.
+        assert!(app.flux.get("profile/nobody").is_none());
+        // Route should NOT change.
+        assert_eq!(get_route(&app), "/home");
+    }
+
+    // --- Error 9: Load non-existent tweet detail ---
+
+    #[tokio::test]
+    async fn error_load_nonexistent_tweet() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        app.flux.emit("tweet/load", LoadTweetReq { tweet_id: "ghost-id".into() }).await;
+
+        assert!(app.flux.get("tweet/ghost-id").is_none());
+        assert_eq!(get_route(&app), "/home");
+    }
+
+    // --- Error 10: Emit to non-existent handler ---
+
+    #[tokio::test]
+    async fn error_emit_unknown_path() {
+        let app = setup_twitter();
+        app.flux.emit("app/initialize", ()).await;
+
+        // Emit to a path with no handler — should be silent no-op.
+        app.flux.emit("completely/unknown/path", ()).await;
+
+        // App state unchanged.
+        assert_eq!(get_auth(&app).phase, "unauthenticated");
+    }
+
+    // --- Error 11: Double logout ---
+
+    #[tokio::test]
+    async fn error_double_logout() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+        app.flux.emit("auth/logout", ()).await;
+        app.flux.emit("auth/logout", ()).await; // second logout
+
+        // Should not crash. Still unauthenticated.
+        assert_eq!(get_auth(&app).phase, "unauthenticated");
+        assert_eq!(get_route(&app), "/login");
+    }
+
+    // --- Error 12: Login, logout, login again ---
+
+    #[tokio::test]
+    async fn error_relogin_fresh_state() {
+        let app = setup_twitter();
+        seed_users(&app);
+        seed_tweets(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Like a tweet.
+        let feed = get_feed(&app);
+        let tweet_id = feed.items[0].tweet_id.clone();
+        app.flux.emit("tweet/like", LikeTweetReq { tweet_id: tweet_id.clone() }).await;
+
+        // Logout.
+        app.flux.emit("auth/logout", ()).await;
+        assert!(app.flux.get("timeline/feed").is_none());
+
+        // Login as different user.
+        app.flux.emit("auth/login", LoginReq { username: "bob".into() }).await;
+
+        let auth = get_auth(&app);
+        assert_eq!(auth.user.as_ref().unwrap().username, "bob");
+
+        // Timeline reloaded — Bob hasn't liked anything.
+        let feed = get_feed(&app);
+        let item = feed.items.iter().find(|i| i.tweet_id == tweet_id).unwrap();
+        assert!(!item.liked_by_me); // Bob hasn't liked it
+        assert_eq!(item.like_count, 1); // Alice's like persists in backend
+    }
+
+    // =====================================================================
+    // EDGE CASES
+    // =====================================================================
+
+    // --- Edge 1: Tweet exactly 280 characters (boundary) ---
+
+    #[tokio::test]
+    async fn edge_tweet_exactly_280_chars() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        let content = "x".repeat(280);
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: content.clone(), reply_to_id: None,
+        }).await;
+
+        let compose = get_compose(&app);
+        assert!(compose.error.is_none(), "280 chars should be accepted");
+
+        let feed = get_feed(&app);
+        assert_eq!(feed.items.len(), 1);
+        assert_eq!(feed.items[0].content.len(), 280);
+    }
+
+    // --- Edge 2: Tweet at 279 characters ---
+
+    #[tokio::test]
+    async fn edge_tweet_279_chars() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        let content = "a".repeat(279);
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content, reply_to_id: None,
+        }).await;
+
+        assert!(get_compose(&app).error.is_none());
+        assert_eq!(get_feed(&app).items.len(), 1);
+    }
+
+    // --- Edge 3: Tweet at 281 characters (just over) ---
+
+    #[tokio::test]
+    async fn edge_tweet_281_chars() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        let content = "b".repeat(281);
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content, reply_to_id: None,
+        }).await;
+
+        assert!(get_compose(&app).error.is_some());
+        // No tweet created.
+        let feed = get_feed(&app);
+        assert!(feed.items.is_empty());
+    }
+
+    // --- Edge 4: Tweet with unicode and emoji ---
+
+    #[tokio::test]
+    async fn edge_tweet_unicode_emoji() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        let content = "Hello 你好 🌍 Привет مرحبا こんにちは 🚀🎉";
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: content.into(), reply_to_id: None,
+        }).await;
+
+        let feed = get_feed(&app);
+        assert_eq!(feed.items.len(), 1);
+        assert_eq!(feed.items[0].content, content);
+    }
+
+    // --- Edge 5: Tweet with only whitespace variants ---
+
+    #[tokio::test]
+    async fn edge_tweet_whitespace_variants() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Tab, newline, spaces.
+        for content in &[" ", "\t", "\n", "  \t\n  "] {
+            app.flux.emit("tweet/create", CreateTweetReq {
+                content: content.to_string(), reply_to_id: None,
+            }).await;
+
+            let compose = get_compose(&app);
+            assert!(compose.error.is_some(), "whitespace-only '{}' should be rejected", content.escape_debug());
+        }
+
+        // No tweets created.
+        let feed = get_feed(&app);
+        assert!(feed.items.is_empty());
+    }
+
+    // --- Edge 6: Empty timeline ---
+
+    #[tokio::test]
+    async fn edge_empty_timeline() {
+        let app = setup_twitter();
+        seed_users(&app);
+        // No tweets seeded.
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        let feed = get_feed(&app);
+        assert!(feed.items.is_empty());
+        assert!(!feed.loading);
+        assert!(feed.error.is_none());
+    }
+
+    // --- Edge 7: Timeline shows only top-level (no replies) ---
+
+    #[tokio::test]
+    async fn edge_timeline_excludes_replies() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Post a tweet.
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "Original".into(), reply_to_id: None,
+        }).await;
+
+        let feed = get_feed(&app);
+        let parent_id = feed.items[0].tweet_id.clone();
+
+        // Reply to it.
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "Reply 1".into(), reply_to_id: Some(parent_id.clone()),
+        }).await;
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "Reply 2".into(), reply_to_id: Some(parent_id.clone()),
+        }).await;
+
+        // Timeline should still only show 1 item (original tweet).
+        let feed = get_feed(&app);
+        assert_eq!(feed.items.len(), 1);
+        assert_eq!(feed.items[0].content, "Original");
+        assert_eq!(feed.items[0].reply_count, 2);
+    }
+
+    // --- Edge 8: Profile with no tweets ---
+
+    #[tokio::test]
+    async fn edge_profile_no_tweets() {
+        let app = setup_twitter();
+        seed_users(&app);
+        // dave has no tweets.
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        app.flux.emit("profile/load", LoadProfileReq { user_id: "dave".into() }).await;
+
+        let profile = app.flux.get("profile/dave").unwrap();
+        let page = profile.downcast_ref::<ProfilePage>().unwrap();
+        assert_eq!(page.user.username, "dave");
+        assert!(page.tweets.is_empty());
+        assert_eq!(page.user.tweet_count, 0);
+    }
+
+    // --- Edge 9: Like-unlike-like cycle ---
+
+    #[tokio::test]
+    async fn edge_like_unlike_like_cycle() {
+        let app = setup_twitter();
+        seed_users(&app);
+        seed_tweets(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        let feed = get_feed(&app);
+        let tweet_id = feed.items[0].tweet_id.clone();
+
+        // Like → unlike → like.
+        app.flux.emit("tweet/like", LikeTweetReq { tweet_id: tweet_id.clone() }).await;
+        let feed = get_feed(&app);
+        assert_eq!(feed.items.iter().find(|i| i.tweet_id == tweet_id).unwrap().like_count, 1);
+
+        app.flux.emit("tweet/unlike", UnlikeTweetReq { tweet_id: tweet_id.clone() }).await;
+        let feed = get_feed(&app);
+        assert_eq!(feed.items.iter().find(|i| i.tweet_id == tweet_id).unwrap().like_count, 0);
+
+        app.flux.emit("tweet/like", LikeTweetReq { tweet_id: tweet_id.clone() }).await;
+        let feed = get_feed(&app);
+        let item = feed.items.iter().find(|i| i.tweet_id == tweet_id).unwrap();
+        assert_eq!(item.like_count, 1);
+        assert!(item.liked_by_me);
+    }
+
+    // --- Edge 10: Follow-unfollow-follow cycle ---
+
+    #[tokio::test]
+    async fn edge_follow_unfollow_follow_cycle() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Follow → unfollow → follow.
+        app.flux.emit("user/follow", FollowUserReq { user_id: "bob".into() }).await;
+        assert_eq!(get_auth(&app).user.unwrap().following_count, 1);
+
+        app.flux.emit("user/unfollow", UnfollowUserReq { user_id: "bob".into() }).await;
+        assert_eq!(get_auth(&app).user.unwrap().following_count, 0);
+
+        app.flux.emit("user/follow", FollowUserReq { user_id: "bob".into() }).await;
+        assert_eq!(get_auth(&app).user.unwrap().following_count, 1);
+
+        let bob = app.backend.users.get("bob").unwrap().unwrap();
+        assert_eq!(bob.follower_count, 1);
+    }
+
+    // --- Edge 11: Follow multiple users ---
+
+    #[tokio::test]
+    async fn edge_follow_multiple_users() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        app.flux.emit("user/follow", FollowUserReq { user_id: "bob".into() }).await;
+        app.flux.emit("user/follow", FollowUserReq { user_id: "carol".into() }).await;
+        app.flux.emit("user/follow", FollowUserReq { user_id: "dave".into() }).await;
+
+        let auth = get_auth(&app);
+        assert_eq!(auth.user.unwrap().following_count, 3);
+
+        // Each followee has 1 follower.
+        for name in &["bob", "carol", "dave"] {
+            let u = app.backend.users.get(name).unwrap().unwrap();
+            assert_eq!(u.follower_count, 1, "{} should have 1 follower", name);
+        }
+    }
+
+    // --- Edge 12: Multiple likes from different users ---
+
+    #[tokio::test]
+    async fn edge_multiple_users_like_same_tweet() {
+        let app = setup_twitter();
+        seed_users(&app);
+        seed_tweets(&app);
+
+        // Alice likes.
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+        let feed = get_feed(&app);
+        let tweet_id = feed.items[0].tweet_id.clone();
+        app.flux.emit("tweet/like", LikeTweetReq { tweet_id: tweet_id.clone() }).await;
+
+        // Bob likes the same tweet.
+        app.flux.emit("auth/logout", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "bob".into() }).await;
+        app.flux.emit("tweet/like", LikeTweetReq { tweet_id: tweet_id.clone() }).await;
+
+        // Carol likes the same tweet.
+        app.flux.emit("auth/logout", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "carol".into() }).await;
+        app.flux.emit("tweet/like", LikeTweetReq { tweet_id: tweet_id.clone() }).await;
+
+        // Tweet should have 3 likes.
+        let tweet = app.backend.tweets.get(&tweet_id).unwrap().unwrap();
+        assert_eq!(tweet.like_count, 3);
+
+        // Carol's view: liked_by_me = true.
+        let feed = get_feed(&app);
+        let item = feed.items.iter().find(|i| i.tweet_id == tweet_id).unwrap();
+        assert!(item.liked_by_me);
+        assert_eq!(item.like_count, 3);
+    }
+
+    // --- Edge 13: Reply to a reply (nested) ---
+
+    #[tokio::test]
+    async fn edge_reply_to_reply() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Original tweet.
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "Root tweet".into(), reply_to_id: None,
+        }).await;
+        let feed = get_feed(&app);
+        let root_id = feed.items[0].tweet_id.clone();
+
+        // Reply to root.
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "Reply level 1".into(), reply_to_id: Some(root_id.clone()),
+        }).await;
+
+        // Get the reply's ID from backend.
+        let all_tweets = app.backend.tweets.list().unwrap();
+        let reply1 = all_tweets.iter()
+            .find(|t| t.content == "Reply level 1")
+            .unwrap();
+        let reply1_id = reply1.id.to_string();
+
+        // Reply to the reply.
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "Reply level 2".into(), reply_to_id: Some(reply1_id.clone()),
+        }).await;
+
+        // Root has 1 direct reply.
+        let root = app.backend.tweets.get(&root_id).unwrap().unwrap();
+        assert_eq!(root.reply_count, 1);
+
+        // Reply1 has 1 reply.
+        let r1 = app.backend.tweets.get(&reply1_id).unwrap().unwrap();
+        assert_eq!(r1.reply_count, 1);
+
+        // Load root detail — shows only direct replies.
+        app.flux.emit("tweet/load", LoadTweetReq { tweet_id: root_id.clone() }).await;
+        let detail = app.flux.get(&format!("tweet/{}", root_id)).unwrap();
+        let detail = detail.downcast_ref::<TweetDetail>().unwrap();
+        assert_eq!(detail.replies.len(), 1);
+        assert_eq!(detail.replies[0].content, "Reply level 1");
+    }
+
+    // --- Edge 14: Tweet with reply_to_id to non-existent tweet ---
+
+    #[tokio::test]
+    async fn edge_reply_to_nonexistent_tweet() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Reply to a non-existent parent.
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "Orphan reply".into(),
+            reply_to_id: Some("nonexistent-parent".into()),
+        }).await;
+
+        // Tweet is created (no validation on parent existence).
+        let compose = get_compose(&app);
+        assert!(compose.error.is_none());
+
+        // But it won't appear in timeline (it's a reply).
+        let feed = get_feed(&app);
+        assert!(feed.items.is_empty());
+    }
+
+    // --- Edge 15: Subscribe to specific patterns ---
+
+    #[tokio::test]
+    async fn edge_subscribe_specific_patterns() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        let auth_changes = Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+        let timeline_changes = Arc::new(std::sync::Mutex::new(0u32));
+        let ac = auth_changes.clone();
+        let tc = timeline_changes.clone();
+
+        // Subscribe only to auth/*.
+        app.flux.subscribe("auth/+", move |path, _| {
+            ac.lock().unwrap().push(path.to_string());
+        });
+        // Subscribe only to timeline/*.
+        app.flux.subscribe("timeline/+", move |_, _| {
+            *tc.lock().unwrap() += 1;
+        });
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        let auth_paths = auth_changes.lock().unwrap();
+        // auth/state changed multiple times (init + busy + result).
+        assert!(auth_paths.len() >= 2);
+        assert!(auth_paths.iter().all(|p| p.starts_with("auth/")));
+
+        let tc = *timeline_changes.lock().unwrap();
+        assert!(tc >= 1, "timeline/feed should have been set at least once");
+    }
+
+    // --- Edge 16: Unsubscribe then verify ---
+
+    #[tokio::test]
+    async fn edge_unsubscribe_verified() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        let count = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let c = count.clone();
+        let id = app.flux.subscribe("auth/state", move |_, _| {
+            c.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        });
+
+        app.flux.emit("app/initialize", ()).await;
+        let after_init = count.load(std::sync::atomic::Ordering::Relaxed);
+        assert!(after_init >= 1);
+
+        app.flux.unsubscribe("auth/state", id);
+
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+        let after_login = count.load(std::sync::atomic::Ordering::Relaxed);
+        assert_eq!(after_init, after_login, "no more notifications after unsubscribe");
+    }
+
+    // --- Edge 17: Scan for all profile states ---
+
+    #[tokio::test]
+    async fn edge_scan_profile_states() {
+        let app = setup_twitter();
+        seed_users(&app);
+        seed_tweets(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Load multiple profiles.
+        app.flux.emit("profile/load", LoadProfileReq { user_id: "bob".into() }).await;
+        app.flux.emit("profile/load", LoadProfileReq { user_id: "carol".into() }).await;
+
+        // Scan for all profile/* states.
+        let profiles = app.flux.scan("profile");
+        assert_eq!(profiles.len(), 2);
+
+        let paths: Vec<&str> = profiles.iter().map(|(k, _)| k.as_str()).collect();
+        assert!(paths.contains(&"profile/bob"));
+        assert!(paths.contains(&"profile/carol"));
+    }
+
+    // --- Edge 18: Snapshot captures complete state ---
+
+    #[tokio::test]
+    async fn edge_snapshot_complete() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        let snap = app.flux.snapshot();
+        let paths: Vec<&str> = snap.iter().map(|(k, _)| k.as_str()).collect();
+
+        assert!(paths.contains(&"auth/state"));
+        assert!(paths.contains(&"app/route"));
+        assert!(paths.contains(&"timeline/feed"));
+    }
+
+    // --- Edge 19: Initialize can be called multiple times ---
+
+    #[tokio::test]
+    async fn edge_multiple_initialize() {
+        let app = setup_twitter();
+
+        app.flux.emit("app/initialize", ()).await;
+        assert_eq!(get_auth(&app).phase, "unauthenticated");
+
+        app.flux.emit("app/initialize", ()).await;
+        assert_eq!(get_auth(&app).phase, "unauthenticated");
+        assert_eq!(get_route(&app), "/login");
+    }
+
+    // --- Edge 20: Compose state cleared after successful tweet ---
+
+    #[tokio::test]
+    async fn edge_compose_cleared_after_tweet() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Type something, then post.
+        app.flux.emit("compose/update-field", UpdateFieldReq {
+            field: "content".into(), value: "Draft tweet".into(),
+        }).await;
+        assert_eq!(get_compose(&app).content, "Draft tweet");
+
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "Draft tweet".into(), reply_to_id: None,
+        }).await;
+
+        // Compose is cleared.
+        let compose = get_compose(&app);
+        assert!(compose.content.is_empty());
+        assert!(compose.reply_to_id.is_none());
+        assert!(!compose.busy);
+        assert!(compose.error.is_none());
+    }
+
+    // --- Edge 21: Compose error cleared on next field update ---
+
+    #[tokio::test]
+    async fn edge_compose_error_cleared_on_edit() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Trigger an error.
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "   ".into(), reply_to_id: None,
+        }).await;
+        assert!(get_compose(&app).error.is_some());
+
+        // Edit field — error should clear.
+        app.flux.emit("compose/update-field", UpdateFieldReq {
+            field: "content".into(), value: "Fixed".into(),
+        }).await;
+        assert!(get_compose(&app).error.is_none());
+        assert_eq!(get_compose(&app).content, "Fixed");
+    }
+
+    // --- Edge 22: Profile shows followed_by_me correctly ---
+
+    #[tokio::test]
+    async fn edge_profile_followed_state() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Not following → followed_by_me = false.
+        app.flux.emit("profile/load", LoadProfileReq { user_id: "bob".into() }).await;
+        let p = app.flux.get("profile/bob").unwrap();
+        assert!(!p.downcast_ref::<ProfilePage>().unwrap().followed_by_me);
+
+        // Follow.
+        app.flux.emit("user/follow", FollowUserReq { user_id: "bob".into() }).await;
+
+        // Re-load profile.
+        app.flux.emit("profile/load", LoadProfileReq { user_id: "bob".into() }).await;
+        let p = app.flux.get("profile/bob").unwrap();
+        assert!(p.downcast_ref::<ProfilePage>().unwrap().followed_by_me);
+        assert_eq!(p.downcast_ref::<ProfilePage>().unwrap().user.follower_count, 1);
+    }
+
+    // --- Edge 23: Many tweets pagination-like behavior ---
+
+    #[tokio::test]
+    async fn edge_many_tweets() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Post 50 tweets.
+        for i in 0..50 {
+            app.flux.emit("tweet/create", CreateTweetReq {
+                content: format!("Tweet number {}", i),
+                reply_to_id: None,
+            }).await;
+        }
+
+        let feed = get_feed(&app);
+        assert_eq!(feed.items.len(), 50);
+        // All from alice.
+        assert!(feed.items.iter().all(|i| i.author.username == "alice"));
+        // User tweet count.
+        let alice = app.backend.users.get("alice").unwrap().unwrap();
+        assert_eq!(alice.tweet_count, 50);
+    }
+
+    // --- Edge 24: Tweet detail includes author info ---
+
+    #[tokio::test]
+    async fn edge_tweet_detail_author_info() {
+        let app = setup_twitter();
+        seed_users(&app);
+        seed_tweets(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        let feed = get_feed(&app);
+        let tweet_id = feed.items.iter()
+            .find(|i| i.author.username == "bob")
+            .unwrap().tweet_id.clone();
+
+        app.flux.emit("tweet/load", LoadTweetReq { tweet_id: tweet_id.clone() }).await;
+
+        let detail = app.flux.get(&format!("tweet/{}", tweet_id)).unwrap();
+        let detail = detail.downcast_ref::<TweetDetail>().unwrap();
+        assert_eq!(detail.tweet.author.username, "bob");
+        assert_eq!(detail.tweet.author.display_name, "Bob Li");
+        assert!(detail.tweet.author.avatar.is_some());
+    }
+
+    // --- Edge 25: State value ref counting (zero-copy verification) ---
+
+    #[tokio::test]
+    async fn edge_zero_copy_ref_counting() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Get the same state twice.
+        let v1 = app.flux.get("auth/state").unwrap();
+        let v2 = app.flux.get("auth/state").unwrap();
+
+        // Both are Arc-cloned, sharing the same data.
+        assert_eq!(v1.ref_count(), v2.ref_count());
+        assert!(v1.ref_count() >= 2); // at least store + v1/v2
+    }
+
+    // --- Edge 26: Timeline refreshes after tweet/like ---
+
+    #[tokio::test]
+    async fn edge_timeline_refresh_consistency() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Post tweet.
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "First".into(), reply_to_id: None,
+        }).await;
+        assert_eq!(get_feed(&app).items.len(), 1);
+
+        // Post another.
+        app.flux.emit("tweet/create", CreateTweetReq {
+            content: "Second".into(), reply_to_id: None,
+        }).await;
+        assert_eq!(get_feed(&app).items.len(), 2);
+
+        // Like first tweet.
+        let first_id = get_feed(&app).items.iter()
+            .find(|i| i.content == "First")
+            .unwrap().tweet_id.clone();
+        app.flux.emit("tweet/like", LikeTweetReq { tweet_id: first_id.clone() }).await;
+
+        // Timeline still has 2 items, first has like.
+        let feed = get_feed(&app);
+        assert_eq!(feed.items.len(), 2);
+        let first = feed.items.iter().find(|i| i.tweet_id == first_id).unwrap();
+        assert_eq!(first.like_count, 1);
+        assert!(first.liked_by_me);
+    }
+
+    // --- Edge 27: Explicit timeline/load refresh ---
+
+    #[tokio::test]
+    async fn edge_explicit_timeline_refresh() {
+        let app = setup_twitter();
+        seed_users(&app);
+
+        app.flux.emit("app/initialize", ()).await;
+        app.flux.emit("auth/login", LoginReq { username: "alice".into() }).await;
+
+        // Empty timeline.
+        assert!(get_feed(&app).items.is_empty());
+
+        // Seed a tweet directly into backend (simulating another user posting).
+        app.backend.tweets.save_new(Tweet {
+            id: Id::default(),
+            author_id: Id::new("bob"),
+            content: "Backend-injected tweet".into(),
+            like_count: 0, reply_count: 0, reply_to_id: None,
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        }).unwrap();
+
+        // Timeline still empty (not refreshed yet).
+        // The old feed is still in store.
+        let feed = get_feed(&app);
+        assert!(feed.items.is_empty());
+
+        // Explicitly refresh.
+        app.flux.emit("timeline/load", ()).await;
+
+        let feed = get_feed(&app);
+        assert_eq!(feed.items.len(), 1);
+        assert_eq!(feed.items[0].content, "Backend-injected tweet");
+    }
 }
