@@ -180,8 +180,60 @@ impl<T: SqlStore> SqlOps<T> {
     pub fn list(&self) -> Result<Vec<T>, ServiceError> {
         let sql = format!("SELECT data FROM \"{}\"", T::table_name());
         let rows = self.sql.query(&sql, &[]).map_err(Self::sql_err)?;
+        Self::rows_to_records(&rows)
+    }
+
+    /// List records with pagination (SQL LIMIT/OFFSET).
+    ///
+    /// Uses SQL-native pagination — only the requested page is fetched.
+    /// Fetches limit+1 rows to determine `has_more` without a COUNT query.
+    pub fn list_paginated(
+        &self,
+        params: &openerp_core::ListParams,
+    ) -> Result<openerp_core::ListResult<T>, ServiceError> {
+        let fetch = params.limit + 1; // fetch one extra to detect has_more
+        let sql = format!(
+            "SELECT data FROM \"{}\" LIMIT ?1 OFFSET ?2",
+            T::table_name()
+        );
+        let rows = self
+            .sql
+            .query(
+                &sql,
+                &[
+                    openerp_sql::Value::Integer(fetch as i64),
+                    openerp_sql::Value::Integer(params.offset as i64),
+                ],
+            )
+            .map_err(Self::sql_err)?;
+
+        let mut records = Self::rows_to_records(&rows)?;
+        let has_more = records.len() > params.limit;
+        if has_more {
+            records.truncate(params.limit);
+        }
+        Ok(openerp_core::ListResult {
+            items: records,
+            has_more,
+        })
+    }
+
+    /// Count all records in the table.
+    pub fn count(&self) -> Result<usize, ServiceError> {
+        let sql = format!("SELECT COUNT(*) AS cnt FROM \"{}\"", T::table_name());
+        let rows = self.sql.query(&sql, &[]).map_err(Self::sql_err)?;
+        if let Some(row) = rows.first() {
+            if let Some(openerp_sql::Value::Integer(n)) = row.get("cnt") {
+                return Ok(*n as usize);
+            }
+        }
+        Ok(0)
+    }
+
+    /// Helper: convert query rows to deserialized records.
+    fn rows_to_records(rows: &[openerp_sql::Row]) -> Result<Vec<T>, ServiceError> {
         let mut records = Vec::with_capacity(rows.len());
-        for row in &rows {
+        for row in rows {
             if let Some(openerp_sql::Value::Blob(data)) = row.get("data") {
                 let record: T = serde_json::from_slice(data)
                     .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
@@ -542,5 +594,65 @@ mod tests {
 
         ops.delete(&["100", "1.0.0"]).unwrap();
         assert!(ops.get(&["100", "1.0.0"]).unwrap().is_none());
+    }
+
+    #[test]
+    fn sql_list_paginated() {
+        let (ops, _dir) = make_ops();
+
+        // Insert 5 devices.
+        for i in 0..5 {
+            let d = Device {
+                sn: format!("PG{:03}", i),
+                model: i,
+                status: "active".into(),
+                description: None,
+            };
+            ops.save_new(d).unwrap();
+        }
+
+        // Page 1: limit=2.
+        let params = openerp_core::ListParams { limit: 2, offset: 0, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 2);
+        assert!(result.has_more);
+
+        // Page 2.
+        let params = openerp_core::ListParams { limit: 2, offset: 2, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 2);
+        assert!(result.has_more);
+
+        // Page 3 (last).
+        let params = openerp_core::ListParams { limit: 2, offset: 4, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 1);
+        assert!(!result.has_more);
+
+        // Beyond range.
+        let params = openerp_core::ListParams { limit: 10, offset: 100, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 0);
+        assert!(!result.has_more);
+    }
+
+    #[test]
+    fn sql_count() {
+        let (ops, _dir) = make_ops();
+        assert_eq!(ops.count().unwrap(), 0);
+
+        for i in 0..3 {
+            let d = Device {
+                sn: format!("CNT{}", i),
+                model: i,
+                status: "a".into(),
+                description: None,
+            };
+            ops.save_new(d).unwrap();
+        }
+        assert_eq!(ops.count().unwrap(), 3);
+
+        ops.delete(&["CNT1"]).unwrap();
+        assert_eq!(ops.count().unwrap(), 2);
     }
 }
