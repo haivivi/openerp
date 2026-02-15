@@ -4,10 +4,7 @@ rust_test(
     name = "browser_test",
     srcs = ["src/main.rs"],
     edition = "2021",
-    # manual: this test starts openerpd + Lightpanda subprocesses and
-    # connects via CDP — not suitable for standard CI sandbox (times out).
-    # Run explicitly: bazel test //e2e/browser:browser_test
-    tags = ["manual", "e2e"],
+    tags = ["e2e"],
     deps = [
         "@crates//:chromiumoxide",
         "@crates//:futures",

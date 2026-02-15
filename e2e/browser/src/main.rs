@@ -30,7 +30,8 @@ mod tests {
         lightpanda: Child,
         openerpd: Child,
         base_url: String,
-        ws_url: String,
+        /// CDP endpoint (http:// URL — chromiumoxide discovers ws:// via /json/version).
+        cdp_url: String,
         _tmp: tempfile::TempDir,
     }
 
@@ -45,56 +46,64 @@ mod tests {
 
     // ── Main test ──
 
+    /// Wrap an async operation with a timeout. Panics with a clear message on timeout.
+    async fn timed<F, T>(label: &str, secs: u64, f: F) -> T
+    where
+        F: std::future::Future<Output = T>,
+    {
+        match tokio::time::timeout(Duration::from_secs(secs), f).await {
+            Ok(v) => v,
+            Err(_) => panic!("[E2E] TIMEOUT after {secs}s: {label}"),
+        }
+    }
+
     #[tokio::test]
     async fn dashboard_e2e() {
+        eprintln!("[E2E] Setting up environment...");
         let env = setup_env().await;
 
-        // Connect to Lightpanda via CDP.
-        let (browser, mut handler) = Browser::connect(&env.ws_url)
-            .await
-            .expect("connect to Lightpanda CDP");
+        // Connect to Lightpanda via CDP (http:// → auto-discovers ws:// via /json/version).
+        eprintln!("[E2E] Connecting to Lightpanda CDP at {}...", env.cdp_url);
+        let (browser, mut handler) = timed("Browser::connect", 30, async {
+            Browser::connect(&env.cdp_url)
+                .await
+                .expect("connect to Lightpanda CDP")
+        })
+        .await;
 
         // Spawn CDP event handler.
         tokio::spawn(async move { while handler.next().await.is_some() {} });
 
-        let page = browser.new_page("about:blank").await.expect("new page");
+        eprintln!("[E2E] Creating new page...");
+        let page = timed("new_page", 15, async {
+            browser.new_page("about:blank").await.expect("new page")
+        })
+        .await;
 
         // ── 1. Login ──
-        page.goto(format!("{}/", env.base_url))
-            .await
-            .expect("goto login");
-        page.wait_for_navigation().await.expect("login page loaded");
-        tokio::time::sleep(Duration::from_secs(1)).await;
+        eprintln!("[E2E] Step 1: Login...");
+        timed("goto login", 15, async {
+            page.goto(format!("{}/", env.base_url))
+                .await
+                .expect("goto login")
+        })
+        .await;
+        tokio::time::sleep(Duration::from_secs(2)).await;
 
         // Fill login form.
-        page.find_element("#username")
-            .await
-            .expect("find username")
-            .click()
-            .await
-            .expect("click username")
-            .type_str(ROOT_USER)
-            .await
-            .expect("type username");
+        timed("fill login form", 15, async {
+            page.find_element("#username").await.expect("find username")
+                .click().await.expect("click username")
+                .type_str(ROOT_USER).await.expect("type username");
+            page.find_element("#password").await.expect("find password")
+                .click().await.expect("click password")
+                .type_str(ROOT_PASS).await.expect("type password");
+            page.find_element("#submitBtn").await.expect("find submit")
+                .click().await.expect("click submit");
+        })
+        .await;
 
-        page.find_element("#password")
-            .await
-            .expect("find password")
-            .click()
-            .await
-            .expect("click password")
-            .type_str(ROOT_PASS)
-            .await
-            .expect("type password");
-
-        page.find_element("#submitBtn")
-            .await
-            .expect("find submit")
-            .click()
-            .await
-            .expect("click submit");
-
-        tokio::time::sleep(Duration::from_secs(2)).await;
+        tokio::time::sleep(Duration::from_secs(3)).await;
 
         // Verify we're on dashboard.
         let url = page.url().await.expect("get url");
@@ -105,6 +114,7 @@ mod tests {
         );
 
         // ── 2. Schema loads: sidebar has resources ──
+        eprintln!("[E2E] Step 2: Schema loads...");
         let sidebar_count: i64 = page
             .evaluate("document.querySelectorAll('.sidebar .nav-item').length")
             .await
@@ -114,6 +124,7 @@ mod tests {
         assert!(sidebar_count >= 2, "expected >= 2 sidebar items, got {sidebar_count}");
 
         // ── 3. @count badges exist ──
+        eprintln!("[E2E] Step 3: @count badges...");
         tokio::time::sleep(Duration::from_millis(500)).await;
         let badge_count: i64 = page
             .evaluate("document.querySelectorAll('.sidebar-count').length")
@@ -124,6 +135,7 @@ mod tests {
         assert!(badge_count > 0, "expected sidebar count badges, got {badge_count}");
 
         // ── 4. Navigate to Users ──
+        eprintln!("[E2E] Step 4: Navigate to Users...");
         page.evaluate(
             r#"(function(){
                 const items=document.querySelectorAll('.sidebar .nav-item');
@@ -135,6 +147,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // ── 5. Create a record via dialog ──
+        eprintln!("[E2E] Step 5: Create record...");
         page.evaluate("document.querySelector('.btn-sm-primary').click()")
             .await
             .expect("click Add");
@@ -156,6 +169,7 @@ mod tests {
         tokio::time::sleep(Duration::from_secs(1)).await;
 
         // ── 6. Verify via API: record created with rev=1 ──
+        eprintln!("[E2E] Step 6-12: API verification...");
         let token = api_login(&env.base_url).await;
         let items = api_list(&env.base_url, "/admin/auth/users", &token).await;
         let created = items
@@ -263,6 +277,7 @@ mod tests {
         let server_config = config_dir.join("e2e-lp.toml");
 
         // Start openerpd.
+        eprintln!("[E2E] Starting openerpd...");
         let erp_port = free_port();
         let erp_addr = format!("127.0.0.1:{erp_port}");
         let base_url = format!("http://{erp_addr}");
@@ -276,11 +291,13 @@ mod tests {
             .expect("start openerpd");
 
         wait_for_health(&base_url, Duration::from_secs(30)).await;
+        eprintln!("[E2E] openerpd ready at {base_url}");
 
-        // Start Lightpanda.
+        eprintln!("[E2E] Starting Lightpanda...");
         let lp_port = free_port();
         let lp_addr = format!("127.0.0.1:{lp_port}");
-        let ws_url = format!("ws://{lp_addr}");
+        // Use http:// — chromiumoxide discovers ws:// via /json/version.
+        let cdp_url = format!("http://{lp_addr}");
 
         let lightpanda = Command::new(&lightpanda_bin)
             .args([
@@ -296,13 +313,15 @@ mod tests {
             .spawn()
             .expect("start lightpanda");
 
-        wait_for_tcp(&lp_addr, Duration::from_secs(15)).await;
+        // Wait for Lightpanda's CDP HTTP endpoint (not just TCP).
+        wait_for_cdp(&cdp_url, Duration::from_secs(30)).await;
+        eprintln!("[E2E] Lightpanda ready at {cdp_url}");
 
         TestEnv {
             lightpanda,
             openerpd,
             base_url,
-            ws_url,
+            cdp_url,
             _tmp: tmp,
         }
     }
@@ -406,15 +425,19 @@ mod tests {
         panic!("openerpd not healthy after {timeout:?}");
     }
 
-    async fn wait_for_tcp(addr: &str, timeout: Duration) {
+    /// Wait for Lightpanda's CDP server to respond to /json/version.
+    async fn wait_for_cdp(base_url: &str, timeout: Duration) {
+        let url = format!("{base_url}/json/version");
         let deadline = tokio::time::Instant::now() + timeout;
         while tokio::time::Instant::now() < deadline {
-            if tokio::net::TcpStream::connect(addr).await.is_ok() {
-                return;
+            if let Ok(resp) = reqwest::get(&url).await {
+                if resp.status().is_success() {
+                    return;
+                }
             }
-            tokio::time::sleep(Duration::from_millis(200)).await;
+            tokio::time::sleep(Duration::from_millis(300)).await;
         }
-        panic!("TCP {addr} not ready after {timeout:?}");
+        panic!("[E2E] Lightpanda CDP not ready at {base_url} after {timeout:?}");
     }
 
     // ── API helpers ──
