@@ -4,6 +4,7 @@
 //! If the macro or schema builder changes, these tests break and show the diff.
 
 mod mini_erp;
+mod edge_cases;
 
 #[cfg(test)]
 mod tests {
