@@ -59,7 +59,7 @@ impl fmt::Debug for StateValue {
 ///
 /// Use this to unsubscribe later via `StateStore::unsubscribe()`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub struct SubscriptionId(pub(crate) u64);
+pub struct SubscriptionId(pub u64);
 
 #[cfg(test)]
 mod tests {
