@@ -29,6 +29,5 @@ fn project(m: &Model) -> MfgModel {
 async fn list(State(ops): State<S>) -> Result<Json<ListResult<MfgModel>>, ServiceError> {
     let all = ops.list()?;
     let items: Vec<MfgModel> = all.iter().map(project).collect();
-    let total = items.len();
-    Ok(Json(ListResult { items, total }))
+    Ok(Json(ListResult { items, has_more: false }))
 }

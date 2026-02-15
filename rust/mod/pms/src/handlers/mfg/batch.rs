@@ -33,8 +33,7 @@ fn project(b: &Batch) -> MfgBatch {
 async fn list(State(ops): State<S>) -> Result<Json<ListResult<MfgBatch>>, ServiceError> {
     let all = ops.list()?;
     let items: Vec<MfgBatch> = all.iter().map(project).collect();
-    let total = items.len();
-    Ok(Json(ListResult { items, total }))
+    Ok(Json(ListResult { items, has_more: false }))
 }
 
 async fn get_one(State(ops): State<S>, Path(id): Path<String>) -> Result<Json<MfgBatch>, ServiceError> {

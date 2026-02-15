@@ -6,11 +6,11 @@
 
 use std::sync::Arc;
 
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::HeaderMap;
 use axum::routing::get;
 use axum::{Json, Router};
-use openerp_core::{Authenticator, ListResult, ServiceError};
+use openerp_core::{Authenticator, CountResult, ListParams, ListResult, ServiceError};
 use serde::de::DeserializeOwned;
 use serde::Serialize;
 
@@ -50,10 +50,12 @@ pub fn admin_kv_router<T: KvStore + Serialize + DeserializeOwned>(
     });
 
     let list_path = format!("/{}", resource_path);
+    let count_path = format!("/{}/@count", resource_path);
     let item_path = format!("/{}/{{id}}", resource_path);
 
     Router::new()
         .route(&list_path, get(list_handler::<T>).post(create_handler::<T>))
+        .route(&count_path, get(count_handler::<T>))
         .route(
             &item_path,
             get(get_handler::<T>)
@@ -70,13 +72,24 @@ fn perm(module: &str, resource: &str, action: &str) -> String {
 async fn list_handler<T: KvStore + Serialize>(
     State(state): State<Arc<AdminState<T>>>,
     headers: HeaderMap,
+    Query(params): Query<ListParams>,
 ) -> Result<Json<ListResult<T>>, ServiceError> {
     let p = perm(&state.module, &state.resource, "list");
     state.auth.check(&headers, &p)?;
 
-    let items = state.ops.list()?;
-    let total = items.len();
-    Ok(Json(ListResult { items, total }))
+    let result = state.ops.list_paginated(&params)?;
+    Ok(Json(result))
+}
+
+async fn count_handler<T: KvStore + Serialize>(
+    State(state): State<Arc<AdminState<T>>>,
+    headers: HeaderMap,
+) -> Result<Json<CountResult>, ServiceError> {
+    let p = perm(&state.module, &state.resource, "list");
+    state.auth.check(&headers, &p)?;
+
+    let count = state.ops.count()?;
+    Ok(Json(CountResult { count }))
 }
 
 async fn get_handler<T: KvStore + Serialize>(

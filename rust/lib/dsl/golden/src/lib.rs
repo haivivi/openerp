@@ -605,7 +605,8 @@ mod tests {
         let resp = router.clone().oneshot(req).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"].as_array().unwrap().len(), 1);
+        assert_eq!(list["hasMore"], false);
         assert_eq!(list["items"][0]["quantity"], 20);
 
         // 5. DELETE.
@@ -625,7 +626,8 @@ mod tests {
         let resp = router.clone().oneshot(req).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let list: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(list["total"], 0);
+        assert_eq!(list["items"].as_array().unwrap().len(), 0);
+        assert_eq!(list["hasMore"], false);
     }
 
     // =====================================================================

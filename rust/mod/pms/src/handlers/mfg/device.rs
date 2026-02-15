@@ -34,8 +34,7 @@ fn project(d: &Device) -> MfgDevice {
 async fn list(State(ops): State<S>) -> Result<Json<ListResult<MfgDevice>>, ServiceError> {
     let all = ops.list()?;
     let items: Vec<MfgDevice> = all.iter().map(project).collect();
-    let total = items.len();
-    Ok(Json(ListResult { items, total }))
+    Ok(Json(ListResult { items, has_more: false }))
 }
 
 async fn get_one(State(ops): State<S>, Path(sn): Path<String>) -> Result<Json<MfgDevice>, ServiceError> {

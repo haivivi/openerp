@@ -94,6 +94,32 @@ impl<T: KvStore> KvOps<T> {
         Ok(records)
     }
 
+    /// List records with pagination (limit/offset).
+    ///
+    /// Scans all entries then slices in memory. For KV stores the full scan
+    /// is unavoidable; pagination just controls how much is returned to the caller.
+    pub fn list_paginated(
+        &self,
+        params: &openerp_core::ListParams,
+    ) -> Result<openerp_core::ListResult<T>, ServiceError> {
+        let all = self.list()?;
+        let total = all.len();
+        let offset = params.offset.min(total);
+        let end = (offset + params.limit).min(total);
+        let items: Vec<T> = all.into_iter().skip(offset).take(params.limit).collect();
+        let has_more = end < total;
+        Ok(openerp_core::ListResult { items, has_more })
+    }
+
+    /// Count all records with this prefix.
+    pub fn count(&self) -> Result<usize, ServiceError> {
+        let entries = self
+            .kv
+            .scan(T::kv_prefix())
+            .map_err(|e| ServiceError::Storage(e.to_string()))?;
+        Ok(entries.len())
+    }
+
     /// Create a new record. Calls before_create hook, checks for duplicates.
     pub fn save_new(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_create();
@@ -277,5 +303,55 @@ mod tests {
         let (ops, _dir) = make_ops();
         let err = ops.delete("ghost").unwrap_err();
         assert!(err.to_string().contains("not found"));
+    }
+
+    #[test]
+    fn list_paginated_basic() {
+        let (ops, _dir) = make_ops();
+
+        // Insert 5 items.
+        for i in 0..5 {
+            let t = Thing { id: format!("p{}", i), name: format!("Item {}", i), count: i };
+            ops.save_new(t).unwrap();
+        }
+
+        // First page: limit=2, offset=0.
+        let params = openerp_core::ListParams { limit: 2, offset: 0, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 2);
+        assert!(result.has_more);
+
+        // Second page: limit=2, offset=2.
+        let params = openerp_core::ListParams { limit: 2, offset: 2, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 2);
+        assert!(result.has_more);
+
+        // Third page: limit=2, offset=4.
+        let params = openerp_core::ListParams { limit: 2, offset: 4, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 1);
+        assert!(!result.has_more);
+
+        // Beyond range.
+        let params = openerp_core::ListParams { limit: 10, offset: 100, ..Default::default() };
+        let result = ops.list_paginated(&params).unwrap();
+        assert_eq!(result.items.len(), 0);
+        assert!(!result.has_more);
+    }
+
+    #[test]
+    fn count_returns_total() {
+        let (ops, _dir) = make_ops();
+        assert_eq!(ops.count().unwrap(), 0);
+
+        for i in 0..3 {
+            let t = Thing { id: format!("c{}", i), name: "N".into(), count: i };
+            ops.save_new(t).unwrap();
+        }
+        assert_eq!(ops.count().unwrap(), 3);
+
+        ops.delete("c1").unwrap();
+        assert_eq!(ops.count().unwrap(), 2);
     }
 }

@@ -472,7 +472,7 @@ mod tests {
         // List should have 50.
         let (s, list) = call(&router, "GET", "/items", None).await;
         assert_eq!(s, StatusCode::OK);
-        assert_eq!(list["total"], 50);
+        assert_eq!(list["items"].as_array().unwrap().len(), 50);
 
         // Delete all.
         for id in &ids {
@@ -483,8 +483,8 @@ mod tests {
         // List should be empty.
         let (s, list) = call(&router, "GET", "/items", None).await;
         assert_eq!(s, StatusCode::OK);
-        assert_eq!(list["total"], 0);
         assert_eq!(list["items"].as_array().unwrap().len(), 0);
+        assert_eq!(list["hasMore"], false);
     }
 
     // =====================================================================
@@ -858,7 +858,7 @@ mod tests {
         // List should have exactly 1.
         let (s, list) = call(&router, "GET", "/items", None).await;
         assert_eq!(s, StatusCode::OK);
-        assert_eq!(list["total"], 1);
+        assert_eq!(list["items"].as_array().unwrap().len(), 1);
     }
 
     // =====================================================================
