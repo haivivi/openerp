@@ -93,7 +93,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            version: 0,
+            rev: 0,
         };
 
         let created = ops.save_new(m).unwrap();
@@ -126,7 +126,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            version: 0,
+            rev: 0,
         };
 
         let created = ops.save_new(d).unwrap();
@@ -154,7 +154,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            version: 0,
+            rev: 0,
         };
 
         let created = ops.save_new(b).unwrap();
@@ -180,7 +180,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            version: 0,
+            rev: 0,
         };
 
         let created = ops.save_new(f).unwrap();
@@ -208,7 +208,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            version: 0,
+            rev: 0,
         };
 
         let created = ops.save_new(l).unwrap();
@@ -233,7 +233,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            version: 0,
+            rev: 0,
         };
 
         let created = ops.save_new(li).unwrap();
@@ -255,7 +255,7 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            version: 0,
+            rev: 0,
         };
 
         let created = ops.save_new(s).unwrap();

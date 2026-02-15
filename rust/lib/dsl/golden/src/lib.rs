@@ -130,7 +130,7 @@ mod tests {
         assert!(names.contains(&"created_at"), "missing created_at in {:?}", names);
         assert!(names.contains(&"updated_at"), "missing updated_at in {:?}", names);
 
-        assert!(names.contains(&"version"), "missing version in {:?}", names);
+        assert!(names.contains(&"rev"), "missing rev in {:?}", names);
 
         // Total: 6 user + 6 common = 12.
         assert_eq!(fields.len(), 12, "expected 12 fields, got: {:?}", names);
@@ -327,7 +327,7 @@ mod tests {
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
-            version: 0,
+            rev: 0,
         };
         let created = ops.save_new(w).unwrap();
         assert_eq!(created.id.as_str(), "auto-id");
@@ -370,7 +370,7 @@ mod tests {
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
-            version: 0,
+            rev: 0,
         };
         let json = serde_json::to_value(&w).unwrap();
         // camelCase keys.
@@ -415,8 +415,8 @@ mod tests {
         assert_eq!(ir["resource"], "server");
 
         let fields = ir["fields"].as_array().unwrap();
-        // 9 user + 5 common = 14.
-        assert_eq!(fields.len(), 14, "Server should have 14 fields");
+        // 9 user + 6 common = 15.
+        assert_eq!(fields.len(), 15, "Server should have 15 fields");
 
         // Verify type names in IR.
         let url_f = fields.iter().find(|f| f["name"] == "url").unwrap();

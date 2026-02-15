@@ -904,7 +904,7 @@ mod tests {
             display_name: Some(id.into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            version: 0,
+            rev: 0,
         }).unwrap();
     }
 

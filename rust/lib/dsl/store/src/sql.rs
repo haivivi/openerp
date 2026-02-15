@@ -247,16 +247,23 @@ impl<T: SqlStore> SqlOps<T> {
         Ok(records)
     }
 
-    /// Insert a new record. Calls before_create.
+    /// Insert a new record. Calls before_create. Sets version to 1.
     pub fn save_new(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_create();
+
+        // Set initial version.
+        let mut json_val: serde_json::Value = serde_json::to_value(&record)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+        if let Some(obj) = json_val.as_object_mut() {
+            obj.insert("rev".into(), serde_json::json!(1));
+        }
+        let record: T = serde_json::from_value(json_val.clone())
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
 
         let data = serde_json::to_vec(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
 
         let indexed = T::indexed_fields();
-        let json_val: serde_json::Value = serde_json::to_value(&record)
-            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
 
         // Build INSERT.
         let mut col_names = Vec::new();
@@ -296,19 +303,50 @@ impl<T: SqlStore> SqlOps<T> {
         Ok(record)
     }
 
-    /// Update an existing record. Calls before_update.
+    /// Update an existing record with optimistic locking.
+    ///
+    /// Compares the incoming record's `version` with the stored version.
+    /// If they don't match, returns `ServiceError::Conflict` (409).
+    /// On success, increments version by 1 and saves.
     pub fn save(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_update();
+
+        let pk_fields = T::PK;
+        let pk_values = record.pk_values();
+
+        // Version check: read existing record.
+        let pk_refs: Vec<&str> = pk_values.iter().map(|s| s.as_str()).collect();
+        if let Some(existing) = self.get(&pk_refs)? {
+            let existing_json = serde_json::to_value(&existing)
+                .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+            let incoming_json = serde_json::to_value(&record)
+                .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+
+            let existing_rev = existing_json.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+            let incoming_rev = incoming_json.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+
+            if incoming_rev != existing_rev {
+                return Err(ServiceError::Conflict(format!(
+                    "rev mismatch: expected {}, got {}",
+                    existing_rev, incoming_rev
+                )));
+            }
+        }
+
+        // Bump revision.
+        let mut json_val: serde_json::Value = serde_json::to_value(&record)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+        if let Some(obj) = json_val.as_object_mut() {
+            let rev = obj.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+            obj.insert("rev".into(), serde_json::json!(rev + 1));
+        }
+        let record: T = serde_json::from_value(json_val.clone())
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
 
         let data = serde_json::to_vec(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
 
         let indexed = T::indexed_fields();
-        let json_val: serde_json::Value = serde_json::to_value(&record)
-            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
-
-        let pk_fields = T::PK;
-        let pk_values = record.pk_values();
 
         // Build UPDATE.
         let mut set_clauses = Vec::new();

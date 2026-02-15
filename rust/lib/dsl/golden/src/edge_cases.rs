@@ -441,7 +441,7 @@ mod tests {
             id: Id::default(), value: "will be deleted".into(),
             display_name: None, description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            version: 0,
+            rev: 0,
         };
         let created = ops.save_new(t).unwrap();
         ops.delete(created.id.as_str()).unwrap();
@@ -722,7 +722,7 @@ mod tests {
             display_name: Some("Dynamic".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            version: 0,
+            rev: 0,
         }).unwrap();
 
         // User with "dynamic" role can list but not create.
