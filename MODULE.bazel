@@ -6,13 +6,6 @@ module(
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_rust", version = "0.68.1")
-bazel_dep(name = "rules_go", version = "0.60.0")
-
-# Go toolchain
-go = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
-go.download(version = "1.23.6")
-use_repo(go, "go_toolchains")
-register_toolchains("@go_toolchains//:all")
 
 # Rust toolchain
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")

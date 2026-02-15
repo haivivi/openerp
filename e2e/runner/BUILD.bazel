@@ -1,7 +1,11 @@
-load("@rules_go//go:def.bzl", "go_binary")
+load("@rules_rust//rust:defs.bzl", "rust_binary")
 
-go_binary(
+rust_binary(
     name = "runner",
-    srcs = ["main.go"],
+    srcs = ["src/main.rs"],
+    deps = [
+        "@crates//:reqwest",
+        "@crates//:tempfile",
+    ],
     visibility = ["//visibility:public"],
 )
