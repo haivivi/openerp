@@ -82,11 +82,19 @@ struct ProfileView: View {
             }
 
             // Follow button
-            Button(action: toggleFollow) {
-                Text(p.followedByMe ? "Unfollow" : "Follow")
-                    .frame(width: 120)
+            if p.followedByMe {
+                Button(action: toggleFollow) {
+                    Text("Unfollow")
+                        .frame(width: 120)
+                }
+                .buttonStyle(.bordered)
+            } else {
+                Button(action: toggleFollow) {
+                    Text("Follow")
+                        .frame(width: 120)
+                }
+                .buttonStyle(.borderedProminent)
             }
-            .buttonStyle(p.followedByMe ? .bordered : .borderedProminent)
         }
         .padding()
     }

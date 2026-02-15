@@ -1,0 +1,31 @@
+load("@rules_swift//swift:swift.bzl", "swift_library")
+load("//bazel/ios:defs.bzl", "ios_app")
+load("//bazel/ios:probe.bzl", "ios_probe")
+
+swift_library(
+    name = "TwitterFluxLib",
+    srcs = glob(["Sources/**/*.swift"]),
+    module_name = "TwitterFlux",
+    tags = ["manual"],
+)
+
+# Probe: test that iOS platform transition builds all deps.
+ios_probe(
+    name = "probe",
+    deps = [
+        ":TwitterFluxLib",
+        "//rust/lib/flux_ffi:flux_ffi_static",
+    ],
+)
+
+# Full iOS .app bundle (simulator).
+ios_app(
+    name = "TwitterFlux",
+    app_name = "TwitterFlux",
+    bundle_id = "com.haivivi.twitterflux",
+    infoplist = "Info.plist",
+    deps = [
+        ":TwitterFluxLib",
+        "//rust/lib/flux_ffi:flux_ffi_static",
+    ],
+)

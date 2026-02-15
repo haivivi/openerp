@@ -1,7 +1,28 @@
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_static_library", "rust_test")
 
 rust_library(
     name = "flux_ffi",
+    crate_name = "flux_ffi",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//rust/lib/flux",
+        "//rust/lib/flux_golden:flux_golden_lib",
+        "//rust/lib/dsl/store",
+        "//rust/lib/dsl/types",
+        "//rust/lib/core",
+        "//rust/lib/kv",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+    ],
+)
+
+# Static library for iOS/Android FFI linking.
+rust_static_library(
+    name = "flux_ffi_static",
     crate_name = "flux_ffi",
     srcs = glob(["src/**/*.rs"]),
     edition = "2021",
