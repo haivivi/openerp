@@ -75,26 +75,15 @@ crate.spec(package = "base64", version = "0.22")
 crate.spec(package = "tempfile", version = "3")
 crate.spec(package = "criterion", version = "0.5", features = ["html_reports"])
 
+# E2E browser tests (Rust + Lightpanda via CDP)
+crate.spec(package = "chromiumoxide", version = "0.7", features = ["tokio-runtime"], default_features = False)
+crate.spec(package = "futures", version = "0.3")
+
 # Pin: 0.3.37+ needs nightly
 crate.spec(package = "time", version = ">=0.3.20, <0.3.37")
 
 crate.from_specs()
 use_repo(crate, "crates")
-
-# ── Go (for E2E browser tests) ──
-bazel_dep(name = "rules_go", version = "0.60.0")
-bazel_dep(name = "gazelle", version = "0.42.0")
-
-go_sdk = use_extension("@rules_go//go:extensions.bzl", "go_sdk")
-go_sdk.download(version = "1.24.3")
-
-go_deps = use_extension("@gazelle//:extensions.bzl", "go_deps")
-go_deps.from_file(go_mod = "//e2e/browser:go.mod")
-use_repo(
-    go_deps,
-    "com_github_chromedp_chromedp",
-    "com_github_chromedp_cdproto",
-)
 
 # ── Lightpanda headless browser (for E2E browser tests) ──
 http_file = use_repo_rule("@bazel_tools//tools/build_defs/repo:http.bzl", "http_file")

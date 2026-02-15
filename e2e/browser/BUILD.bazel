@@ -1,13 +1,18 @@
-load("@rules_go//go:def.bzl", "go_test")
+load("@rules_rust//rust:defs.bzl", "rust_test")
 
-go_test(
+rust_test(
     name = "browser_test",
-    srcs = ["dashboard_test.go"],
-    # Tag as manual — requires Lightpanda + running server, not for CI by default.
+    srcs = ["src/main.rs"],
+    edition = "2021",
+    # Tag as manual — requires Lightpanda + starts openerpd, not for default CI.
     tags = ["manual", "e2e"],
     deps = [
-        "@com_github_chromedp_chromedp//:chromedp",
-        "@com_github_chromedp_cdproto//cdp",
+        "@crates//:chromiumoxide",
+        "@crates//:futures",
+        "@crates//:reqwest",
+        "@crates//:serde_json",
+        "@crates//:tempfile",
+        "@crates//:tokio",
     ],
     data = [
         "//rust/bin/openerpd",
@@ -20,5 +25,4 @@ go_test(
         "LIGHTPANDA_DISABLE_TELEMETRY": "true",
     },
     size = "large",
-    timeout = "long",
 )
