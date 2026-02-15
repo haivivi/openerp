@@ -423,7 +423,6 @@ fn emit_action_client_method(
     // Build format string: /mfg/pms/batches/{}/@provision
     let path_fmt = build_path_format(facet_name, facet_module, &action.path);
 
-    let path_params: Vec<&ActionParam> = action.params.iter().filter(|p| p.is_path_param).collect();
     let body_param: Option<&ActionParam> = action.params.iter().find(|p| !p.is_path_param);
 
     // fn signature parameters: path params as &str, body param as &Type
@@ -441,19 +440,42 @@ fn emit_action_client_method(
         })
         .collect();
 
-    // format! arguments (path params only)
-    let format_args: Vec<&syn::Ident> = path_params.iter().map(|p| &p.name).collect();
+    // format! arguments ordered by URL template position, not fn signature.
+    // extract_path_params returns names in URL order: /orgs/{org_id}/users/{user_id} → ["org_id", "user_id"]
+    let url_param_order = extract_path_params(&action.path);
+    let format_args: Vec<syn::Ident> = url_param_order
+        .iter()
+        .filter_map(|name| {
+            action.params.iter().find(|p| p.name == name).map(|p| p.name.clone())
+        })
+        .collect();
 
     let ret_ty = match &action.return_type {
         Some(ty) => quote! { #ty },
         None => quote! { () },
     };
 
-    let call = if let Some(body) = body_param {
-        let body_name = &body.name;
-        quote! { self.base.post(&path, #body_name).await }
-    } else {
-        quote! { self.base.post_empty(&path).await }
+    let call = match (action.method.as_str(), body_param) {
+        ("POST", Some(body)) => {
+            let body_name = &body.name;
+            quote! { self.base.post(&path, #body_name).await }
+        }
+        ("POST", None) => quote! { self.base.post_empty(&path).await },
+        ("PUT", Some(body)) => {
+            let body_name = &body.name;
+            quote! { self.base.put(&path, #body_name).await }
+        }
+        ("PUT", None) => quote! { self.base.put_empty(&path).await },
+        ("DELETE", _) => quote! { self.base.delete(&path).await },
+        _ => {
+            // Default to POST for unknown methods.
+            if let Some(body) = body_param {
+                let body_name = &body.name;
+                quote! { self.base.post(&path, #body_name).await }
+            } else {
+                quote! { self.base.post_empty(&path).await }
+            }
+        }
     };
 
     let doc = format!(
@@ -551,7 +573,7 @@ fn singularize(s: &str) -> String {
         format!("{}y", &s[..s.len() - 3])
     } else if s.ends_with("ches") || s.ends_with("shes") || s.ends_with("sses") || s.ends_with("xes") || s.ends_with("zes") {
         s[..s.len() - 2].to_string()
-    } else if s.ends_with('s') && !s.ends_with("ss") {
+    } else if s.ends_with('s') && !s.ends_with("ss") && !s.ends_with("us") {
         s[..s.len() - 1].to_string()
     } else {
         s.to_string()
