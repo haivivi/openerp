@@ -199,6 +199,46 @@ impl<T: KvStore> KvOps<T> {
         Ok(record)
     }
 
+    /// Partially update a record using RFC 7386 JSON Merge Patch.
+    ///
+    /// Reads the existing record, applies the patch, checks version,
+    /// bumps rev, and saves. The patch JSON should include `rev` from
+    /// the GET response for optimistic locking.
+    pub fn patch(&self, id: &str, patch: &serde_json::Value) -> Result<T, ServiceError> {
+        let existing = self.get_or_err(id)?;
+        let mut base = serde_json::to_value(&existing)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+
+        // Check rev from patch if provided.
+        if let Some(patch_rev) = patch.get("rev").and_then(|v| v.as_u64()) {
+            let base_rev = base.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+            if patch_rev != base_rev {
+                return Err(ServiceError::Conflict(format!(
+                    "rev mismatch: expected {}, got {}",
+                    base_rev, patch_rev
+                )));
+            }
+        }
+
+        openerp_core::merge_patch(&mut base, patch);
+
+        // Bump rev.
+        if let Some(obj) = base.as_object_mut() {
+            let rev = obj.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+            obj.insert("rev".into(), serde_json::json!(rev + 1));
+        }
+
+        let record: T = serde_json::from_value(base)
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
+
+        let key = Self::make_key(id);
+        let bytes = serde_json::to_vec(&record)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+        self.kv.set(&key, &bytes).map_err(Self::kv_err)?;
+
+        Ok(record)
+    }
+
     /// Delete a record by key value.
     pub fn delete(&self, id: &str) -> Result<(), ServiceError> {
         let record = self.get_or_err(id)?;
@@ -458,5 +498,63 @@ mod tests {
         let final_read = ops.get_or_err("v3").unwrap();
         assert_eq!(final_read.name, "Updated by w1");
         assert_eq!(final_read.rev, 2);
+    }
+
+    #[test]
+    fn patch_partial_update() {
+        let (ops, _dir) = make_ops();
+        let t = Thing { id: "p1".into(), name: "Original".into(), count: 10, rev: 0 };
+        let created = ops.save_new(t).unwrap();
+        assert_eq!(created.rev, 1);
+
+        // Patch: only change name, include rev for locking.
+        let patch = serde_json::json!({ "name": "Patched", "rev": 1 });
+        let patched = ops.patch("p1", &patch).unwrap();
+        assert_eq!(patched.name, "Patched");
+        assert_eq!(patched.count, 10, "count should be unchanged");
+        assert_eq!(patched.rev, 2, "rev should be bumped");
+
+        // Verify via re-read.
+        let re_read = ops.get_or_err("p1").unwrap();
+        assert_eq!(re_read.name, "Patched");
+        assert_eq!(re_read.count, 10);
+    }
+
+    #[test]
+    fn patch_without_rev_no_conflict() {
+        let (ops, _dir) = make_ops();
+        let t = Thing { id: "p2".into(), name: "A".into(), count: 1, rev: 0 };
+        ops.save_new(t).unwrap();
+
+        // Patch without rev field — no version check, still bumps rev.
+        let patch = serde_json::json!({ "name": "B" });
+        let patched = ops.patch("p2", &patch).unwrap();
+        assert_eq!(patched.name, "B");
+        assert_eq!(patched.rev, 2);
+    }
+
+    #[test]
+    fn patch_stale_rev_returns_409() {
+        let (ops, _dir) = make_ops();
+        let t = Thing { id: "p3".into(), name: "A".into(), count: 1, rev: 0 };
+        ops.save_new(t).unwrap();
+
+        // First patch succeeds.
+        let patch1 = serde_json::json!({ "name": "B", "rev": 1 });
+        ops.patch("p3", &patch1).unwrap();
+
+        // Second patch with stale rev=1 should fail.
+        let patch2 = serde_json::json!({ "name": "C", "rev": 1 });
+        let err = ops.patch("p3", &patch2).unwrap_err();
+        assert!(err.to_string().contains("rev mismatch"),
+            "Expected rev conflict, got: {}", err);
+    }
+
+    #[test]
+    fn patch_nonexistent_returns_not_found() {
+        let (ops, _dir) = make_ops();
+        let patch = serde_json::json!({ "name": "X" });
+        let err = ops.patch("ghost", &patch).unwrap_err();
+        assert!(err.to_string().contains("not found"));
     }
 }

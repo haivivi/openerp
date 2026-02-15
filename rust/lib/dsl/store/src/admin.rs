@@ -27,11 +27,13 @@ struct AdminState<T: KvStore> {
 /// Build an Axum router for admin CRUD on a KvStore model.
 ///
 /// Routes:
-///   GET  /{resources}       — list all
-///   POST /{resources}       — create
-///   GET  /{resources}/{id}  — get by key
-///   PUT  /{resources}/{id}  — update
-///   DELETE /{resources}/{id} — delete
+///   GET    /{resources}         — list (paginated)
+///   POST   /{resources}         — create
+///   GET    /{resources}/@count  — count (optional)
+///   GET    /{resources}/{id}    — get by key
+///   PUT    /{resources}/{id}    — full update (with rev check)
+///   PATCH  /{resources}/{id}    — partial update (RFC 7386 merge patch)
+///   DELETE /{resources}/{id}    — delete
 ///
 /// - `resource_path`: URL segment (e.g. "users", "roles")
 /// - `resource_name`: permission resource name (e.g. "user", "role")
@@ -60,6 +62,7 @@ pub fn admin_kv_router<T: KvStore + Serialize + DeserializeOwned>(
             &item_path,
             get(get_handler::<T>)
                 .put(update_handler::<T>)
+                .patch(patch_handler::<T>)
                 .delete(delete_handler::<T>),
         )
         .with_state(state)
@@ -129,6 +132,19 @@ async fn update_handler<T: KvStore + Serialize + DeserializeOwned>(
     let _existing = state.ops.get_or_err(&id)?;
     let updated = state.ops.save(record)?;
     Ok(Json(updated))
+}
+
+async fn patch_handler<T: KvStore + Serialize + DeserializeOwned>(
+    State(state): State<Arc<AdminState<T>>>,
+    Path(id): Path<String>,
+    headers: HeaderMap,
+    Json(patch): Json<serde_json::Value>,
+) -> Result<Json<T>, ServiceError> {
+    let p = perm(&state.module, &state.resource, "update");
+    state.auth.check(&headers, &p)?;
+
+    let patched = state.ops.patch(&id, &patch)?;
+    Ok(Json(patched))
 }
 
 async fn delete_handler<T: KvStore + Serialize>(

@@ -398,6 +398,101 @@ impl<T: SqlStore> SqlOps<T> {
         Ok(record)
     }
 
+    /// Partially update a record using RFC 7386 JSON Merge Patch.
+    ///
+    /// Reads the existing record, applies the patch, checks rev,
+    /// bumps rev, and saves via the existing `save()` path.
+    pub fn patch(&self, pk: &[&str], patch: &serde_json::Value) -> Result<T, ServiceError> {
+        let existing = self.get_or_err(pk)?;
+        let mut base = serde_json::to_value(&existing)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+
+        // Check rev from patch if provided.
+        if let Some(patch_rev) = patch.get("rev").and_then(|v| v.as_u64()) {
+            let base_rev = base.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+            if patch_rev != base_rev {
+                return Err(ServiceError::Conflict(format!(
+                    "rev mismatch: expected {}, got {}",
+                    base_rev, patch_rev
+                )));
+            }
+        }
+
+        openerp_core::merge_patch(&mut base, patch);
+
+        // Bump rev and set it so save() version check passes.
+        if let Some(obj) = base.as_object_mut() {
+            let rev = obj.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+            // Set rev to current (not bumped) so save()'s version check passes,
+            // then save() will bump it.
+            // Actually, we bypass save()'s version check by doing the full
+            // update here directly.
+            obj.insert("rev".into(), serde_json::json!(rev + 1));
+        }
+
+        let record: T = serde_json::from_value(base)
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
+
+        // Write directly to DB (bypass save's version check since we already checked).
+        let data = serde_json::to_vec(&record)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+
+        let indexed = T::indexed_fields();
+        let json_val: serde_json::Value = serde_json::to_value(&record)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+
+        let pk_fields = T::PK;
+        let pk_values = record.pk_values();
+
+        let mut set_clauses = Vec::new();
+        let mut params: Vec<openerp_sql::Value> = Vec::new();
+        let mut idx = 1;
+
+        for f in &indexed {
+            if pk_fields.iter().any(|pk| pk.name == f.name) {
+                continue;
+            }
+            set_clauses.push(format!("\"{}\" = ?{}", f.name, idx));
+            let val = json_val
+                .get(f.name)
+                .or_else(|| json_val.get(&to_camel_case(f.name)))
+                .map(|v| match v {
+                    serde_json::Value::String(s) => openerp_sql::Value::Text(s.clone()),
+                    serde_json::Value::Number(n) => {
+                        openerp_sql::Value::Integer(n.as_i64().unwrap_or(0))
+                    }
+                    serde_json::Value::Bool(b) => openerp_sql::Value::Integer(*b as i64),
+                    other => openerp_sql::Value::Text(other.to_string()),
+                })
+                .unwrap_or(openerp_sql::Value::Null);
+            params.push(val);
+            idx += 1;
+        }
+
+        set_clauses.push(format!("data = ?{}", idx));
+        params.push(openerp_sql::Value::Blob(data));
+        idx += 1;
+
+        let where_clause: Vec<String> = pk_fields
+            .iter()
+            .enumerate()
+            .map(|(i, f)| {
+                params.push(openerp_sql::Value::Text(pk_values[i].clone()));
+                format!("\"{}\" = ?{}", f.name, idx + i)
+            })
+            .collect();
+
+        let sql = format!(
+            "UPDATE \"{}\" SET {} WHERE {}",
+            T::table_name(),
+            set_clauses.join(", "),
+            where_clause.join(" AND ")
+        );
+
+        self.sql.exec(&sql, &params).map_err(Self::sql_err)?;
+        Ok(record)
+    }
+
     /// Delete a record by primary key.
     pub fn delete(&self, pk: &[&str]) -> Result<(), ServiceError> {
         let record = self.get_or_err(pk)?;
