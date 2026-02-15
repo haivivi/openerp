@@ -4,6 +4,9 @@
 pub mod model;
 #[path = "../dsl/hierarchy/mod.rs"]
 pub mod hierarchy_def;
+#[path = "../dsl/rest/mfg.rs"]
+mod mfg_facet;
+pub use mfg_facet::mfg;
 
 pub mod handlers;
 mod store_impls;

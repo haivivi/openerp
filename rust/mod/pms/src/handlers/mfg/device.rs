@@ -5,10 +5,7 @@ use axum::{Json, Router};
 use openerp_core::{ListResult, ServiceError};
 use openerp_store::KvOps;
 use crate::model::Device;
-
-#[path = "../../../dsl/rest/mfg/device.rs"]
-mod mfg_device_def;
-use mfg_device_def::MfgDevice;
+use crate::mfg::MfgDevice;
 
 type S = Arc<KvOps<Device>>;
 

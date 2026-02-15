@@ -5,10 +5,7 @@ use axum::{Json, Router};
 use openerp_core::{ListResult, ServiceError};
 use openerp_store::KvOps;
 use crate::model::Batch;
-
-#[path = "../../../dsl/rest/mfg/batch.rs"]
-mod mfg_batch_def;
-use mfg_batch_def::MfgBatch;
+use crate::mfg::MfgBatch;
 
 type S = Arc<KvOps<Batch>>;
 

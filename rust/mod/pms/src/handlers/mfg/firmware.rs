@@ -5,10 +5,7 @@ use axum::{Json, Router};
 use openerp_core::{ListResult, ServiceError};
 use openerp_store::KvOps;
 use crate::model::Firmware;
-
-#[path = "../../../dsl/rest/mfg/firmware.rs"]
-mod mfg_firmware_def;
-use mfg_firmware_def::MfgFirmware;
+use crate::mfg::MfgFirmware;
 
 type S = Arc<KvOps<Firmware>>;
 

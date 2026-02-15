@@ -10,6 +10,7 @@ use openerp_store::KvOps;
 use openerp_types::*;
 
 use crate::model::{Batch, Device};
+use crate::mfg::{ProvisionRequest, ProvisionResponse};
 
 pub struct ProvisionState {
     pub batch_ops: KvOps<Batch>,
@@ -24,19 +25,6 @@ pub fn routes(kv: Arc<dyn openerp_kv::KVStore>) -> Router {
     Router::new()
         .route("/batches/{id}/@provision", post(provision))
         .with_state(state)
-}
-
-#[derive(serde::Deserialize)]
-pub struct ProvisionRequest {
-    /// Number of devices to provision (defaults to batch.quantity - batch.provisioned_count).
-    pub count: Option<u32>,
-}
-
-#[derive(serde::Serialize)]
-pub struct ProvisionResponse {
-    pub batch_id: String,
-    pub provisioned: u32,
-    pub devices: Vec<String>,
 }
 
 async fn provision(
