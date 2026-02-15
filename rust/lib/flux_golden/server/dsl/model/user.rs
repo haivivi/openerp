@@ -8,8 +8,11 @@ pub struct User {
     pub username: String,
     pub bio: Option<String>,
     pub avatar: Option<Avatar>,
+    #[serde(deserialize_with = "crate::server::model::de_u32")]
     pub follower_count: u32,
+    #[serde(deserialize_with = "crate::server::model::de_u32")]
     pub following_count: u32,
+    #[serde(deserialize_with = "crate::server::model::de_u32")]
     pub tweet_count: u32,
     // display_name, description, metadata, created_at, updated_at → auto-injected
 }
