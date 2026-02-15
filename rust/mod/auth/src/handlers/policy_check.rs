@@ -34,13 +34,13 @@ impl AuthChecker {
             .get("authorization")
             .and_then(|v| v.to_str().ok())
             .and_then(|v| v.strip_prefix("Bearer "))
-            .ok_or_else(|| ServiceError::Validation("missing authorization token".into()))?;
+            .ok_or_else(|| ServiceError::Unauthorized("missing authorization token".into()))?;
 
         // Decode JWT.
         let key = jsonwebtoken::DecodingKey::from_secret(self.jwt_secret.as_bytes());
         let validation = jsonwebtoken::Validation::default();
         let data = jsonwebtoken::decode::<Claims>(token, &key, &validation)
-            .map_err(|e| ServiceError::Validation(format!("invalid token: {}", e)))?;
+            .map_err(|e| ServiceError::Unauthorized(format!("invalid token: {}", e)))?;
 
         Ok(data.claims.roles)
     }
@@ -74,8 +74,8 @@ impl Authenticator for AuthChecker {
             }
         }
 
-        Err(ServiceError::Validation(format!(
-            "permission denied: requires '{}'",
+        Err(ServiceError::PermissionDenied(format!(
+            "requires '{}'",
             permission
         )))
     }

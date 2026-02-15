@@ -523,14 +523,14 @@ mod tests {
         // DenyAll: every request should be rejected.
         let req = Request::builder().uri("/widgets").body(Body::empty()).unwrap();
         let resp = router.clone().oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "DenyAll should reject list");
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN, "DenyAll should reject list");
 
         let req = Request::builder()
             .method("POST").uri("/widgets")
             .header("content-type", "application/json")
             .body(Body::from(r#"{"count":1}"#)).unwrap();
         let resp = router.oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "DenyAll should reject create");
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN, "DenyAll should reject create");
     }
 
     // =====================================================================
@@ -653,7 +653,8 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::NOT_FOUND);
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let err: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(err["error"].as_str().unwrap().contains("not found"));
+        assert_eq!(err["code"], "NOT_FOUND");
+        assert!(err["message"].as_str().unwrap().contains("not found"));
 
         // PUT non-existent → 404.
         let req = Request::builder()
@@ -691,10 +692,11 @@ mod tests {
             .header("content-type", "application/json")
             .body(Body::from(r#"{"count":2}"#)).unwrap();
         let resp = router.clone().oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "Duplicate should return 400");
+        assert_eq!(resp.status(), StatusCode::CONFLICT, "Duplicate should return 409");
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let err: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert!(err["error"].as_str().unwrap().contains("already exists"));
+        assert_eq!(err["code"], "ALREADY_EXISTS");
+        assert!(err["message"].as_str().unwrap().contains("already exists"));
     }
 
     // =====================================================================

@@ -689,7 +689,7 @@ mod tests {
     impl Authenticator for LocalAuth {
         fn check(&self, headers: &axum::http::HeaderMap, permission: &str) -> Result<(), ServiceError> {
             let roles = headers.get("x-roles").and_then(|v| v.to_str().ok())
-                .ok_or_else(|| ServiceError::Validation("missing x-roles".into()))?;
+                .ok_or_else(|| ServiceError::Unauthorized("missing x-roles".into()))?;
             if roles == "root" { return Ok(()); }
             let ops = KvOps::<LocalRole>::new(self.kv.clone());
             for rid in roles.split(',').map(|s| s.trim()) {
@@ -697,7 +697,7 @@ mod tests {
                     if r.permissions.iter().any(|p| p == permission) { return Ok(()); }
                 }
             }
-            Err(ServiceError::Validation(format!("denied: {}", permission)))
+            Err(ServiceError::PermissionDenied(format!("denied: {}", permission)))
         }
     }
 
@@ -732,7 +732,7 @@ mod tests {
             .header("x-roles", "dynamic").header("content-type", "application/json")
             .body(Body::from(r#"{"priority":1,"displayName":"X"}"#)).unwrap();
         let resp = router.clone().oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "No create permission yet");
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN, "No create permission yet");
 
         // Update role: add create permission.
         let mut role = role_ops.get_or_err("dynamic").unwrap();

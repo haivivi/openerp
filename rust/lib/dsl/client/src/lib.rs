@@ -31,10 +31,10 @@ pub enum ApiError {
     /// Server returned a non-2xx response.
     ///
     /// - `status`: HTTP status code (e.g. 400, 404, 500)
-    /// - `message`: parsed from server JSON `{"error": "..."}`, or raw body
-    ///   if not JSON
-    #[error("HTTP {status}: {message}")]
-    Server { status: u16, message: String },
+    /// - `code`: stable error code from server (e.g. "NOT_FOUND", "ALREADY_EXISTS")
+    /// - `message`: human-readable error message
+    #[error("HTTP {status} [{code}]: {message}")]
+    Server { status: u16, code: String, message: String },
 
     /// Network-level failure (DNS, connection refused, timeout, etc.).
     #[error("network: {0}")]
@@ -58,43 +58,60 @@ impl ApiError {
         }
     }
 
-    /// The error message (parsed from server JSON or variant message).
-    pub fn message(&self) -> &str {
+    /// Stable error code from the server (e.g. "NOT_FOUND", "ALREADY_EXISTS").
+    ///
+    /// Returns `None` for non-server errors (Auth, Network, Decode).
+    pub fn error_code(&self) -> Option<&str> {
         match self {
-            ApiError::Server { message, .. } => message,
-            ApiError::Network(e) => return Box::leak(e.to_string().into_boxed_str()),
-            ApiError::Auth(msg) => msg,
-            ApiError::Decode(msg) => msg,
+            ApiError::Server { code, .. } => Some(code),
+            _ => None,
         }
     }
 
-    /// True if the server returned 404 Not Found.
+    /// The human-readable error message.
+    pub fn message(&self) -> &str {
+        match self {
+            ApiError::Server { message, .. } => message,
+            ApiError::Auth(msg) => msg,
+            ApiError::Decode(msg) => msg,
+            ApiError::Network(_) => "network error",
+        }
+    }
+
+    // ── Code-based helpers (stable — match on error code, not HTTP status) ──
+
+    /// True if the server returned NOT_FOUND.
     pub fn is_not_found(&self) -> bool {
-        matches!(self, ApiError::Server { status: 404, .. })
+        matches!(self, ApiError::Server { code, .. } if code == "NOT_FOUND")
     }
 
-    /// True if the server returned 400 Bad Request (validation / auth).
-    pub fn is_bad_request(&self) -> bool {
-        matches!(self, ApiError::Server { status: 400, .. })
+    /// True if the server returned ALREADY_EXISTS.
+    pub fn is_already_exists(&self) -> bool {
+        matches!(self, ApiError::Server { code, .. } if code == "ALREADY_EXISTS")
     }
 
-    /// True if the server returned 401 Unauthorized.
-    pub fn is_unauthorized(&self) -> bool {
-        matches!(self, ApiError::Server { status: 401, .. })
+    /// True if the server returned VALIDATION_FAILED.
+    pub fn is_validation_failed(&self) -> bool {
+        matches!(self, ApiError::Server { code, .. } if code == "VALIDATION_FAILED")
     }
 
-    /// True if the server returned 403 Forbidden.
-    pub fn is_forbidden(&self) -> bool {
-        matches!(self, ApiError::Server { status: 403, .. })
+    /// True if the server returned UNAUTHENTICATED (missing/invalid token).
+    pub fn is_unauthenticated(&self) -> bool {
+        matches!(self, ApiError::Server { code, .. } if code == "UNAUTHENTICATED")
     }
 
-    /// True if the server returned 409 Conflict.
-    pub fn is_conflict(&self) -> bool {
-        matches!(self, ApiError::Server { status: 409, .. })
+    /// True if the server returned PERMISSION_DENIED.
+    pub fn is_permission_denied(&self) -> bool {
+        matches!(self, ApiError::Server { code, .. } if code == "PERMISSION_DENIED")
     }
 
-    /// True if this is any authentication-related error
-    /// (login failure or token source error).
+    /// True if the server returned READ_ONLY.
+    pub fn is_read_only(&self) -> bool {
+        matches!(self, ApiError::Server { code, .. } if code == "READ_ONLY")
+    }
+
+    /// True if this is a client-side authentication error
+    /// (login failure / token source error — not a server 401).
     pub fn is_auth_error(&self) -> bool {
         matches!(self, ApiError::Auth(_))
     }
@@ -104,14 +121,28 @@ impl ApiError {
         matches!(self, ApiError::Network(_))
     }
 
-    /// Parse a server error body. Extracts `{"error": "..."}` if JSON,
-    /// otherwise uses raw text.
+    /// Parse a server error body.
+    ///
+    /// Expected format: `{"code": "NOT_FOUND", "message": "..."}`
+    /// Falls back to legacy `{"error": "..."}` or raw text.
     fn from_response_body(status: u16, body: &str) -> Self {
-        let message = serde_json::from_str::<serde_json::Value>(body)
-            .ok()
-            .and_then(|v| v.get("error")?.as_str().map(String::from))
-            .unwrap_or_else(|| body.to_string());
-        ApiError::Server { status, message }
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(body) {
+            let code = v.get("code")
+                .and_then(|c| c.as_str())
+                .unwrap_or("UNKNOWN")
+                .to_string();
+            let message = v.get("message")
+                .or_else(|| v.get("error"))
+                .and_then(|m| m.as_str())
+                .unwrap_or(body)
+                .to_string();
+            return ApiError::Server { status, code, message };
+        }
+        ApiError::Server {
+            status,
+            code: "UNKNOWN".to_string(),
+            message: body.to_string(),
+        }
     }
 }
 
@@ -376,47 +407,78 @@ mod tests {
     // ── ApiError construction + helpers ──────────────────────────────
 
     #[test]
-    fn from_response_body_parses_json_error() {
-        let err = ApiError::from_response_body(404, r#"{"error":"id 'x123' not found"}"#);
+    fn from_response_body_parses_structured_error() {
+        let body = r#"{"code":"NOT_FOUND","message":"id 'x123' not found"}"#;
+        let err = ApiError::from_response_body(404, body);
         assert_eq!(err.status(), Some(404));
+        assert_eq!(err.error_code(), Some("NOT_FOUND"));
         assert_eq!(err.message(), "id 'x123' not found");
         assert!(err.is_not_found());
-        assert!(!err.is_bad_request());
+        assert!(!err.is_already_exists());
+    }
+
+    #[test]
+    fn from_response_body_parses_legacy_error_field() {
+        // Legacy format: {"error": "..."} without "code".
+        let body = r#"{"error":"something went wrong"}"#;
+        let err = ApiError::from_response_body(500, body);
+        assert_eq!(err.error_code(), Some("UNKNOWN"));
+        assert_eq!(err.message(), "something went wrong");
     }
 
     #[test]
     fn from_response_body_falls_back_to_raw_text() {
         let err = ApiError::from_response_body(500, "Internal Server Error");
         assert_eq!(err.status(), Some(500));
+        assert_eq!(err.error_code(), Some("UNKNOWN"));
         assert_eq!(err.message(), "Internal Server Error");
-        assert!(!err.is_not_found());
     }
 
     #[test]
     fn from_response_body_handles_empty_body() {
         let err = ApiError::from_response_body(502, "");
         assert_eq!(err.status(), Some(502));
-        assert_eq!(err.message(), "");
+        assert_eq!(err.error_code(), Some("UNKNOWN"));
     }
 
     #[test]
-    fn from_response_body_handles_non_error_json() {
-        // JSON that doesn't have an "error" field → raw body.
-        let err = ApiError::from_response_body(400, r#"{"detail":"bad"}"#);
-        assert_eq!(err.message(), r#"{"detail":"bad"}"#);
-    }
+    fn code_based_helpers_match_on_code_not_status() {
+        // NOT_FOUND.
+        let body = r#"{"code":"NOT_FOUND","message":"x"}"#;
+        let err = ApiError::from_response_body(404, body);
+        assert!(err.is_not_found());
+        assert!(!err.is_already_exists());
+        assert!(!err.is_unauthenticated());
 
-    #[test]
-    fn status_helpers_cover_all_codes() {
-        assert!(ApiError::from_response_body(400, "").is_bad_request());
-        assert!(ApiError::from_response_body(401, "").is_unauthorized());
-        assert!(ApiError::from_response_body(403, "").is_forbidden());
-        assert!(ApiError::from_response_body(404, "").is_not_found());
-        assert!(ApiError::from_response_body(409, "").is_conflict());
+        // ALREADY_EXISTS.
+        let body = r#"{"code":"ALREADY_EXISTS","message":"dup"}"#;
+        let err = ApiError::from_response_body(409, body);
+        assert!(err.is_already_exists());
+        assert!(!err.is_not_found());
 
-        // Negative cases: 404 is NOT bad_request.
-        assert!(!ApiError::from_response_body(404, "").is_bad_request());
-        assert!(!ApiError::from_response_body(400, "").is_not_found());
+        // UNAUTHENTICATED.
+        let body = r#"{"code":"UNAUTHENTICATED","message":"no token"}"#;
+        let err = ApiError::from_response_body(401, body);
+        assert!(err.is_unauthenticated());
+        assert!(!err.is_permission_denied());
+
+        // PERMISSION_DENIED.
+        let body = r#"{"code":"PERMISSION_DENIED","message":"no access"}"#;
+        let err = ApiError::from_response_body(403, body);
+        assert!(err.is_permission_denied());
+        assert!(!err.is_unauthenticated());
+
+        // VALIDATION_FAILED.
+        let body = r#"{"code":"VALIDATION_FAILED","message":"bad"}"#;
+        let err = ApiError::from_response_body(400, body);
+        assert!(err.is_validation_failed());
+
+        // READ_ONLY.
+        let body = r#"{"code":"READ_ONLY","message":"ro"}"#;
+        let err = ApiError::from_response_body(403, body);
+        assert!(err.is_read_only());
+        // Both READ_ONLY and PERMISSION_DENIED are 403, but code distinguishes.
+        assert!(!err.is_permission_denied());
     }
 
     #[test]
@@ -425,21 +487,19 @@ mod tests {
         assert!(err.is_auth_error());
         assert!(!err.is_network_error());
         assert_eq!(err.status(), None);
+        assert_eq!(err.error_code(), None);
         assert_eq!(err.message(), "login failed");
     }
 
     #[test]
-    fn display_format_is_human_readable() {
-        let err = ApiError::from_response_body(404, r#"{"error":"id 'abc' not found"}"#);
+    fn display_format_includes_code() {
+        let body = r#"{"code":"NOT_FOUND","message":"id 'abc' not found"}"#;
+        let err = ApiError::from_response_body(404, body);
         let display = format!("{}", err);
-        assert_eq!(display, "HTTP 404: id 'abc' not found");
+        assert_eq!(display, "HTTP 404 [NOT_FOUND]: id 'abc' not found");
 
         let err = ApiError::Auth("login failed (401): invalid credentials".into());
         let display = format!("{}", err);
         assert_eq!(display, "auth: login failed (401): invalid credentials");
-
-        let err = ApiError::Decode("expected JSON".into());
-        let display = format!("{}", err);
-        assert_eq!(display, "decode: expected JSON");
     }
 }

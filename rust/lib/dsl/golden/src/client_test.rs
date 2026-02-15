@@ -115,20 +115,20 @@ mod tests {
                 .get("authorization")
                 .and_then(|v| v.to_str().ok())
                 .and_then(|v| v.strip_prefix("Bearer "))
-                .ok_or_else(|| ServiceError::Validation("missing Bearer token".into()))?;
+                .ok_or_else(|| ServiceError::Unauthorized("missing Bearer token".into()))?;
 
             let token_data = decode::<Claims>(
                 token,
                 &DecodingKey::from_secret(JWT_SECRET.as_bytes()),
                 &Validation::default(),
-            ).map_err(|e| ServiceError::Validation(format!("invalid token: {}", e)))?;
+            ).map_err(|e| ServiceError::Unauthorized(format!("invalid token: {}", e)))?;
 
             // Root role bypasses permission checks.
             if token_data.claims.roles.contains(&"root".to_string()) {
                 return Ok(());
             }
 
-            Err(ServiceError::Validation("insufficient permissions".into()))
+            Err(ServiceError::PermissionDenied("insufficient permissions".into()))
         }
     }
 
@@ -325,12 +325,9 @@ mod tests {
         let list = client.list().await.unwrap();
         assert_eq!(list.total, 0);
 
-        // 8. Get deleted: should error.
+        // 8. Get deleted: should be NOT_FOUND.
         let err = client.get(&id).await.unwrap_err();
-        match err {
-            ApiError::Server { status, .. } => assert_eq!(status, 404),
-            other => panic!("expected 404, got: {:?}", other),
-        }
+        assert!(err.is_not_found(), "expected NOT_FOUND, got: {:?}", err);
     }
 
     // =====================================================================
@@ -500,27 +497,30 @@ mod tests {
     // =====================================================================
 
     #[tokio::test]
-    async fn error_get_nonexistent_is_404_with_id() {
+    async fn error_get_nonexistent_is_not_found() {
         let server = start_test_server().await;
         let ts = Arc::new(PasswordLogin::new(&server.base_url, "root", ROOT_PASSWORD));
         let client = ResourceClient::<Employee>::new(&server.base_url, ts);
 
         let err = client.get("no-such-id").await.unwrap_err();
 
-        // Status code.
-        assert!(err.is_not_found(), "expected 404, got: {:?}", err);
-        assert_eq!(err.status(), Some(404));
-        assert!(!err.is_bad_request());
+        // Error code (stable, machine-readable).
+        assert_eq!(err.error_code(), Some("NOT_FOUND"));
+        assert!(err.is_not_found());
+        assert!(!err.is_already_exists());
         assert!(!err.is_auth_error());
 
-        // Message contains both "not found" and the ID.
-        let msg = err.message();
-        assert!(msg.contains("not found"), "message should say 'not found', got: {}", msg);
-        assert!(msg.contains("no-such-id"), "message should contain the ID, got: {}", msg);
+        // HTTP status.
+        assert_eq!(err.status(), Some(404));
 
-        // Display format: "HTTP 404: ..."
+        // Human message contains the ID.
+        let msg = err.message();
+        assert!(msg.contains("not found"), "message: {}", msg);
+        assert!(msg.contains("no-such-id"), "message should contain ID: {}", msg);
+
+        // Display includes code.
         let display = format!("{}", err);
-        assert!(display.starts_with("HTTP 404:"), "display: {}", display);
+        assert!(display.contains("[NOT_FOUND]"), "display: {}", display);
     }
 
     // =====================================================================
@@ -528,13 +528,14 @@ mod tests {
     // =====================================================================
 
     #[tokio::test]
-    async fn error_delete_nonexistent_is_404_with_id() {
+    async fn error_delete_nonexistent_is_not_found() {
         let server = start_test_server().await;
         let ts = Arc::new(PasswordLogin::new(&server.base_url, "root", ROOT_PASSWORD));
         let client = ResourceClient::<Employee>::new(&server.base_url, ts);
 
         let err = client.delete("deleted-already").await.unwrap_err();
 
+        assert_eq!(err.error_code(), Some("NOT_FOUND"));
         assert!(err.is_not_found());
         assert_eq!(err.status(), Some(404));
         let msg = err.message();
@@ -547,7 +548,7 @@ mod tests {
     // =====================================================================
 
     #[tokio::test]
-    async fn error_update_nonexistent_is_404_with_id() {
+    async fn error_update_nonexistent_is_not_found() {
         let server = start_test_server().await;
         let ts = Arc::new(PasswordLogin::new(&server.base_url, "root", ROOT_PASSWORD));
         let client = ResourceClient::<Employee>::new(&server.base_url, ts);
@@ -559,6 +560,7 @@ mod tests {
         };
         let err = client.update("ghost-emp", &emp).await.unwrap_err();
 
+        assert_eq!(err.error_code(), Some("NOT_FOUND"));
         assert!(err.is_not_found());
         let msg = err.message();
         assert!(msg.contains("not found"), "message: {}", msg);
@@ -570,7 +572,7 @@ mod tests {
     // =====================================================================
 
     #[tokio::test]
-    async fn error_create_duplicate_is_400_already_exists() {
+    async fn error_create_duplicate_is_already_exists() {
         let server = start_test_server().await;
         let ts = Arc::new(PasswordLogin::new(&server.base_url, "root", ROOT_PASSWORD));
         let client = ResourceClient::<Employee>::new(&server.base_url, ts);
@@ -594,11 +596,14 @@ mod tests {
         };
         let err = client.create(&dup).await.unwrap_err();
 
-        assert!(err.is_bad_request(), "expected 400, got: {:?}", err);
-        assert_eq!(err.status(), Some(400));
+        // Error code: ALREADY_EXISTS, not generic validation.
+        assert_eq!(err.error_code(), Some("ALREADY_EXISTS"));
+        assert!(err.is_already_exists());
         assert!(!err.is_not_found());
+        assert!(!err.is_validation_failed());
+        assert_eq!(err.status(), Some(409));
         let msg = err.message();
-        assert!(msg.contains("already exists"), "message should say 'already exists', got: {}", msg);
+        assert!(msg.contains("already exists"), "message: {}", msg);
         assert!(msg.contains(&id), "message should contain the duplicate ID: {}", msg);
     }
 
@@ -607,7 +612,7 @@ mod tests {
     // =====================================================================
 
     #[tokio::test]
-    async fn error_no_auth_is_400_missing_token() {
+    async fn error_no_auth_is_unauthenticated() {
         let server = start_test_server().await;
         let client = ResourceClient::<Employee>::new(
             &server.base_url,
@@ -616,9 +621,12 @@ mod tests {
 
         let err = client.list().await.unwrap_err();
 
-        assert!(err.is_bad_request(), "expected 400, got: {:?}", err);
-        assert_eq!(err.status(), Some(400));
+        // Error code: UNAUTHENTICATED (not generic VALIDATION_FAILED).
+        assert_eq!(err.error_code(), Some("UNAUTHENTICATED"));
+        assert!(err.is_unauthenticated());
+        assert!(!err.is_permission_denied(), "missing token ≠ insufficient permission");
         assert!(!err.is_auth_error(), "is_auth_error is for client-side TokenSource failures");
+        assert_eq!(err.status(), Some(401));
         let msg = err.message();
         assert!(msg.contains("missing") || msg.contains("Bearer"),
             "message should mention missing token, got: {}", msg);
@@ -629,7 +637,7 @@ mod tests {
     // =====================================================================
 
     #[tokio::test]
-    async fn error_bad_jwt_is_400_invalid_token() {
+    async fn error_bad_jwt_is_unauthenticated() {
         let server = start_test_server().await;
         let client = ResourceClient::<Employee>::new(
             &server.base_url,
@@ -638,9 +646,11 @@ mod tests {
 
         let err = client.list().await.unwrap_err();
 
-        assert!(err.is_bad_request(), "expected 400, got: {:?}", err);
+        assert_eq!(err.error_code(), Some("UNAUTHENTICATED"));
+        assert!(err.is_unauthenticated());
+        assert_eq!(err.status(), Some(401));
         let msg = err.message();
-        assert!(msg.contains("invalid token"), "message should say 'invalid token', got: {}", msg);
+        assert!(msg.contains("invalid token"), "message: {}", msg);
     }
 
     // =====================================================================
@@ -648,7 +658,7 @@ mod tests {
     // =====================================================================
 
     #[tokio::test]
-    async fn error_expired_jwt_is_400() {
+    async fn error_expired_jwt_is_unauthenticated() {
         let server = start_test_server().await;
 
         // Sign a JWT that expired 1 hour ago.
@@ -660,10 +670,11 @@ mod tests {
 
         let err = client.list().await.unwrap_err();
 
-        assert!(err.is_bad_request(), "expected 400, got: {:?}", err);
+        assert_eq!(err.error_code(), Some("UNAUTHENTICATED"));
+        assert!(err.is_unauthenticated());
+        assert_eq!(err.status(), Some(401));
         let msg = err.message();
-        assert!(msg.contains("invalid token") || msg.contains("ExpiredSignature"),
-            "message should mention token error, got: {}", msg);
+        assert!(msg.contains("invalid token"), "message: {}", msg);
     }
 
     // =====================================================================
@@ -740,18 +751,19 @@ mod tests {
     // =====================================================================
 
     #[tokio::test]
-    async fn error_display_format_consistency() {
+    async fn error_display_format_includes_code() {
         let server = start_test_server().await;
         let ts = Arc::new(PasswordLogin::new(&server.base_url, "root", ROOT_PASSWORD));
         let client = ResourceClient::<Employee>::new(&server.base_url, ts);
 
-        // 404 error display.
+        // NOT_FOUND display: "HTTP 404 [NOT_FOUND]: id '...' not found"
         let err = client.get("display-test-id").await.unwrap_err();
         let display = format!("{}", err);
-        assert!(display.starts_with("HTTP 404:"), "404 display: {}", display);
-        assert!(display.contains("not found"), "404 display: {}", display);
+        assert!(display.contains("404"), "display: {}", display);
+        assert!(display.contains("[NOT_FOUND]"), "display should contain code: {}", display);
+        assert!(display.contains("not found"), "display: {}", display);
 
-        // Auth error display.
+        // Auth error display: "auth: ..."
         let bad_ts = Arc::new(PasswordLogin::new(&server.base_url, "root", "bad"));
         let bad_client = ResourceClient::<Employee>::new(&server.base_url, bad_ts);
         let err = bad_client.list().await.unwrap_err();

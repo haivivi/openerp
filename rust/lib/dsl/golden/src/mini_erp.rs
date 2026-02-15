@@ -172,7 +172,7 @@ mod tests {
             let roles_header = headers
                 .get("x-roles")
                 .and_then(|v| v.to_str().ok())
-                .ok_or_else(|| ServiceError::Validation("missing x-roles header".into()))?;
+                .ok_or_else(|| ServiceError::Unauthorized("missing x-roles header".into()))?;
 
             // "root" bypasses everything.
             if roles_header == "root" {
@@ -190,7 +190,7 @@ mod tests {
                 }
             }
 
-            Err(ServiceError::Validation(format!(
+            Err(ServiceError::PermissionDenied(format!(
                 "none of roles {:?} have permission '{}'",
                 role_ids, permission
             )))
@@ -489,12 +489,12 @@ mod tests {
             Some(serde_json::json!({"email": "x@y.com", "active": true, "displayName": "X"})),
             "hr-viewer",
         ).await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "viewer cannot create");
-        assert!(err["error"].as_str().unwrap().contains("permission"));
+        assert_eq!(s, StatusCode::FORBIDDEN, "viewer cannot create");
+        assert_eq!(err["code"], "PERMISSION_DENIED");
 
         // hr-viewer: CANNOT delete.
         let (s, _) = api_call(&erp.hr_router, "DELETE", &format!("/employees/{}", emp_id), None, "hr-viewer").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "viewer cannot delete");
+        assert_eq!(s, StatusCode::FORBIDDEN, "viewer cannot delete");
 
         // hr-admin: CAN create.
         let (s, _) = api_call(&erp.hr_router, "POST", "/employees",
@@ -516,7 +516,7 @@ mod tests {
         // No token at all → rejected.
         let req = Request::builder().uri("/employees").body(Body::empty()).unwrap();
         let resp = erp.hr_router.clone().oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST, "Missing x-roles → rejected");
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED, "Missing x-roles → rejected");
     }
 
     // ── 7. Cross-module isolation ──
@@ -763,7 +763,7 @@ mod tests {
 
         // User with only emp-reader: cannot list departments.
         let (s, _) = api_call(&erp.hr_router, "GET", "/departments", None, "emp-reader").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "emp-reader cannot list departments");
+        assert_eq!(s, StatusCode::FORBIDDEN, "emp-reader cannot list departments");
     }
 
     // ── 13. Concurrent creates don't collide (unique auto-ids) ──
@@ -941,24 +941,24 @@ mod tests {
         ).await;
         assert_eq!(s, StatusCode::OK, "only-create can create");
         let (s, _) = api_call(&erp.km_router, "GET", "/documents", None, "only-create").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "only-create cannot list");
+        assert_eq!(s, StatusCode::FORBIDDEN, "only-create cannot list");
         let (s, _) = api_call(&erp.km_router, "GET", &format!("/documents/{}", doc_id), None, "only-create").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "only-create cannot read");
+        assert_eq!(s, StatusCode::FORBIDDEN, "only-create cannot read");
 
         // only-read: can GET single but NOT list/create/update/delete.
         let (s, _) = api_call(&erp.km_router, "GET", &format!("/documents/{}", doc_id), None, "only-read").await;
         assert_eq!(s, StatusCode::OK, "only-read can read");
         let (s, _) = api_call(&erp.km_router, "GET", "/documents", None, "only-read").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "only-read cannot list");
+        assert_eq!(s, StatusCode::FORBIDDEN, "only-read cannot list");
         let (s, _) = api_call(&erp.km_router, "DELETE", &format!("/documents/{}", doc_id), None, "only-read").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "only-read cannot delete");
+        assert_eq!(s, StatusCode::FORBIDDEN, "only-read cannot delete");
 
         // only-list: can list but NOT read single.
         let (s, list) = api_call(&erp.km_router, "GET", "/documents", None, "only-list").await;
         assert_eq!(s, StatusCode::OK, "only-list can list");
         assert!(list["total"].as_u64().unwrap() >= 2);
         let (s, _) = api_call(&erp.km_router, "GET", &format!("/documents/{}", doc_id), None, "only-list").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "only-list cannot read single");
+        assert_eq!(s, StatusCode::FORBIDDEN, "only-list cannot read single");
 
         // only-update: can read + update but NOT create/delete.
         let (s, d) = api_call(&erp.km_router, "GET", &format!("/documents/{}", doc_id), None, "only-update").await;
@@ -971,7 +971,7 @@ mod tests {
             Some(serde_json::json!({"title": "X", "authorId": "e", "displayName": "X"})),
             "only-update",
         ).await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "only-update cannot create");
+        assert_eq!(s, StatusCode::FORBIDDEN, "only-update cannot create");
 
         // only-delete: can read + delete but NOT create/update.
         let (s, _) = api_call(&erp.km_router, "DELETE", &format!("/documents/{}", doc_id), None, "only-delete").await;
@@ -1011,17 +1011,17 @@ mod tests {
         let (s, _) = api_call(&erp.hr_router, "GET", "/employees", None, "hr-only").await;
         assert_eq!(s, StatusCode::OK, "hr-only can list employees");
         let (s, _) = api_call(&erp.km_router, "GET", "/documents", None, "hr-only").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "hr-only blocked from KM documents");
+        assert_eq!(s, StatusCode::FORBIDDEN, "hr-only blocked from KM documents");
         let (s, _) = api_call(&erp.org_router, "GET", "/companies", None, "hr-only").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "hr-only blocked from Org companies");
+        assert_eq!(s, StatusCode::FORBIDDEN, "hr-only blocked from Org companies");
 
         // km-only: can access KM, blocked from HR and Org.
         let (s, _) = api_call(&erp.km_router, "GET", "/documents", None, "km-only").await;
         assert_eq!(s, StatusCode::OK, "km-only can list documents");
         let (s, _) = api_call(&erp.hr_router, "GET", "/employees", None, "km-only").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "km-only blocked from HR employees");
+        assert_eq!(s, StatusCode::FORBIDDEN, "km-only blocked from HR employees");
         let (s, _) = api_call(&erp.pm_router, "GET", "/projects", None, "km-only").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "km-only blocked from PM projects");
+        assert_eq!(s, StatusCode::FORBIDDEN, "km-only blocked from PM projects");
     }
 
     // ── 16. Document version auto-increment on update ──
@@ -1188,7 +1188,7 @@ mod tests {
         let (s, _) = api_call(&erp.hr_router, "POST", "/employees",
             Some(serde_json::json!({"email":"z@z.com","active":true,"displayName":"Z"})),
             "role-a,role-b").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "no create permission in union");
+        assert_eq!(s, StatusCode::FORBIDDEN, "no create permission in union");
     }
 
     // ── 20. Empty/invalid role → no permissions ──
@@ -1206,11 +1206,11 @@ mod tests {
 
         // Empty role can't do anything.
         let (s, _) = api_call(&erp.hr_router, "GET", "/employees", None, "empty-role").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "empty role has no permissions");
+        assert_eq!(s, StatusCode::FORBIDDEN, "empty role has no permissions");
 
         // Non-existent role in header.
         let (s, _) = api_call(&erp.hr_router, "GET", "/employees", None, "nonexistent-role").await;
-        assert_eq!(s, StatusCode::BAD_REQUEST, "non-existent role has no permissions");
+        assert_eq!(s, StatusCode::FORBIDDEN, "non-existent role has no permissions");
     }
 
     // ── 21. 4-module schema generation ──
