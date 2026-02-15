@@ -3,7 +3,9 @@
 
 import SwiftUI
 
+#if !TESTING
 @main
+#endif
 struct TwitterFluxApp: App {
     @StateObject private var store = FluxStore()
 

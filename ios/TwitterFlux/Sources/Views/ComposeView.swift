@@ -44,7 +44,9 @@ struct ComposeView: View {
                 .padding()
             }
             .navigationTitle("Compose")
+            #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
+            #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }

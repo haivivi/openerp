@@ -30,7 +30,9 @@ struct LoginView: View {
             VStack(spacing: 16) {
                 TextField("Username", text: $username)
                     .textFieldStyle(.roundedBorder)
+                    #if os(iOS)
                     .autocapitalization(.none)
+                    #endif
                     .disableAutocorrection(true)
 
                 Button(action: login) {

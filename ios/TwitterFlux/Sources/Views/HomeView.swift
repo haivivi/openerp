@@ -34,6 +34,7 @@ struct HomeView: View {
             }
             .navigationTitle("Home")
             .toolbar {
+                #if os(iOS)
                 ToolbarItem(placement: .topBarLeading) {
                     if let user = auth?.user {
                         Text("@\(user.username)")
@@ -52,6 +53,24 @@ struct HomeView: View {
                         .font(.caption)
                     }
                 }
+                #else
+                ToolbarItem {
+                    HStack(spacing: 12) {
+                        if let user = auth?.user {
+                            Text("@\(user.username)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        NavigationLink(destination: ComposeView()) {
+                            Image(systemName: "square.and.pencil")
+                        }
+                        Button("Logout") {
+                            store.emit("auth/logout")
+                        }
+                        .font(.caption)
+                    }
+                }
+                #endif
             }
         }
     }

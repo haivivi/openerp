@@ -52,7 +52,7 @@ pub type FluxCallback = extern "C" fn(
 /// Returns an opaque handle. Must be freed with `flux_free`.
 #[no_mangle]
 pub extern "C" fn flux_create() -> *mut FluxHandle {
-    let rt = tokio::runtime::Builder::new_multi_thread()
+    let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .expect("failed to create tokio runtime");

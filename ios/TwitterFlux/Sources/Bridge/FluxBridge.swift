@@ -1,7 +1,8 @@
 // FluxBridge — Swift wrapper around Flux C FFI.
-// Uses @_silgen_name to declare C functions — no bridging header needed in Bazel.
+// Uses @_silgen_name to declare C functions — no bridging header needed.
 
 import Foundation
+import Combine
 
 // MARK: - C FFI declarations (linked from Rust static library)
 
@@ -28,14 +29,23 @@ private struct _FluxBytes {
 // MARK: - FluxStore (ObservableObject for SwiftUI)
 
 /// Main interface to the Flux state engine from Swift.
-/// Wraps the C FFI and provides typed, SwiftUI-friendly APIs.
-@MainActor
+///
+/// Usage:
+/// ```
+/// @StateObject var store = FluxStore()
+///
+/// // Read state:
+/// let auth: AuthState? = store.get("auth/state")
+///
+/// // Send request:
+/// store.emit("auth/login", json: ["username": "alice"])
+/// ```
 final class FluxStore: ObservableObject {
 
     private let handle: OpaquePointer
 
-    /// Revision counter — bumped on every emit to trigger SwiftUI updates.
-    @Published private(set) var revision: UInt64 = 0
+    /// Bumped on every emit — SwiftUI observes this to trigger re-renders.
+    @Published var revision: UInt64 = 0
 
     init() {
         guard let h = _flux_create() else {
@@ -51,8 +61,15 @@ final class FluxStore: ObservableObject {
     // MARK: - State
 
     /// Get state at a path, decoded as T.
+    /// Call from SwiftUI views — reads `revision` to establish dependency.
     func get<T: Decodable>(_ path: String) -> T? {
-        let _ = revision // observe revision for SwiftUI reactivity
+        // Touch revision so SwiftUI knows to re-call when it changes.
+        let _ = revision
+        return getSync(path)
+    }
+
+    /// Get state without revision tracking (for non-SwiftUI code / tests).
+    func getSync<T: Decodable>(_ path: String) -> T? {
         let bytes = path.withCString { _flux_get(handle, $0) }
         defer { _flux_bytes_free(bytes) }
         guard let ptr = bytes.ptr, bytes.len > 0 else { return nil }
@@ -72,12 +89,14 @@ final class FluxStore: ObservableObject {
                 }
             }
         }
-        revision += 1
+        objectWillChange.send()
+        revision &+= 1
     }
 
     /// Emit a parameterless request.
     func emit(_ path: String) {
         path.withCString { _flux_emit(handle, $0, nil) }
-        revision += 1
+        objectWillChange.send()
+        revision &+= 1
     }
 }
