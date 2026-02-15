@@ -5,6 +5,7 @@
 
 mod mini_erp;
 mod edge_cases;
+mod client_test;
 
 #[cfg(test)]
 mod tests {
