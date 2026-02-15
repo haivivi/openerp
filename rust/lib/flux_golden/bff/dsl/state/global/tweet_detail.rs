@@ -1,10 +1,10 @@
 //! Tweet detail state — stored at `tweet/{tweet_id}`.
 
+use flux_derive::state;
 use super::timeline::FeedItem;
 
 /// Tweet detail view with replies.
-// #[state("tweet/{tweet_id}")]
-#[derive(Debug, Clone, PartialEq)]
+#[state("tweet")]
 pub struct TweetDetail {
     pub tweet: FeedItem,
     pub replies: Vec<FeedItem>,

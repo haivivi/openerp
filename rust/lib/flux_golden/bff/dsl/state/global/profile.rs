@@ -1,11 +1,11 @@
 //! Profile page state — stored at `profile/{user_id}`.
 
+use flux_derive::state;
 use super::auth::UserProfile;
 use super::timeline::FeedItem;
 
 /// A user's profile page.
-// #[state("profile/{user_id}")]
-#[derive(Debug, Clone, PartialEq)]
+#[state("profile")]
 pub struct ProfilePage {
     pub user: UserProfile,
     pub tweets: Vec<FeedItem>,

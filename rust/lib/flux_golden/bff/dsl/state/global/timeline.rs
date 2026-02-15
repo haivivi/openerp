@@ -1,10 +1,10 @@
 //! Timeline state — stored at `timeline/feed`.
 
+use flux_derive::state;
 use super::auth::UserProfile;
 
 /// Home timeline feed.
-// #[state("timeline/feed")]
-#[derive(Debug, Clone, PartialEq)]
+#[state("timeline/feed")]
 pub struct TimelineFeed {
     pub items: Vec<FeedItem>,
     pub loading: bool,
@@ -23,8 +23,4 @@ pub struct FeedItem {
     pub reply_count: u32,
     pub reply_to_id: Option<String>,
     pub created_at: String,
-}
-
-impl TimelineFeed {
-    pub const PATH: &'static str = "timeline/feed";
 }

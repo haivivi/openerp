@@ -1,8 +1,9 @@
 //! Compose state — stored at `compose/state`.
 
+use flux_derive::state;
+
 /// Tweet compose form state.
-// #[state("compose/state")]
-#[derive(Debug, Clone, PartialEq)]
+#[state("compose/state")]
 pub struct ComposeState {
     pub content: String,
     pub reply_to_id: Option<String>,
@@ -11,8 +12,6 @@ pub struct ComposeState {
 }
 
 impl ComposeState {
-    pub const PATH: &'static str = "compose/state";
-
     pub fn empty() -> Self {
         Self {
             content: String::new(),

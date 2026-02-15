@@ -1,0 +1,14 @@
+load("@rules_rust//rust:defs.bzl", "rust_proc_macro")
+
+rust_proc_macro(
+    name = "flux_derive",
+    crate_name = "flux_derive",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2021",
+    visibility = ["//visibility:public"],
+    deps = [
+        "@crates//:syn",
+        "@crates//:quote",
+        "@crates//:proc-macro2",
+    ],
+)
