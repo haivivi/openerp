@@ -233,4 +233,47 @@ mod tests {
         let err = ops.get_or_err("nope").unwrap_err();
         assert!(err.to_string().contains("not found"));
     }
+
+    #[test]
+    fn readonly_key_rejected_on_write() {
+        let dir = tempfile::tempdir().unwrap();
+        let redb = openerp_kv::RedbStore::open(&dir.path().join("ro.redb")).unwrap();
+        let overlay = openerp_kv::OverlayKV::new(redb);
+
+        // Insert a key into the read-only file layer.
+        let data = serde_json::to_vec(&Thing { id: "ro1".into(), name: "ReadOnly".into(), count: 1 }).unwrap();
+        overlay.insert_file_entry("test:thing:ro1".into(), data);
+
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(overlay);
+        let ops = KvOps::<Thing>::new(kv);
+
+        // Can read.
+        let fetched = ops.get("ro1").unwrap();
+        assert!(fetched.is_some(), "Should be able to read file-layer key");
+        assert_eq!(fetched.unwrap().name, "ReadOnly");
+
+        // Can't update.
+        let mut t = Thing { id: "ro1".into(), name: "Changed".into(), count: 2 };
+        let err = ops.save(t.clone()).unwrap_err();
+        assert!(err.to_string().contains("read-only") || err.to_string().contains("ReadOnly"),
+            "Save to readonly key should fail, got: {}", err);
+
+        // Can't delete.
+        let err = ops.delete("ro1").unwrap_err();
+        assert!(err.to_string().contains("read-only") || err.to_string().contains("ReadOnly"),
+            "Delete of readonly key should fail, got: {}", err);
+
+        // Can't save_new (duplicate + readonly).
+        t.id = "ro1".into();
+        let err = ops.save_new(t).unwrap_err();
+        assert!(err.to_string().contains("already exists"),
+            "save_new of existing readonly key should fail with duplicate, got: {}", err);
+    }
+
+    #[test]
+    fn delete_nonexistent_returns_not_found() {
+        let (ops, _dir) = make_ops();
+        let err = ops.delete("ghost").unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
 }

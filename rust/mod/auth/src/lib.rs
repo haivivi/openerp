@@ -726,6 +726,36 @@ mod tests {
         assert!(checker.check(&headers, "auth:user:delete").is_err());
     }
 
+    #[test]
+    fn auth_checker_expired_jwt_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("ac_exp.redb")).unwrap(),
+        );
+        let checker = handlers::policy_check::AuthChecker::new(kv, "test-secret", "auth:root");
+
+        // JWT with exp in the past.
+        let claims = serde_json::json!({
+            "sub": "root", "roles": ["auth:root"],
+            "iat": chrono::Utc::now().timestamp() - 7200,
+            "exp": chrono::Utc::now().timestamp() - 3600, // expired 1h ago
+        });
+        let token = jsonwebtoken::encode(
+            &jsonwebtoken::Header::default(),
+            &claims,
+            &jsonwebtoken::EncodingKey::from_secret(b"test-secret"),
+        ).unwrap();
+
+        let mut headers = axum::http::HeaderMap::new();
+        headers.insert("authorization", format!("Bearer {}", token).parse().unwrap());
+
+        let result = checker.check(&headers, "anything");
+        assert!(result.is_err(), "Expired JWT should be rejected");
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("invalid token") || err_msg.contains("expired"),
+            "Error should mention invalid/expired, got: {}", err_msg);
+    }
+
     // ── Integration: admin PUT update ──
 
     #[tokio::test]

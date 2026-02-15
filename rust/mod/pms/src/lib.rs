@@ -329,6 +329,77 @@ mod tests {
         assert_eq!(updated_batch["provisionedCount"], 3);
     }
 
+    // ── Partial provision ──
+
+    #[tokio::test]
+    async fn provision_partial_count() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("partial.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_router(kv, auth);
+
+        // Create batch with quantity=5.
+        let batch_json = serde_json::json!({
+            "model": 77, "quantity": 5, "provisionedCount": 0,
+            "status": "pending", "displayName": "Partial Batch",
+        });
+        let req = Request::builder()
+            .method("POST").uri("/batches")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&batch_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let batch: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let batch_id = batch["id"].as_str().unwrap();
+
+        // Provision only 2 of 5.
+        let prov_json = serde_json::json!({"count": 2});
+        let req = Request::builder()
+            .method("POST").uri(format!("/batches/{}/@provision", batch_id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&prov_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let prov: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(prov["provisioned"], 2);
+        assert_eq!(prov["devices"].as_array().unwrap().len(), 2);
+
+        // Batch should be in_progress (not completed).
+        let req = Request::builder().uri(format!("/batches/{}", batch_id)).body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let b: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(b["status"], "in_progress");
+        assert_eq!(b["provisionedCount"], 2);
+
+        // Provision remaining 3.
+        let prov_json = serde_json::json!({});
+        let req = Request::builder()
+            .method("POST").uri(format!("/batches/{}/@provision", batch_id))
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&prov_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let prov: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(prov["provisioned"], 3);
+
+        // Batch should be completed now.
+        let req = Request::builder().uri(format!("/batches/{}", batch_id)).body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let b: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(b["status"], "completed");
+        assert_eq!(b["provisionedCount"], 5);
+    }
+
     // ── Activate action ──
 
     #[tokio::test]

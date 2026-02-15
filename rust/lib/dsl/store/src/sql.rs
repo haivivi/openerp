@@ -450,6 +450,55 @@ mod tests {
         assert!(ops.get(&["SN001"]).unwrap().is_none());
     }
 
+    #[test]
+    fn sql_update_existing() {
+        let (ops, _dir) = make_ops();
+
+        let device = Device {
+            sn: "UPD001".into(),
+            model: 10,
+            status: "provisioned".into(),
+            description: Some("Before update".into()),
+        };
+        ops.save_new(device).unwrap();
+
+        // Update.
+        let mut d = ops.get_or_err(&["UPD001"]).unwrap();
+        d.status = "active".into();
+        d.description = Some("After update".into());
+        let updated = ops.save(d).unwrap();
+        assert_eq!(updated.status, "active");
+
+        // Verify.
+        let fetched = ops.get_or_err(&["UPD001"]).unwrap();
+        assert_eq!(fetched.status, "active");
+        assert_eq!(fetched.description, Some("After update".into()));
+
+        // Should still be 1 record.
+        assert_eq!(ops.list().unwrap().len(), 1);
+    }
+
+    #[test]
+    fn sql_unique_violation() {
+        let (ops, _dir) = make_ops();
+
+        let d1 = Device { sn: "DUP001".into(), model: 1, status: "a".into(), description: None };
+        ops.save_new(d1).unwrap();
+
+        let d2 = Device { sn: "DUP001".into(), model: 2, status: "b".into(), description: None };
+        let err = ops.save_new(d2).unwrap_err();
+        assert!(err.to_string().contains("UNIQUE") || err.to_string().contains("already exists"),
+            "Duplicate PK should fail: {}", err);
+    }
+
+    #[test]
+    fn sql_get_nonexistent() {
+        let (ops, _dir) = make_ops();
+        assert!(ops.get(&["ghost"]).unwrap().is_none());
+        let err = ops.get_or_err(&["ghost"]).unwrap_err();
+        assert!(err.to_string().contains("not found"));
+    }
+
     // Compound PK test.
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
     struct Firmware {

@@ -275,6 +275,82 @@ mod tests {
         assert_eq!(t["retryCount"], 1);
     }
 
+    // ── Task fail: retries exhausted → final failed ──
+
+    #[tokio::test]
+    async fn task_retries_exhausted_stays_failed() {
+        use axum::body::Body;
+        use axum::http::{Request, StatusCode};
+        use tower::ServiceExt;
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("exhaust.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_router(kv, auth);
+
+        // Create task with max_retries=1.
+        let task_json = serde_json::json!({
+            "taskType": "fragile", "total": 1,
+            "status": "pending", "timeoutSecs": 60,
+            "maxRetries": 1, "displayName": "Exhaust Test",
+        });
+        let req = Request::builder()
+            .method("POST").uri("/tasks")
+            .header("content-type", "application/json")
+            .body(Body::from(serde_json::to_string(&task_json).unwrap())).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let task: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        let task_id = task["id"].as_str().unwrap();
+
+        // Claim + fail → retry_count=1, back to pending (retry_count < max_retries).
+        let req = Request::builder()
+            .method("POST").uri(format!("/tasks/{}/@claim", task_id))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"workerId":"w1"}"#)).unwrap();
+        router.clone().oneshot(req).await.unwrap();
+
+        let req = Request::builder()
+            .method("POST").uri(format!("/tasks/{}/@fail", task_id))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"error":"attempt 1"}"#)).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let r: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(r["status"], "pending", "First fail: should retry");
+
+        // Claim again + fail → retry_count=2 > max_retries=1, stays failed.
+        let req = Request::builder()
+            .method("POST").uri(format!("/tasks/{}/@claim", task_id))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"workerId":"w2"}"#)).unwrap();
+        router.clone().oneshot(req).await.unwrap();
+
+        let req = Request::builder()
+            .method("POST").uri(format!("/tasks/{}/@fail", task_id))
+            .header("content-type", "application/json")
+            .body(Body::from(r#"{"error":"attempt 2 final"}"#)).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let r: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(r["status"], "failed", "Second fail: retries exhausted, should stay failed");
+
+        // Verify final state.
+        let req = Request::builder()
+            .uri(format!("/tasks/{}", task_id)).body(Body::empty()).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let t: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert_eq!(t["status"], "failed");
+        // retry_count=1: one successful retry happened (first fail), second fail exhausted retries.
+        assert_eq!(t["retryCount"], 1);
+        assert!(t["endedAt"].as_str().is_some(), "endedAt should be set on final failure");
+    }
+
     // ── Task cancel ──
 
     #[tokio::test]

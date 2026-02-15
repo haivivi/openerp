@@ -139,4 +139,56 @@ mod tests {
         assert_eq!(doc.get("body").unwrap(), "This is the body text.");
         assert!(!doc.contains_key("id")); // id not in FIELDS
     }
+
+    #[test]
+    fn search_ops_index_and_search() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine: Arc<dyn openerp_search::SearchEngine> = Arc::new(
+            openerp_search::TantivyEngine::open(&dir.path().join("idx")).unwrap(),
+        );
+        let ops = SearchOps::<Article>::new(engine);
+
+        // Index three articles.
+        let a1 = Article { id: "a1".into(), title: "Rust Programming".into(), body: "Systems language with safety".into() };
+        let a2 = Article { id: "a2".into(), title: "Go Concurrency".into(), body: "Goroutines and channels".into() };
+        let a3 = Article { id: "a3".into(), title: "Rust Async".into(), body: "Futures and tokio runtime".into() };
+        ops.index(&a1).unwrap();
+        ops.index(&a2).unwrap();
+        ops.index(&a3).unwrap();
+
+        // Search for "Rust".
+        let results = ops.search("Rust", 10).unwrap();
+        assert!(results.len() >= 2, "Should find at least 2 Rust articles, got {}", results.len());
+        let ids: Vec<&str> = results.iter().map(|(id, _)| id.as_str()).collect();
+        assert!(ids.contains(&"a1"), "a1 should match");
+        assert!(ids.contains(&"a3"), "a3 should match");
+
+        // Search for "goroutines".
+        let results = ops.search("goroutines", 10).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "a2");
+    }
+
+    #[test]
+    fn search_ops_remove() {
+        let dir = tempfile::tempdir().unwrap();
+        let engine: Arc<dyn openerp_search::SearchEngine> = Arc::new(
+            openerp_search::TantivyEngine::open(&dir.path().join("idx2")).unwrap(),
+        );
+        let ops = SearchOps::<Article>::new(engine);
+
+        let a1 = Article { id: "r1".into(), title: "Remove Test".into(), body: "Will be removed".into() };
+        ops.index(&a1).unwrap();
+
+        // Verify it's there.
+        let results = ops.search("Remove", 10).unwrap();
+        assert_eq!(results.len(), 1);
+
+        // Remove.
+        ops.remove("r1").unwrap();
+
+        // Should be gone.
+        let results = ops.search("Remove", 10).unwrap();
+        assert_eq!(results.len(), 0, "Removed article should not appear in search");
+    }
 }
