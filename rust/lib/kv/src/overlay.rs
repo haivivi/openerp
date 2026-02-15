@@ -69,6 +69,26 @@ impl<DB: KVStore> KVStore for OverlayKV<DB> {
         self.db.delete(key)
     }
 
+    fn batch_set(&self, entries: &[(&str, &[u8])]) -> Result<(), KVError> {
+        // Check all keys for read-only before delegating — fail fast, no partial writes.
+        for (key, _) in entries {
+            if self.is_readonly(key) {
+                return Err(KVError::ReadOnly(key.to_string()));
+            }
+        }
+        self.db.batch_set(entries)
+    }
+
+    fn batch_delete(&self, keys: &[&str]) -> Result<(), KVError> {
+        // Check all keys for read-only before delegating — fail fast, no partial deletes.
+        for key in keys {
+            if self.is_readonly(key) {
+                return Err(KVError::ReadOnly(key.to_string()));
+            }
+        }
+        self.db.batch_delete(keys)
+    }
+
     fn scan(&self, prefix: &str) -> Result<Vec<(String, Vec<u8>)>, KVError> {
         // Collect keys from both layers, file layer wins on conflict.
         let file_layer = self.file_layer.read().unwrap();
