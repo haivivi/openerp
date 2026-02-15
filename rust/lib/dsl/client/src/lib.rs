@@ -23,19 +23,96 @@ use serde::{de::DeserializeOwned, Deserialize, Serialize};
 // ── Error ───────────────────────────────────────────────────────────
 
 /// Client-side API error.
+///
+/// `Server` errors carry the HTTP status code and parsed error message
+/// from the server's `{"error": "..."}` JSON body.
 #[derive(Debug, thiserror::Error)]
 pub enum ApiError {
+    /// Server returned a non-2xx response.
+    ///
+    /// - `status`: HTTP status code (e.g. 400, 404, 500)
+    /// - `message`: parsed from server JSON `{"error": "..."}`, or raw body
+    ///   if not JSON
     #[error("HTTP {status}: {message}")]
     Server { status: u16, message: String },
 
+    /// Network-level failure (DNS, connection refused, timeout, etc.).
     #[error("network: {0}")]
     Network(#[from] reqwest::Error),
 
+    /// Authentication failure (login rejected, token source error).
     #[error("auth: {0}")]
     Auth(String),
 
+    /// Response body could not be deserialized.
     #[error("decode: {0}")]
     Decode(String),
+}
+
+impl ApiError {
+    /// HTTP status code, if this is a server error.
+    pub fn status(&self) -> Option<u16> {
+        match self {
+            ApiError::Server { status, .. } => Some(*status),
+            _ => None,
+        }
+    }
+
+    /// The error message (parsed from server JSON or variant message).
+    pub fn message(&self) -> &str {
+        match self {
+            ApiError::Server { message, .. } => message,
+            ApiError::Network(e) => return Box::leak(e.to_string().into_boxed_str()),
+            ApiError::Auth(msg) => msg,
+            ApiError::Decode(msg) => msg,
+        }
+    }
+
+    /// True if the server returned 404 Not Found.
+    pub fn is_not_found(&self) -> bool {
+        matches!(self, ApiError::Server { status: 404, .. })
+    }
+
+    /// True if the server returned 400 Bad Request (validation / auth).
+    pub fn is_bad_request(&self) -> bool {
+        matches!(self, ApiError::Server { status: 400, .. })
+    }
+
+    /// True if the server returned 401 Unauthorized.
+    pub fn is_unauthorized(&self) -> bool {
+        matches!(self, ApiError::Server { status: 401, .. })
+    }
+
+    /// True if the server returned 403 Forbidden.
+    pub fn is_forbidden(&self) -> bool {
+        matches!(self, ApiError::Server { status: 403, .. })
+    }
+
+    /// True if the server returned 409 Conflict.
+    pub fn is_conflict(&self) -> bool {
+        matches!(self, ApiError::Server { status: 409, .. })
+    }
+
+    /// True if this is any authentication-related error
+    /// (login failure or token source error).
+    pub fn is_auth_error(&self) -> bool {
+        matches!(self, ApiError::Auth(_))
+    }
+
+    /// True if this is a network-level error (not a server response).
+    pub fn is_network_error(&self) -> bool {
+        matches!(self, ApiError::Network(_))
+    }
+
+    /// Parse a server error body. Extracts `{"error": "..."}` if JSON,
+    /// otherwise uses raw text.
+    fn from_response_body(status: u16, body: &str) -> Self {
+        let message = serde_json::from_str::<serde_json::Value>(body)
+            .ok()
+            .and_then(|v| v.get("error")?.as_str().map(String::from))
+            .unwrap_or_else(|| body.to_string());
+        ApiError::Server { status, message }
+    }
 }
 
 // ── TokenSource ─────────────────────────────────────────────────────
@@ -225,7 +302,7 @@ impl<T: DslModel> ResourceClient<T> {
         if !status.is_success() {
             let code = status.as_u16();
             let body = resp.text().await.unwrap_or_default();
-            return Err(ApiError::Server { status: code, message: body });
+            return Err(ApiError::from_response_body(code, &body));
         }
         resp.json::<R>().await
             .map_err(|e| ApiError::Decode(format!("response body: {}", e)))
@@ -272,7 +349,7 @@ impl<T: DslModel> ResourceClient<T> {
         if !status.is_success() {
             let code = status.as_u16();
             let body = resp.text().await.unwrap_or_default();
-            return Err(ApiError::Server { status: code, message: body });
+            return Err(ApiError::from_response_body(code, &body));
         }
         Ok(())
     }
@@ -281,6 +358,8 @@ impl<T: DslModel> ResourceClient<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ── TokenSource ─────────────────────────────────────────────────
 
     #[tokio::test]
     async fn no_auth_returns_none() {
@@ -292,5 +371,75 @@ mod tests {
     async fn static_token_returns_value() {
         let ts = StaticToken::new("my-jwt-token");
         assert_eq!(ts.token().await.unwrap(), Some("my-jwt-token".to_string()));
+    }
+
+    // ── ApiError construction + helpers ──────────────────────────────
+
+    #[test]
+    fn from_response_body_parses_json_error() {
+        let err = ApiError::from_response_body(404, r#"{"error":"id 'x123' not found"}"#);
+        assert_eq!(err.status(), Some(404));
+        assert_eq!(err.message(), "id 'x123' not found");
+        assert!(err.is_not_found());
+        assert!(!err.is_bad_request());
+    }
+
+    #[test]
+    fn from_response_body_falls_back_to_raw_text() {
+        let err = ApiError::from_response_body(500, "Internal Server Error");
+        assert_eq!(err.status(), Some(500));
+        assert_eq!(err.message(), "Internal Server Error");
+        assert!(!err.is_not_found());
+    }
+
+    #[test]
+    fn from_response_body_handles_empty_body() {
+        let err = ApiError::from_response_body(502, "");
+        assert_eq!(err.status(), Some(502));
+        assert_eq!(err.message(), "");
+    }
+
+    #[test]
+    fn from_response_body_handles_non_error_json() {
+        // JSON that doesn't have an "error" field → raw body.
+        let err = ApiError::from_response_body(400, r#"{"detail":"bad"}"#);
+        assert_eq!(err.message(), r#"{"detail":"bad"}"#);
+    }
+
+    #[test]
+    fn status_helpers_cover_all_codes() {
+        assert!(ApiError::from_response_body(400, "").is_bad_request());
+        assert!(ApiError::from_response_body(401, "").is_unauthorized());
+        assert!(ApiError::from_response_body(403, "").is_forbidden());
+        assert!(ApiError::from_response_body(404, "").is_not_found());
+        assert!(ApiError::from_response_body(409, "").is_conflict());
+
+        // Negative cases: 404 is NOT bad_request.
+        assert!(!ApiError::from_response_body(404, "").is_bad_request());
+        assert!(!ApiError::from_response_body(400, "").is_not_found());
+    }
+
+    #[test]
+    fn auth_error_helpers() {
+        let err = ApiError::Auth("login failed".into());
+        assert!(err.is_auth_error());
+        assert!(!err.is_network_error());
+        assert_eq!(err.status(), None);
+        assert_eq!(err.message(), "login failed");
+    }
+
+    #[test]
+    fn display_format_is_human_readable() {
+        let err = ApiError::from_response_body(404, r#"{"error":"id 'abc' not found"}"#);
+        let display = format!("{}", err);
+        assert_eq!(display, "HTTP 404: id 'abc' not found");
+
+        let err = ApiError::Auth("login failed (401): invalid credentials".into());
+        let display = format!("{}", err);
+        assert_eq!(display, "auth: login failed (401): invalid credentials");
+
+        let err = ApiError::Decode("expected JSON".into());
+        let display = format!("{}", err);
+        assert_eq!(display, "decode: expected JSON");
     }
 }
