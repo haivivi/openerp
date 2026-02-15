@@ -1,0 +1,24 @@
+load("@rules_go//go:def.bzl", "go_test")
+
+go_test(
+    name = "browser_test",
+    srcs = ["dashboard_test.go"],
+    # Tag as manual — requires Lightpanda + running server, not for CI by default.
+    tags = ["manual", "e2e"],
+    deps = [
+        "@com_github_chromedp_chromedp//:chromedp",
+        "@com_github_chromedp_cdproto//cdp",
+    ],
+    data = [
+        "//rust/bin/openerpd",
+        "//rust/bin/openerp",
+    ] + select({
+        "@platforms//os:macos": ["@lightpanda_macos_arm64//file"],
+        "@platforms//os:linux": ["@lightpanda_linux_x86_64//file"],
+    }),
+    env = {
+        "LIGHTPANDA_DISABLE_TELEMETRY": "true",
+    },
+    size = "large",
+    timeout = "long",
+)

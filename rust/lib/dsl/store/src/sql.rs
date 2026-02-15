@@ -311,7 +311,6 @@ impl<T: SqlStore> SqlOps<T> {
     pub fn save(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_update();
 
-        let pk_fields = T::PK;
         let pk_values = record.pk_values();
 
         // Version check: read existing record.
