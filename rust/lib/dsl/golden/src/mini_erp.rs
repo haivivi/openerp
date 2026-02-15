@@ -792,4 +792,501 @@ mod tests {
         let (_, list) = api_call(&erp.hr_router, "GET", "/employees", None, "root").await;
         assert_eq!(list["total"], 20);
     }
+
+    // =====================================================================
+    // Extended models: Document, CompanyProfile — enterprise data
+    // =====================================================================
+
+    #[model(module = "km")]
+    pub struct Document {
+        pub id: Id,
+        pub title: String,
+        pub content: Option<String>,
+        pub author_id: Id,
+        pub visibility: String,
+        pub tags: Vec<String>,
+        pub attachment_url: Option<Url>,
+        pub published: bool,
+        pub version: u32,
+    }
+
+    impl KvStore for Document {
+        const KEY: Field = Self::id;
+        fn kv_prefix() -> &'static str { "km:document:" }
+        fn key_value(&self) -> String { self.id.to_string() }
+        fn before_create(&mut self) {
+            if self.id.is_empty() {
+                self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
+            }
+            if self.visibility.is_empty() { self.visibility = "private".into(); }
+            if self.version == 0 { self.version = 1; }
+            let now = chrono::Utc::now().to_rfc3339();
+            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
+            self.updated_at = DateTime::new(&now);
+        }
+        fn before_update(&mut self) {
+            self.version += 1;
+            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
+        }
+    }
+
+    #[model(module = "org")]
+    pub struct CompanyProfile {
+        pub id: Id,
+        pub legal_name: String,
+        pub trade_name: Option<String>,
+        pub tax_id: Option<String>,
+        pub address: Option<String>,
+        pub phone: Option<String>,
+        pub website: Option<Url>,
+        pub logo: Option<Avatar>,
+        pub founded_date: Option<DateTime>,
+        pub employee_count: u32,
+        pub industry: Option<String>,
+        pub annual_revenue: Option<u64>,
+    }
+
+    impl KvStore for CompanyProfile {
+        const KEY: Field = Self::id;
+        fn kv_prefix() -> &'static str { "org:company:" }
+        fn key_value(&self) -> String { self.id.to_string() }
+        fn before_create(&mut self) {
+            if self.id.is_empty() {
+                self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
+            }
+            let now = chrono::Utc::now().to_rfc3339();
+            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
+            self.updated_at = DateTime::new(&now);
+        }
+        fn before_update(&mut self) {
+            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
+        }
+    }
+
+    // =====================================================================
+    // Extended MiniErp with all modules
+    // =====================================================================
+
+    struct FullErp {
+        kv: Arc<dyn openerp_kv::KVStore>,
+        hr_router: Router,
+        pm_router: Router,
+        km_router: Router,
+        org_router: Router,
+        _dir: tempfile::TempDir,
+    }
+
+    fn setup_full_erp() -> FullErp {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("full.redb")).unwrap(),
+        );
+        let auth: Arc<dyn Authenticator> = Arc::new(MiniAuth { kv: kv.clone() });
+
+        let mut hr_router = Router::new();
+        hr_router = hr_router.merge(admin_kv_router(KvOps::<Employee>::new(kv.clone()), auth.clone(), "hr", "employees", "employee"));
+        hr_router = hr_router.merge(admin_kv_router(KvOps::<Department>::new(kv.clone()), auth.clone(), "hr", "departments", "department"));
+        hr_router = hr_router.merge(admin_kv_router(KvOps::<Role>::new(kv.clone()), auth.clone(), "hr", "roles", "role"));
+
+        let pm_router = admin_kv_router(KvOps::<Project>::new(kv.clone()), auth.clone(), "pm", "projects", "project");
+        let km_router = admin_kv_router(KvOps::<Document>::new(kv.clone()), auth.clone(), "km", "documents", "document");
+        let org_router = admin_kv_router(KvOps::<CompanyProfile>::new(kv.clone()), auth.clone(), "org", "companies", "company");
+
+        FullErp { kv, hr_router, pm_router, km_router, org_router, _dir: dir }
+    }
+
+    /// Helper to seed roles into KV.
+    fn seed_role(kv: &Arc<dyn openerp_kv::KVStore>, id: &str, perms: &[&str]) {
+        let ops = KvOps::<Role>::new(kv.clone());
+        ops.save_new(Role {
+            id: Id::new(id),
+            permissions: perms.iter().map(|s| s.to_string()).collect(),
+            display_name: Some(id.into()),
+            description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        }).unwrap();
+    }
+
+    // ── 14. Per-CRUD permission granularity ──
+
+    #[tokio::test]
+    async fn auth_per_crud_granularity() {
+        let erp = setup_full_erp();
+
+        // Roles with single CRUD permissions.
+        seed_role(&erp.kv, "only-create", &["km:document:create"]);
+        seed_role(&erp.kv, "only-read", &["km:document:read"]);
+        seed_role(&erp.kv, "only-list", &["km:document:list"]);
+        seed_role(&erp.kv, "only-update", &["km:document:update", "km:document:read"]);
+        seed_role(&erp.kv, "only-delete", &["km:document:delete", "km:document:read"]);
+
+        // Create a document as root.
+        let (s, doc) = api_call(&erp.km_router, "POST", "/documents",
+            Some(serde_json::json!({
+                "title": "Architecture Guide",
+                "content": "# Chapter 1\nIntroduction...",
+                "authorId": "emp1",
+                "tags": ["architecture", "guide"],
+                "displayName": "Arch Guide",
+            })),
+            "root",
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+        let doc_id = doc["id"].as_str().unwrap();
+
+        // only-create: can create but NOT read/list/update/delete.
+        let (s, _) = api_call(&erp.km_router, "POST", "/documents",
+            Some(serde_json::json!({"title": "Draft", "authorId": "emp1", "displayName": "D"})),
+            "only-create",
+        ).await;
+        assert_eq!(s, StatusCode::OK, "only-create can create");
+        let (s, _) = api_call(&erp.km_router, "GET", "/documents", None, "only-create").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "only-create cannot list");
+        let (s, _) = api_call(&erp.km_router, "GET", &format!("/documents/{}", doc_id), None, "only-create").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "only-create cannot read");
+
+        // only-read: can GET single but NOT list/create/update/delete.
+        let (s, _) = api_call(&erp.km_router, "GET", &format!("/documents/{}", doc_id), None, "only-read").await;
+        assert_eq!(s, StatusCode::OK, "only-read can read");
+        let (s, _) = api_call(&erp.km_router, "GET", "/documents", None, "only-read").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "only-read cannot list");
+        let (s, _) = api_call(&erp.km_router, "DELETE", &format!("/documents/{}", doc_id), None, "only-read").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "only-read cannot delete");
+
+        // only-list: can list but NOT read single.
+        let (s, list) = api_call(&erp.km_router, "GET", "/documents", None, "only-list").await;
+        assert_eq!(s, StatusCode::OK, "only-list can list");
+        assert!(list["total"].as_u64().unwrap() >= 2);
+        let (s, _) = api_call(&erp.km_router, "GET", &format!("/documents/{}", doc_id), None, "only-list").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "only-list cannot read single");
+
+        // only-update: can read + update but NOT create/delete.
+        let (s, d) = api_call(&erp.km_router, "GET", &format!("/documents/{}", doc_id), None, "only-update").await;
+        assert_eq!(s, StatusCode::OK);
+        let mut edit = d.clone();
+        edit["title"] = serde_json::json!("Updated Guide");
+        let (s, _) = api_call(&erp.km_router, "PUT", &format!("/documents/{}", doc_id), Some(edit), "only-update").await;
+        assert_eq!(s, StatusCode::OK, "only-update can update");
+        let (s, _) = api_call(&erp.km_router, "POST", "/documents",
+            Some(serde_json::json!({"title": "X", "authorId": "e", "displayName": "X"})),
+            "only-update",
+        ).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "only-update cannot create");
+
+        // only-delete: can read + delete but NOT create/update.
+        let (s, _) = api_call(&erp.km_router, "DELETE", &format!("/documents/{}", doc_id), None, "only-delete").await;
+        assert_eq!(s, StatusCode::OK, "only-delete can delete");
+    }
+
+    // ── 15. Cross-module permission isolation ──
+
+    #[tokio::test]
+    async fn auth_cross_module_isolation() {
+        let erp = setup_full_erp();
+
+        // Role that only has HR permissions, nothing else.
+        seed_role(&erp.kv, "hr-only", &[
+            "hr:employee:list", "hr:employee:read", "hr:employee:create",
+        ]);
+        // Role that only has KM permissions.
+        seed_role(&erp.kv, "km-only", &[
+            "km:document:list", "km:document:read", "km:document:create",
+        ]);
+
+        // Create data in each module as root.
+        api_call(&erp.hr_router, "POST", "/employees",
+            Some(serde_json::json!({"email": "a@b.com", "active": true, "displayName": "A"})),
+            "root",
+        ).await;
+        api_call(&erp.km_router, "POST", "/documents",
+            Some(serde_json::json!({"title": "Doc1", "authorId": "e1", "displayName": "D1"})),
+            "root",
+        ).await;
+        api_call(&erp.org_router, "POST", "/companies",
+            Some(serde_json::json!({"legalName": "Acme Inc", "employeeCount": 50, "displayName": "Acme"})),
+            "root",
+        ).await;
+
+        // hr-only: can access HR, blocked from KM and Org.
+        let (s, _) = api_call(&erp.hr_router, "GET", "/employees", None, "hr-only").await;
+        assert_eq!(s, StatusCode::OK, "hr-only can list employees");
+        let (s, _) = api_call(&erp.km_router, "GET", "/documents", None, "hr-only").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "hr-only blocked from KM documents");
+        let (s, _) = api_call(&erp.org_router, "GET", "/companies", None, "hr-only").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "hr-only blocked from Org companies");
+
+        // km-only: can access KM, blocked from HR and Org.
+        let (s, _) = api_call(&erp.km_router, "GET", "/documents", None, "km-only").await;
+        assert_eq!(s, StatusCode::OK, "km-only can list documents");
+        let (s, _) = api_call(&erp.hr_router, "GET", "/employees", None, "km-only").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "km-only blocked from HR employees");
+        let (s, _) = api_call(&erp.pm_router, "GET", "/projects", None, "km-only").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "km-only blocked from PM projects");
+    }
+
+    // ── 16. Document version auto-increment on update ──
+
+    #[tokio::test]
+    async fn document_version_increment() {
+        let erp = setup_full_erp();
+
+        let (s, doc) = api_call(&erp.km_router, "POST", "/documents",
+            Some(serde_json::json!({
+                "title": "Versioned Doc",
+                "authorId": "e1",
+                "displayName": "V1",
+            })),
+            "root",
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(doc["version"], 1, "Initial version should be 1");
+        let id = doc["id"].as_str().unwrap();
+
+        // First update → version 2.
+        let mut edit = doc.clone();
+        edit["title"] = serde_json::json!("Versioned Doc v2");
+        let (s, v2) = api_call(&erp.km_router, "PUT", &format!("/documents/{}", id), Some(edit), "root").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(v2["version"], 2, "First update → version 2");
+
+        // Second update → version 3.
+        let mut edit = v2.clone();
+        edit["content"] = serde_json::json!("Updated content");
+        let (s, v3) = api_call(&erp.km_router, "PUT", &format!("/documents/{}", id), Some(edit), "root").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(v3["version"], 3, "Second update → version 3");
+
+        // Verify via GET.
+        let (s, fetched) = api_call(&erp.km_router, "GET", &format!("/documents/{}", id), None, "root").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(fetched["version"], 3);
+        assert_eq!(fetched["title"], "Versioned Doc v2");
+        assert_eq!(fetched["content"], "Updated content");
+    }
+
+    // ── 17. CompanyProfile full CRUD ──
+
+    #[tokio::test]
+    async fn company_profile_crud() {
+        let erp = setup_full_erp();
+
+        // Create.
+        let (s, co) = api_call(&erp.org_router, "POST", "/companies",
+            Some(serde_json::json!({
+                "legalName": "Haivivi Technology Co., Ltd.",
+                "tradeName": "Haivivi",
+                "taxId": "91440300MA5G5XKT8J",
+                "address": "Shenzhen, Guangdong, China",
+                "phone": "+86-755-12345678",
+                "website": "https://haivivi.com",
+                "employeeCount": 120,
+                "industry": "IoT & Consumer Electronics",
+                "annualRevenue": 50000000,
+                "displayName": "Haivivi",
+                "description": "Smart home device company",
+            })),
+            "root",
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+        let id = co["id"].as_str().unwrap();
+        assert_eq!(co["legalName"], "Haivivi Technology Co., Ltd.");
+        assert_eq!(co["website"], "https://haivivi.com");
+        assert_eq!(co["employeeCount"], 120);
+        assert_eq!(co["annualRevenue"], 50000000u64);
+
+        // Read.
+        let (s, fetched) = api_call(&erp.org_router, "GET", &format!("/companies/{}", id), None, "root").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(fetched["taxId"], "91440300MA5G5XKT8J");
+        assert_eq!(fetched["industry"], "IoT & Consumer Electronics");
+
+        // Update.
+        let mut edit = fetched.clone();
+        edit["employeeCount"] = serde_json::json!(150);
+        edit["annualRevenue"] = serde_json::json!(80000000u64);
+        let (s, updated) = api_call(&erp.org_router, "PUT", &format!("/companies/{}", id), Some(edit), "root").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(updated["employeeCount"], 150);
+        assert_eq!(updated["annualRevenue"], 80000000u64);
+        assert_eq!(updated["legalName"], "Haivivi Technology Co., Ltd.", "other fields preserved");
+
+        // Delete.
+        let (s, _) = api_call(&erp.org_router, "DELETE", &format!("/companies/{}", id), None, "root").await;
+        assert_eq!(s, StatusCode::OK);
+        let (s, _) = api_call(&erp.org_router, "GET", &format!("/companies/{}", id), None, "root").await;
+        assert_eq!(s, StatusCode::NOT_FOUND);
+    }
+
+    // ── 18. Document with tags and visibility ──
+
+    #[tokio::test]
+    async fn document_tags_and_visibility() {
+        let erp = setup_full_erp();
+
+        // Create document with all fields.
+        let (s, doc) = api_call(&erp.km_router, "POST", "/documents",
+            Some(serde_json::json!({
+                "title": "API Design Principles",
+                "content": "# REST API Design\n\n## Principles\n1. Resources\n2. Verbs\n3. Status codes",
+                "authorId": "emp42",
+                "tags": ["api", "design", "rest", "best-practices"],
+                "attachmentUrl": "https://cdn.example.com/docs/api-design.pdf",
+                "published": true,
+                "displayName": "API Design",
+                "description": "Company API design guidelines",
+            })),
+            "root",
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+        let id = doc["id"].as_str().unwrap();
+        assert_eq!(doc["visibility"], "private", "default visibility from before_create");
+        assert_eq!(doc["version"], 1);
+        assert_eq!(doc["published"], true);
+        assert_eq!(doc["tags"].as_array().unwrap().len(), 4);
+        assert_eq!(doc["attachmentUrl"], "https://cdn.example.com/docs/api-design.pdf");
+
+        // Update: change visibility and add tag.
+        let mut edit = doc.clone();
+        edit["visibility"] = serde_json::json!("public");
+        edit["tags"] = serde_json::json!(["api", "design", "rest", "best-practices", "v2"]);
+        let (s, updated) = api_call(&erp.km_router, "PUT", &format!("/documents/{}", id), Some(edit), "root").await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(updated["visibility"], "public");
+        assert_eq!(updated["tags"].as_array().unwrap().len(), 5);
+        assert_eq!(updated["version"], 2, "version incremented by before_update");
+    }
+
+    // ── 19. Multiple roles with overlapping permissions ──
+
+    #[tokio::test]
+    async fn auth_overlapping_role_permissions() {
+        let erp = setup_full_erp();
+
+        seed_role(&erp.kv, "role-a", &["hr:employee:list", "hr:employee:read", "km:document:list"]);
+        seed_role(&erp.kv, "role-b", &["hr:employee:list", "hr:department:list", "km:document:read"]);
+        // Union: employee:list+read, department:list, document:list+read
+
+        api_call(&erp.hr_router, "POST", "/employees",
+            Some(serde_json::json!({"email": "x@y.com", "active": true, "displayName": "X"})),
+            "root").await;
+        api_call(&erp.hr_router, "POST", "/departments",
+            Some(serde_json::json!({"budget": 1000, "displayName": "Eng"})),
+            "root").await;
+        api_call(&erp.km_router, "POST", "/documents",
+            Some(serde_json::json!({"title": "D", "authorId": "e", "displayName": "D"})),
+            "root").await;
+
+        // User with both roles can access all unions.
+        let (s, _) = api_call(&erp.hr_router, "GET", "/employees", None, "role-a,role-b").await;
+        assert_eq!(s, StatusCode::OK);
+        let (s, _) = api_call(&erp.hr_router, "GET", "/departments", None, "role-a,role-b").await;
+        assert_eq!(s, StatusCode::OK, "department:list from role-b");
+        let (s, _) = api_call(&erp.km_router, "GET", "/documents", None, "role-a,role-b").await;
+        assert_eq!(s, StatusCode::OK, "document:list from role-a");
+
+        // But neither role has create permission.
+        let (s, _) = api_call(&erp.hr_router, "POST", "/employees",
+            Some(serde_json::json!({"email":"z@z.com","active":true,"displayName":"Z"})),
+            "role-a,role-b").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "no create permission in union");
+    }
+
+    // ── 20. Empty/invalid role → no permissions ──
+
+    #[tokio::test]
+    async fn auth_empty_role() {
+        let erp = setup_full_erp();
+
+        // Role with empty permissions.
+        seed_role(&erp.kv, "empty-role", &[]);
+
+        api_call(&erp.hr_router, "POST", "/employees",
+            Some(serde_json::json!({"email": "a@b.com", "active": true, "displayName": "A"})),
+            "root").await;
+
+        // Empty role can't do anything.
+        let (s, _) = api_call(&erp.hr_router, "GET", "/employees", None, "empty-role").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "empty role has no permissions");
+
+        // Non-existent role in header.
+        let (s, _) = api_call(&erp.hr_router, "GET", "/employees", None, "nonexistent-role").await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "non-existent role has no permissions");
+    }
+
+    // ── 21. 4-module schema generation ──
+
+    #[test]
+    fn full_erp_schema_4_modules() {
+        let schema = build_schema(
+            "FullERP",
+            vec![
+                ModuleDef {
+                    id: "hr", label: "Human Resources", icon: "users",
+                    resources: vec![
+                        ResourceDef::from_ir("hr", Employee::__dsl_ir()),
+                        ResourceDef::from_ir("hr", Department::__dsl_ir()),
+                        ResourceDef::from_ir("hr", Role::__dsl_ir()),
+                    ],
+                    hierarchy: vec![
+                        HierarchyNode { resource: "employee", label: "Employees", icon: "users",
+                            description: "", children: vec![HierarchyNode::leaf("role", "Roles", "shield", "")] },
+                        HierarchyNode::leaf("department", "Departments", "building", ""),
+                    ],
+                },
+                ModuleDef {
+                    id: "pm", label: "Projects", icon: "folder",
+                    resources: vec![
+                        ResourceDef::from_ir("pm", Project::__dsl_ir())
+                            .with_action("pm", "archive").with_action("pm", "publish"),
+                    ],
+                    hierarchy: vec![HierarchyNode::leaf("project", "Projects", "folder", "")],
+                },
+                ModuleDef {
+                    id: "km", label: "Knowledge", icon: "book",
+                    resources: vec![
+                        ResourceDef::from_ir("km", Document::__dsl_ir())
+                            .with_action("km", "publish").with_action("km", "archive"),
+                    ],
+                    hierarchy: vec![HierarchyNode::leaf("document", "Documents", "file-text", "")],
+                },
+                ModuleDef {
+                    id: "org", label: "Organization", icon: "building",
+                    resources: vec![
+                        ResourceDef::from_ir("org", CompanyProfile::__dsl_ir()),
+                    ],
+                    hierarchy: vec![HierarchyNode::leaf("company_profile", "Companies", "building", "")],
+                },
+            ],
+        );
+
+        let modules = schema["modules"].as_array().unwrap();
+        assert_eq!(modules.len(), 4);
+
+        // Verify module IDs.
+        let ids: Vec<&str> = modules.iter().map(|m| m["id"].as_str().unwrap()).collect();
+        assert_eq!(ids, vec!["hr", "pm", "km", "org"]);
+
+        // Verify resource counts.
+        assert_eq!(modules[0]["resources"].as_array().unwrap().len(), 3); // HR: 3
+        assert_eq!(modules[1]["resources"].as_array().unwrap().len(), 1); // PM: 1
+        assert_eq!(modules[2]["resources"].as_array().unwrap().len(), 1); // KM: 1
+        assert_eq!(modules[3]["resources"].as_array().unwrap().len(), 1); // Org: 1
+
+        // PM project: 5 CRUD + archive + publish = 7 permissions.
+        let pm_perms = &schema["permissions"]["pm"]["project"]["actions"];
+        assert_eq!(pm_perms.as_array().unwrap().len(), 7);
+
+        // KM document: 5 CRUD + publish + archive = 7 permissions.
+        let km_perms = &schema["permissions"]["km"]["document"]["actions"];
+        assert_eq!(km_perms.as_array().unwrap().len(), 7);
+
+        // Org company_profile: 5 CRUD only.
+        let org_perms = &schema["permissions"]["org"]["company_profile"]["actions"];
+        assert_eq!(org_perms.as_array().unwrap().len(), 5);
+
+        // HR hierarchy: employee has child "role".
+        let hr_nav = modules[0]["hierarchy"]["nav"].as_array().unwrap();
+        assert_eq!(hr_nav[0]["resource"], "employee");
+        assert_eq!(hr_nav[0]["children"][0]["resource"], "role");
+    }
 }
