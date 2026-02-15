@@ -47,6 +47,37 @@ pub fn find_user_by_email(
     }))
 }
 
+/// Look up role IDs for a given user by scanning policies.
+///
+/// A Policy with `who` = user_id and `what` = "role" yields `how` as the role ID.
+pub fn find_roles_for_user(
+    kv: &std::sync::Arc<dyn openerp_kv::KVStore>,
+    user_id: &str,
+) -> Result<Vec<String>, openerp_core::ServiceError> {
+    use openerp_store::KvOps;
+    let ops = KvOps::<Policy>::new(kv.clone());
+    let all = ops.list()?;
+    let now = chrono::Utc::now();
+    let roles = all
+        .into_iter()
+        .filter(|p| {
+            p.who == user_id && p.what == "role" && {
+                // Skip expired policies.
+                match &p.expires_at {
+                    Some(exp) if !exp.is_empty() => {
+                        chrono::DateTime::parse_from_rfc3339(exp.as_str())
+                            .map(|d| d > now)
+                            .unwrap_or(true)
+                    }
+                    _ => true,
+                }
+            }
+        })
+        .map(|p| p.how.clone())
+        .collect();
+    Ok(roles)
+}
+
 // ── User ──
 
 impl KvStore for User {

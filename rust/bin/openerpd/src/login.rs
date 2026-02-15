@@ -1,7 +1,5 @@
 //! Login endpoint — root password or user email+password.
 
-use std::sync::Arc;
-
 use axum::extract::State;
 use axum::response::IntoResponse;
 use axum::routing::post;
@@ -27,7 +25,7 @@ pub struct LoginResponse {
     pub expires_in: u64,
 }
 
-pub fn routes(state: AppState) -> Router<AppState> {
+pub fn routes(_state: AppState) -> Router<AppState> {
     Router::new()
         .route("/auth/login", post(login_handler))
 }
@@ -120,12 +118,16 @@ fn handle_user_login(state: &AppState, email: &str, password: &str) -> axum::res
     let now = chrono::Utc::now().timestamp();
     let expire_secs = config.jwt.expire_secs;
 
+    // Look up roles for this user from policies.
+    let roles = auth::store_impls::find_roles_for_user(&state.kv, user.id.as_str())
+        .unwrap_or_default();
+
     let display = user.display_name.as_deref().unwrap_or("User");
     let claims = Claims {
         sub: user.id.to_string(),
         name: display.to_string(),
         groups: vec![],
-        roles: vec![], // TODO: look up policies → roles for this user
+        roles,
         sid: openerp_core::new_id(),
         iat: now,
         exp: now + expire_secs as i64,

@@ -25,6 +25,10 @@ pub fn admin_router(
     router = router.merge(admin_kv_router(KvOps::<License>::new(kv.clone()), auth.clone(), "pms", "licenses", "license"));
     router = router.merge(admin_kv_router(KvOps::<LicenseImport>::new(kv.clone()), auth.clone(), "pms", "license-imports", "license_import"));
     router = router.merge(admin_kv_router(KvOps::<Segment>::new(kv.clone()), auth.clone(), "pms", "segments", "segment"));
+    // Action routes
+    router = router.merge(handlers::provision::routes(kv.clone()));
+    router = router.merge(handlers::activate::routes(kv.clone()));
+    router = router.merge(handlers::firmware_upload::routes(kv.clone()));
     router
 }
 

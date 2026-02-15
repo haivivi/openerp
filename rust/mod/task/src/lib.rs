@@ -20,6 +20,8 @@ pub fn admin_router(
     let mut router = Router::new();
     router = router.merge(admin_kv_router(KvOps::<Task>::new(kv.clone()), auth.clone(), "task", "tasks", "task"));
     router = router.merge(admin_kv_router(KvOps::<TaskType>::new(kv.clone()), auth.clone(), "task", "task-types", "task_type"));
+    // Action routes
+    router = router.merge(handlers::actions::routes(kv.clone()));
     router
 }
 

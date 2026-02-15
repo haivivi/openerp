@@ -38,6 +38,7 @@ pub struct Claims {
 
 impl Claims {
     /// Check if this user is the virtual root superadmin.
+    #[allow(dead_code)]
     pub fn is_root(&self) -> bool {
         self.roles.iter().any(|r| r == ROOT_ROLE_ID)
     }
@@ -55,6 +56,7 @@ pub struct JwtState {
 pub enum AuthError {
     MissingToken,
     InvalidToken(String),
+    #[allow(dead_code)]
     PermissionDenied(String),
 }
 
@@ -127,6 +129,7 @@ fn is_public_path(path: &str) -> bool {
 ///
 /// Root users (auth:root role) bypass all permission checks.
 /// Normal users must have a matching policy.
+#[allow(dead_code)]
 pub fn check_permission(claims: &Claims, permission: &str) -> Result<(), AuthError> {
     // Root bypasses all checks.
     if claims.is_root() {

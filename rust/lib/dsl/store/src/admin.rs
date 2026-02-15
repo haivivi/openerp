@@ -8,7 +8,7 @@ use std::sync::Arc;
 
 use axum::extract::{Path, State};
 use axum::http::HeaderMap;
-use axum::routing::{delete, get, post, put};
+use axum::routing::get;
 use axum::{Json, Router};
 use openerp_core::{Authenticator, ListResult, ServiceError};
 use serde::de::DeserializeOwned;

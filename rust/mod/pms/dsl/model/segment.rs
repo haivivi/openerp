@@ -1,4 +1,6 @@
+#[allow(unused_imports)]
 use openerp_macro::model;
+#[allow(unused_imports)]
 use openerp_types::*;
 
 /// SN segment dimension entry (e.g. manufacturer, channel).

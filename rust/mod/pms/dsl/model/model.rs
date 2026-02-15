@@ -1,4 +1,6 @@
+#[allow(unused_imports)]
 use openerp_macro::model;
+#[allow(unused_imports)]
 use openerp_types::*;
 
 /// Product model/series definition. Primary key is numeric code.

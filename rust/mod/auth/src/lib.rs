@@ -18,8 +18,7 @@ pub mod store_impls;
 use std::sync::Arc;
 
 use axum::Router;
-use openerp_store::{admin_kv_router, KvOps, KvStore};
-use openerp_core::Authenticator; // For AuthChecker::check() in tests.
+use openerp_store::{admin_kv_router, KvOps};
 
 use model::*;
 
@@ -92,6 +91,7 @@ pub fn schema_def() -> openerp_store::ModuleDef {
 mod tests {
     use super::*;
     use std::sync::Arc;
+    use openerp_core::Authenticator;
 
     #[test]
     fn user_kv_crud() {
