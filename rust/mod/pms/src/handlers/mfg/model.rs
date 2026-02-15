@@ -1,8 +1,8 @@
 use std::sync::Arc;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::routing::get;
 use axum::{Json, Router};
-use openerp_core::{ListResult, ServiceError};
+use openerp_core::{ListParams, ListResult, ServiceError};
 use openerp_store::KvOps;
 use crate::model::Model;
 use crate::mfg::MfgModel;
@@ -23,8 +23,11 @@ fn project(m: &Model) -> MfgModel {
     }
 }
 
-async fn list(State(ops): State<S>) -> Result<Json<ListResult<MfgModel>>, ServiceError> {
-    let all = ops.list()?;
-    let items: Vec<MfgModel> = all.iter().map(project).collect();
-    Ok(Json(ListResult { items, has_more: false }))
+async fn list(
+    State(ops): State<S>,
+    Query(params): Query<ListParams>,
+) -> Result<Json<ListResult<MfgModel>>, ServiceError> {
+    let result = ops.list_paginated(&params)?;
+    let items = result.items.iter().map(project).collect();
+    Ok(Json(ListResult { items, has_more: result.has_more }))
 }

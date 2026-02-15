@@ -453,9 +453,14 @@ fn emit_action_client_method(
         })
         .collect();
 
-    let ret_ty = match &action.return_type {
-        Some(ty) => quote! { #ty },
-        None => quote! { () },
+    // DELETE always returns () — no response body.
+    let ret_ty = if is_delete {
+        quote! { () }
+    } else {
+        match &action.return_type {
+            Some(ty) => quote! { #ty },
+            None => quote! { () },
+        }
     };
 
     let effective_body = if is_delete { None } else { body_param };
