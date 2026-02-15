@@ -30,6 +30,7 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
 
     // Strip #[ui(...)] and #[permission(...)] from field output.
     // Add #[serde(default)] to all fields for flexible deserialization.
+    // Add flexible deserializers for numeric fields (accept string or number).
     let mut clean_fields = named.clone();
     for field in clean_fields.named.iter_mut() {
         field
@@ -44,6 +45,37 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
         });
         if !has_serde_default {
             field.attrs.push(syn::parse_quote!(#[serde(default)]));
+        }
+
+        // Add flexible deserializer for numeric types.
+        // This ensures the API accepts both "42" (string) and 42 (number).
+        let has_deser_with = field.attrs.iter().any(|a| {
+            if a.path().is_ident("serde") {
+                a.meta.to_token_stream().to_string().contains("deserialize_with")
+            } else {
+                false
+            }
+        });
+        if !has_deser_with {
+            let ty_str = field.ty.to_token_stream().to_string().replace(' ', "");
+            match ty_str.as_str() {
+                "u32" => field.attrs.push(syn::parse_quote!(
+                    #[serde(deserialize_with = "openerp_types::deserialize_u32_flexible")]
+                )),
+                "u64" => field.attrs.push(syn::parse_quote!(
+                    #[serde(deserialize_with = "openerp_types::deserialize_u64_flexible")]
+                )),
+                "i32" => field.attrs.push(syn::parse_quote!(
+                    #[serde(deserialize_with = "openerp_types::deserialize_i64_flexible")]
+                )),
+                "i64" => field.attrs.push(syn::parse_quote!(
+                    #[serde(deserialize_with = "openerp_types::deserialize_i64_flexible")]
+                )),
+                "f64" => field.attrs.push(syn::parse_quote!(
+                    #[serde(deserialize_with = "openerp_types::deserialize_f64_flexible")]
+                )),
+                _ => {}
+            }
         }
     }
 
