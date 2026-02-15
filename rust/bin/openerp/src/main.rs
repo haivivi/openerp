@@ -126,6 +126,10 @@ enum ContextAction {
         /// Data directory (default: /var/lib/openerp/<name>).
         #[arg(long)]
         data_dir: Option<String>,
+        /// Root password (non-interactive, for CI/automation).
+        /// If not provided, will prompt interactively.
+        #[arg(long)]
+        password: Option<String>,
     },
     /// List all contexts.
     List,
@@ -169,20 +173,30 @@ fn main() -> anyhow::Result<()> {
                 name,
                 config_dir,
                 data_dir,
+                password,
             } => {
                 let data_dir = data_dir.unwrap_or_else(|| {
                     format!("/var/lib/openerp/{}", name)
                 });
 
-                // Prompt for password.
-                let password = rpassword::prompt_password("Enter root password: ")?;
-                let confirm = rpassword::prompt_password("Confirm root password: ")?;
-                if password != confirm {
-                    anyhow::bail!("Passwords do not match.");
-                }
-                if password.is_empty() {
-                    anyhow::bail!("Password cannot be empty.");
-                }
+                let password = if let Some(p) = password {
+                    // Non-interactive mode (CI/automation).
+                    if p.is_empty() {
+                        anyhow::bail!("Password cannot be empty.");
+                    }
+                    p
+                } else {
+                    // Interactive mode.
+                    let pw = rpassword::prompt_password("Enter root password: ")?;
+                    let confirm = rpassword::prompt_password("Confirm root password: ")?;
+                    if pw != confirm {
+                        anyhow::bail!("Passwords do not match.");
+                    }
+                    if pw.is_empty() {
+                        anyhow::bail!("Password cannot be empty.");
+                    }
+                    pw
+                };
 
                 commands::context::create(
                     &name,
