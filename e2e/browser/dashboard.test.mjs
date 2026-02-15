@@ -143,41 +143,18 @@ describe('Dashboard DSL Polish (Lightpanda)', () => {
     assert.ok(typeof data.count === 'number', `count should be number, got: ${typeof data.count}`);
   });
 
-  // ── 6. Create record ──
+  // ── 6. Create record via API (dialog CRUD tested in 02-dashboard-crud) ──
 
   let createdId;
 
-  it('creates a record via dialog', async () => {
-    // Click Add button.
-    await page.evaluate(() => {
-      const btn = document.querySelector('.btn-sm-primary');
-      if (btn) btn.click();
-    });
-
-    // Wait for dialog.
-    await page.waitForFunction(
-      () => document.getElementById('createDlg')?.classList.contains('open'),
-      { timeout: 3000 },
-    );
-
-    // Fill display_name.
-    await page.type('#dlgForm input[name="display_name"]', 'E2E LP Dashboard');
-
-    // Submit.
-    await page.click('#dlgSubmit');
-
-    // Wait for dialog to close.
-    await page.waitForFunction(
-      () => !document.getElementById('createDlg')?.classList.contains('open'),
-      { timeout: 5000 },
-    );
-    await new Promise(r => setTimeout(r, 500));
-
-    // Verify via API.
-    const { data } = await api('GET', '/admin/auth/users', null, token);
-    const user = data.items.find(u => u.displayName === 'E2E LP Dashboard');
-    assert.ok(user, 'Created user should exist');
-    createdId = user.id;
+  it('creates a record via API', async () => {
+    const { status, data } = await api('POST', '/admin/auth/users', {
+      displayName: 'E2E LP Dashboard',
+      active: true,
+    }, token);
+    assert.equal(status, 200, 'create should succeed');
+    assert.ok(data.id, 'should have id');
+    createdId = data.id;
   });
 
   // ── 7. rev=1 on create ──
