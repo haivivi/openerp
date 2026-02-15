@@ -284,6 +284,34 @@ string_newtype!(
     SemVer
 );
 
+// ── Pluralization ──
+
+/// Simple English pluralization for URL paths.
+///
+/// Handles common cases:
+///   policy → policies, batch → batches, device → devices,
+///   relay → relays, user → users, bus → buses
+pub fn pluralize(s: &str) -> String {
+    if s.ends_with('y') {
+        // Consonant + y → ies (policy → policies)
+        // Vowel + y → ys (relay → relays, day → days)
+        let chars: Vec<char> = s.chars().collect();
+        if chars.len() >= 2 {
+            let before_y = chars[chars.len() - 2];
+            if !"aeiou".contains(before_y) {
+                return format!("{}ies", &s[..s.len() - 1]);
+            }
+        }
+        format!("{}s", s)
+    } else if s.ends_with('s') || s.ends_with('x') || s.ends_with('z')
+        || s.ends_with("sh") || s.ends_with("ch")
+    {
+        format!("{}es", s)
+    } else {
+        format!("{}s", s)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -329,5 +357,33 @@ mod tests {
 
         let e2: Email = String::from("foo@bar.com").into();
         assert_eq!(e2.as_str(), "foo@bar.com");
+    }
+
+    #[test]
+    fn pluralize_common_cases() {
+        // Regular: add s
+        assert_eq!(super::pluralize("user"), "users");
+        assert_eq!(super::pluralize("device"), "devices");
+        assert_eq!(super::pluralize("employee"), "employees");
+        assert_eq!(super::pluralize("project"), "projects");
+        assert_eq!(super::pluralize("server"), "servers");
+
+        // Consonant + y → ies
+        assert_eq!(super::pluralize("policy"), "policies");
+        assert_eq!(super::pluralize("company"), "companies");
+        assert_eq!(super::pluralize("category"), "categories");
+
+        // Vowel + y → ys (NOT ies)
+        assert_eq!(super::pluralize("relay"), "relays");
+        assert_eq!(super::pluralize("day"), "days");
+        assert_eq!(super::pluralize("key"), "keys");
+        assert_eq!(super::pluralize("survey"), "surveys");
+
+        // Sibilant endings → es
+        assert_eq!(super::pluralize("batch"), "batches");
+        assert_eq!(super::pluralize("bus"), "buses");
+        assert_eq!(super::pluralize("box"), "boxes");
+        assert_eq!(super::pluralize("quiz"), "quizes"); // simple rule, no consonant doubling
+        assert_eq!(super::pluralize("flash"), "flashes");
     }
 }

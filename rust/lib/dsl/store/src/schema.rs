@@ -53,8 +53,8 @@ impl ResourceDef {
     pub fn from_ir(module: &str, ir: Value) -> Self {
         let name = ir["resource"].as_str().unwrap_or("unknown").to_string();
         let model_name = ir["name"].as_str().unwrap_or("Unknown").to_string();
-        let label = pluralize(&model_name);
-        let path = pluralize(&name);
+        let label = openerp_types::pluralize(&model_name);
+        let path = openerp_types::pluralize(&name);
         let icon = default_icon(&name);
         let permissions = Self::crud_permissions(module, &name);
         Self { name, label, path, icon, description: String::new(), ir, permissions }
@@ -76,16 +76,6 @@ impl ResourceDef {
     pub fn with_desc(mut self, desc: &str) -> Self {
         self.description = desc.to_string();
         self
-    }
-}
-
-fn pluralize(s: &str) -> String {
-    if s.ends_with('s') || s.ends_with("sh") || s.ends_with("ch") || s.ends_with('x') {
-        format!("{}es", s)
-    } else if s.ends_with('y') && s.len() > 1 && !s.ends_with("ey") {
-        format!("{}ies", &s[..s.len() - 1])
-    } else {
-        format!("{}s", s)
     }
 }
 

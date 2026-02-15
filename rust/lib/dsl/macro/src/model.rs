@@ -306,8 +306,9 @@ fn to_snake_case(s: &str) -> String {
 
 /// Simple English pluralization for URL paths.
 ///
-/// Handles common cases:
-///   policy -> policies, batch -> batches, device -> devices, user -> users
+/// **Must stay in sync with `openerp_types::pluralize`.**
+/// Duplicated here because proc-macro crates cannot depend on runtime crates.
+/// The canonical version with tests lives in `openerp_types`.
 fn pluralize(s: &str) -> String {
     if s.ends_with('y') {
         // Check if preceded by a consonant: policy -> policies
