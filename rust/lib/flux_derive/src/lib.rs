@@ -14,6 +14,7 @@ use syn::parse_macro_input;
 
 mod state;
 mod request;
+mod handlers;
 
 /// Define a Flux state type.
 ///
@@ -32,6 +33,32 @@ mod request;
 pub fn state(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = parse_macro_input!(item as syn::ItemStruct);
     state::expand(attr.into(), item)
+        .unwrap_or_else(|e| e.to_compile_error().into())
+        .into()
+}
+
+/// Mark an `impl` block as containing Flux request handlers.
+///
+/// Methods annotated with `#[handle(ReqType)]` are registered with
+/// the Flux router. Generates a `register(self: &Arc<Self>, flux: &Flux)` method.
+///
+/// ```ignore
+/// #[flux_handlers]
+/// impl MyBff {
+///     #[handle(LoginReq)]
+///     pub async fn handle_login(&self, req: &LoginReq, store: &StateStore) {
+///         // handler body — &self has all dependencies
+///     }
+/// }
+///
+/// // Usage:
+/// let bff = Arc::new(MyBff { ... });
+/// bff.register(&flux); // auto-generated
+/// ```
+#[proc_macro_attribute]
+pub fn flux_handlers(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(item as syn::ItemImpl);
+    handlers::expand(item)
         .unwrap_or_else(|e| e.to_compile_error().into())
         .into()
 }
