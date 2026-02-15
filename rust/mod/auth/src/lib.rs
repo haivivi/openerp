@@ -345,7 +345,7 @@ mod tests {
 
         let result = checker.check(&headers, "auth:user:read");
         assert!(result.is_err());
-        assert!(result.unwrap_err().to_string().contains("permission denied"));
+        assert!(result.unwrap_err().to_string().contains("requires"));
     }
 
     #[test]
@@ -848,10 +848,10 @@ mod tests {
             ).unwrap()
         };
 
-        // 1. No auth → 400.
+        // 1. No auth → 401.
         let req = Request::builder().uri("/users").body(Body::empty()).unwrap();
         let resp = router.clone().oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
 
         // 2. Root token → 200.
         let root_token = make_jwt(vec!["auth:root"]);
@@ -891,7 +891,7 @@ mod tests {
             .header("content-type", "application/json")
             .body(Body::from(serde_json::to_string(&user_json).unwrap())).unwrap();
         let resp = router.clone().oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::BAD_REQUEST); // permission denied
+        assert_eq!(resp.status(), StatusCode::FORBIDDEN); // permission denied
 
         // 6. Root creates user → succeeds.
         let req = Request::builder()

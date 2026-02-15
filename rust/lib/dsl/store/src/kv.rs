@@ -52,7 +52,9 @@ impl<T: KvStore> KvOps<T> {
 
     fn kv_err(e: openerp_kv::KVError) -> ServiceError {
         match e {
-            openerp_kv::KVError::ReadOnly(msg) => ServiceError::ReadOnly(msg),
+            openerp_kv::KVError::ReadOnly(key) => {
+                ServiceError::ReadOnly(format!("key '{}' is read-only", key))
+            }
             other => ServiceError::Storage(other.to_string()),
         }
     }
@@ -101,7 +103,7 @@ impl<T: KvStore> KvOps<T> {
 
         // Check duplicate.
         if self.kv.get(&key).map_err(Self::kv_err)?.is_some() {
-            return Err(ServiceError::Validation(format!(
+            return Err(ServiceError::Conflict(format!(
                 "{} '{}' already exists",
                 T::KEY.name, id
             )));

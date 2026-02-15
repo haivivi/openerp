@@ -41,6 +41,6 @@ pub struct DenyAll;
 
 impl Authenticator for DenyAll {
     fn check(&self, _headers: &HeaderMap, _permission: &str) -> Result<(), ServiceError> {
-        Err(ServiceError::Validation("access denied".into()))
+        Err(ServiceError::PermissionDenied("access denied".into()))
     }
 }

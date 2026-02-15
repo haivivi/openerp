@@ -136,6 +136,7 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
     }
 
     let resource_snake = to_snake_case(&struct_name_str);
+    let resource_path = pluralize(&resource_snake);
 
     Ok(quote! {
         #(#doc_attrs)*
@@ -152,6 +153,7 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
             pub const __DSL_MODULE: &'static str = #module;
             pub const __DSL_NAME: &'static str = #struct_name_str;
             pub const __DSL_RESOURCE: &'static str = #resource_snake;
+            pub const __DSL_PATH: &'static str = #resource_path;
 
             /// All fields as an array.
             pub fn __dsl_fields() -> Vec<serde_json::Value> {
@@ -167,6 +169,12 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
                     "fields": Self::__dsl_fields()
                 })
             }
+        }
+
+        impl openerp_types::DslModel for #struct_name {
+            fn module() -> &'static str { #module }
+            fn resource() -> &'static str { #resource_snake }
+            fn resource_path() -> &'static str { #resource_path }
         }
     })
 }
@@ -294,4 +302,29 @@ fn to_snake_case(s: &str) -> String {
         }
     }
     result
+}
+
+/// Simple English pluralization for URL paths.
+///
+/// **Must stay in sync with `openerp_types::pluralize`.**
+/// Duplicated here because proc-macro crates cannot depend on runtime crates.
+/// The canonical version with tests lives in `openerp_types`.
+fn pluralize(s: &str) -> String {
+    if s.ends_with('y') {
+        // Check if preceded by a consonant: policy -> policies
+        let chars: Vec<char> = s.chars().collect();
+        if chars.len() >= 2 {
+            let before_y = chars[chars.len() - 2];
+            if !"aeiou".contains(before_y) {
+                return format!("{}ies", &s[..s.len() - 1]);
+            }
+        }
+        format!("{}s", s)
+    } else if s.ends_with('s') || s.ends_with('x') || s.ends_with('z')
+        || s.ends_with("sh") || s.ends_with("ch")
+    {
+        format!("{}es", s)
+    } else {
+        format!("{}s", s)
+    }
 }
