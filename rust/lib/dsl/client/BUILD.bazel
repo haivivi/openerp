@@ -1,4 +1,4 @@
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_library")
 
 rust_library(
     name = "client",
@@ -6,25 +6,9 @@ rust_library(
     srcs = glob(["src/**/*.rs"]),
     edition = "2021",
     visibility = ["//visibility:public"],
-    proc_macro_deps = [
-        "@crates//:async-trait",
-    ],
     deps = [
-        "//rust/lib/dsl/types",
-        "@crates//:chrono",
-        "@crates//:flatbuffers",
         "@crates//:reqwest",
         "@crates//:serde",
         "@crates//:serde_json",
-        "@crates//:thiserror",
-        "@crates//:tokio",
-    ],
-)
-
-rust_test(
-    name = "client_test",
-    crate = ":client",
-    deps = [
-        "@crates//:tokio",
     ],
 )

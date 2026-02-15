@@ -74,6 +74,19 @@ struct MeView: View {
                 }
             }
 
+            // Admin Dashboard
+            Section("Developer") {
+                if let url = store.dashboardURL {
+                    Link(destination: url) {
+                        Label("Open Admin Dashboard", systemImage: "globe")
+                    }
+                }
+                Text(store.serverURL)
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .textSelection(.enabled)
+            }
+
             // Account
             Section {
                 Button(role: .destructive) {

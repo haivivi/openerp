@@ -21,6 +21,9 @@ private func _flux_bytes_free(_ bytes: _FluxBytes)
 @_silgen_name("flux_emit")
 private func _flux_emit(_ handle: OpaquePointer?, _ path: UnsafePointer<CChar>?, _ payload: UnsafePointer<CChar>?)
 
+@_silgen_name("flux_server_url")
+private func _flux_server_url(_ handle: OpaquePointer?) -> UnsafePointer<CChar>?
+
 private struct _FluxBytes {
     let ptr: UnsafePointer<UInt8>?
     let len: Int
@@ -98,5 +101,18 @@ final class FluxStore: ObservableObject {
         path.withCString { _flux_emit(handle, $0, nil) }
         objectWillChange.send()
         revision &+= 1
+    }
+
+    // MARK: - Server Info
+
+    /// The backend server URL (accessible from LAN).
+    var serverURL: String {
+        guard let ptr = _flux_server_url(handle) else { return "" }
+        return String(cString: ptr)
+    }
+
+    /// Dashboard URL for the admin panel.
+    var dashboardURL: URL? {
+        URL(string: "\(serverURL)/dashboard")
     }
 }

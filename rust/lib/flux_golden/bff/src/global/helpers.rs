@@ -1,6 +1,7 @@
 //! Shared helpers for handlers.
+//! Now uses HTTP client instead of direct KvOps.
 
-use openerp_store::KvOps;
+use openerp_client::ResourceClient;
 
 use crate::state::*;
 use crate::server::model;
@@ -23,13 +24,12 @@ pub fn user_to_profile(u: &model::User) -> UserProfile {
 pub fn tweet_to_feed_item(
     t: &model::Tweet,
     current_user_id: &str,
-    users: &KvOps<model::User>,
-    likes: &KvOps<model::Like>,
+    users: &[model::User],
+    likes: &[model::Like],
 ) -> FeedItem {
-    let author = users.get(&t.author_id)
-        .ok()
-        .flatten()
-        .map(|u| user_to_profile(&u))
+    let author = users.iter()
+        .find(|u| u.id.as_str() == t.author_id.as_str())
+        .map(|u| user_to_profile(u))
         .unwrap_or_else(|| UserProfile {
             id: t.author_id.to_string(),
             username: "unknown".into(),
@@ -39,7 +39,7 @@ pub fn tweet_to_feed_item(
         });
 
     let like_key = format!("{}:{}", current_user_id, t.id);
-    let liked_by_me = likes.get(&like_key).ok().flatten().is_some();
+    let liked_by_me = likes.iter().any(|l| l.id.as_str() == like_key);
 
     FeedItem {
         tweet_id: t.id.to_string(),
@@ -53,17 +53,16 @@ pub fn tweet_to_feed_item(
     }
 }
 
-/// Build the home timeline (top-level tweets, newest first).
+/// Build timeline from fetched data.
 pub fn build_timeline(
     current_user_id: &str,
-    tweets: &KvOps<model::Tweet>,
-    users: &KvOps<model::User>,
-    likes: &KvOps<model::Like>,
+    tweets: &mut Vec<model::Tweet>,
+    users: &[model::User],
+    likes: &[model::Like],
 ) -> TimelineFeed {
-    let mut all = tweets.list().unwrap_or_default();
-    all.sort_by(|a, b| b.created_at.as_str().cmp(a.created_at.as_str()));
+    tweets.sort_by(|a, b| b.created_at.as_str().cmp(a.created_at.as_str()));
 
-    let items: Vec<FeedItem> = all.iter()
+    let items: Vec<FeedItem> = tweets.iter()
         .filter(|t| t.reply_to_id.is_none())
         .map(|t| tweet_to_feed_item(t, current_user_id, users, likes))
         .collect();

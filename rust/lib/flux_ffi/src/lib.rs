@@ -1,14 +1,10 @@
 //! Flux FFI — C-compatible API for cross-platform bindings.
 //!
-//! This is the golden reference for what the codegen will produce.
-//! All platforms (iOS/Android/HarmonyOS/Tauri) call these C functions.
-//!
-//! Protocol:
-//! - State is serialized as JSON bytes across FFI boundary.
-//!   (Golden test uses JSON; production codegen will use Cap'n Proto.)
-//! - Strings passed as null-terminated C strings.
-//! - Byte buffers returned via FluxBytes { ptr, len } — caller must free.
-//! - Callbacks receive (path, json_bytes, json_len, user_data).
+//! Architecture:
+//! 1. flux_create() starts an embedded HTTP server (twitterd) on a random port
+//! 2. BFF handlers use generated HTTP client to call the server
+//! 3. Admin dashboard accessible at http://<lan-ip>:<port>/dashboard
+//! 4. iOS/Android/Desktop all share the same backend data
 
 use std::any::Any;
 use std::ffi::{c_char, c_void, CStr, CString};
@@ -16,75 +12,56 @@ use std::sync::Arc;
 
 use openerp_flux::{Flux, StateStore, StateValue, SubscriptionId};
 
-// Re-export state types for serialization lookup.
 use flux_golden::state::*;
 use flux_golden::request::*;
 use flux_golden::handlers::TwitterBff;
 
-/// Opaque handle to a Flux instance + BFF context.
+/// Opaque handle to a Flux instance + embedded server.
 pub struct FluxHandle {
     flux: Flux,
-    bff: Arc<TwitterBff>,
+    _bff: Arc<TwitterBff>,
     rt: tokio::runtime::Runtime,
+    /// The server URL (e.g. "http://192.168.1.100:3000").
+    server_url: CString,
 }
 
-/// Byte buffer returned from FFI calls. Caller must free with `flux_bytes_free`.
+/// Byte buffer returned from FFI calls.
 #[repr(C)]
 pub struct FluxBytes {
     pub ptr: *const u8,
     pub len: usize,
 }
 
-/// Subscription callback type.
-/// Called with (path, json_bytes, json_len, user_data).
-pub type FluxCallback = extern "C" fn(
-    path: *const c_char,
-    data: *const u8,
-    data_len: usize,
-    user_data: *mut c_void,
-);
-
 // ============================================================================
 // Lifecycle
 // ============================================================================
 
-/// Create a new Flux instance with the Twitter BFF.
+/// Create a new Flux instance.
+/// Starts an embedded HTTP server with admin dashboard + REST API.
 /// Returns an opaque handle. Must be freed with `flux_free`.
 #[no_mangle]
 pub extern "C" fn flux_create() -> *mut FluxHandle {
-    let rt = tokio::runtime::Builder::new_current_thread()
+    let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
+        .worker_threads(2)
         .build()
         .expect("failed to create tokio runtime");
 
-    // Create in-memory backend.
-    let dir = tempfile::tempdir().expect("failed to create temp dir");
-    let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
-        openerp_kv::RedbStore::open(&dir.path().join("flux.redb"))
-            .expect("failed to open redb"),
-    );
-
-    let bff = Arc::new(TwitterBff {
-        users: openerp_store::KvOps::new(kv.clone()),
-        tweets: openerp_store::KvOps::new(kv.clone()),
-        likes: openerp_store::KvOps::new(kv.clone()),
-        follows: openerp_store::KvOps::new(kv.clone()),
+    // Start embedded HTTP server.
+    let (server_url, bff) = rt.block_on(async {
+        start_embedded_server().await
     });
 
+    let bff = Arc::new(bff);
     let flux = Flux::new();
     bff.register(&flux);
 
-    // Seed demo data.
-    seed_demo_data(&bff);
-
     let handle = Box::new(FluxHandle {
         flux,
-        bff,
+        _bff: bff,
         rt,
+        server_url: CString::new(server_url).unwrap(),
     });
-
-    // Leak the tempdir to keep it alive (it's owned by the process).
-    std::mem::forget(dir);
 
     Box::into_raw(handle)
 }
@@ -97,13 +74,18 @@ pub extern "C" fn flux_free(handle: *mut FluxHandle) {
     }
 }
 
+/// Get the server URL (e.g. "http://192.168.1.100:3000").
+/// Returns a null-terminated C string. Do NOT free it.
+#[no_mangle]
+pub extern "C" fn flux_server_url(handle: *const FluxHandle) -> *const c_char {
+    let handle = unsafe { &*handle };
+    handle.server_url.as_ptr()
+}
+
 // ============================================================================
 // State — read
 // ============================================================================
 
-/// Get state at a path as JSON bytes.
-/// Returns FluxBytes { ptr, len }. Caller must free with `flux_bytes_free`.
-/// Returns { null, 0 } if path not found or type unknown.
 #[no_mangle]
 pub extern "C" fn flux_get(handle: *const FluxHandle, path: *const c_char) -> FluxBytes {
     let handle = unsafe { &*handle };
@@ -118,7 +100,6 @@ pub extern "C" fn flux_get(handle: *const FluxHandle, path: *const c_char) -> Fl
     }
 }
 
-/// Free bytes returned by `flux_get`.
 #[no_mangle]
 pub extern "C" fn flux_bytes_free(bytes: FluxBytes) {
     if !bytes.ptr.is_null() && bytes.len > 0 {
@@ -132,9 +113,6 @@ pub extern "C" fn flux_bytes_free(bytes: FluxBytes) {
 // Requests — emit
 // ============================================================================
 
-/// Emit a request with JSON payload.
-/// `path` is the request path (e.g. "auth/login").
-/// `payload_json` is the JSON-encoded request body (or null for unit requests).
 #[no_mangle]
 pub extern "C" fn flux_emit(
     handle: *mut FluxHandle,
@@ -149,7 +127,6 @@ pub extern "C" fn flux_emit(
         unsafe { CStr::from_ptr(payload_json) }.to_str().unwrap_or("")
     };
 
-    // Deserialize payload to the correct request type and emit.
     let payload = deserialize_request(path_str, payload_str);
     if let Some(payload) = payload {
         handle.rt.block_on(async {
@@ -159,58 +136,155 @@ pub extern "C" fn flux_emit(
 }
 
 // ============================================================================
-// Subscriptions
+// Server startup
 // ============================================================================
 
-/// Subscribe to state changes matching a pattern.
-/// Callback is called with (path, json_bytes, json_len, user_data).
-/// Returns a subscription ID (u64). Use `flux_unsubscribe` to remove.
-#[no_mangle]
-pub extern "C" fn flux_subscribe(
-    handle: *mut FluxHandle,
-    pattern: *const c_char,
-    callback: FluxCallback,
-    user_data: *mut c_void,
-) -> u64 {
-    let handle = unsafe { &*handle };
-    let pattern = unsafe { CStr::from_ptr(pattern) }.to_str().unwrap_or("");
+async fn start_embedded_server() -> (String, TwitterBff) {
+    use std::sync::Arc;
 
-    // Wrap user_data in a Send+Sync wrapper (caller guarantees thread safety).
-    let user_data = user_data as usize; // usize is Send+Sync
+    // Create in-memory storage.
+    let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+        openerp_kv::RedbStore::open(&dir.path().join("flux.redb"))
+            .expect("failed to open redb"),
+    );
+    std::mem::forget(dir);
 
-    let id = handle.flux.subscribe(pattern, move |path, value| {
-        if let Some(json) = serialize_state(path, value) {
-            let c_path = CString::new(path).unwrap_or_default();
-            let ud = user_data as *mut c_void;
-            callback(c_path.as_ptr(), json.as_ptr(), json.len(), ud);
-        }
+    let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+
+    // Seed demo data.
+    seed_demo_data(&kv);
+
+    // Build admin router.
+    let twitter_admin = flux_golden::server::admin_router(kv.clone(), auth);
+
+    // Build schema.
+    let schema_json = openerp_store::build_schema("Twitter", vec![
+        flux_golden::server::schema_def(),
+    ]);
+
+    // Detect LAN IP.
+    let lan_ip = get_lan_ip().unwrap_or_else(|| "127.0.0.1".to_string());
+
+    // Bind to a random port.
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await
+        .expect("failed to bind");
+    let port = listener.local_addr().unwrap().port();
+    let server_url = format!("http://{}:{}", lan_ip, port);
+
+    tracing::info!("Embedded server: {}", server_url);
+    tracing::info!("Dashboard: {}/dashboard", server_url);
+
+    // Build the router.
+    let schema = schema_json.clone();
+
+    // Simple login handler (any password).
+    let login_handler = axum::routing::post(|| async {
+        let now = chrono::Utc::now().timestamp();
+        let header = base64_url("{}");
+        let payload = base64_url(&serde_json::json!({
+            "sub": "app", "roles": ["admin"],
+            "iat": now, "exp": now + 86400,
+        }).to_string());
+        let sig = base64_url("sig");
+        let token = format!("{}.{}.{}", header, payload, sig);
+        axum::Json(serde_json::json!({
+            "access_token": token, "token_type": "Bearer", "expires_in": 86400,
+        }))
     });
 
-    // Return the inner u64.
-    // We need to extract it — SubscriptionId is pub(crate).
-    // For the golden test, we'll store subscription IDs internally.
-    // Return a simple counter that maps to the real ID.
-    0 // TODO: proper ID mapping
+    let app = axum::Router::new()
+        .route("/", axum::routing::get(|| async {
+            axum::response::Html(openerp_web::login_html())
+        }))
+        .route("/dashboard", axum::routing::get(|| async {
+            axum::response::Html(openerp_web::dashboard_html())
+        }))
+        .route("/meta/schema", axum::routing::get(move || {
+            let s = schema.clone();
+            async move { axum::Json(s) }
+        }))
+        .route("/health", axum::routing::get(|| async {
+            axum::Json(serde_json::json!({"status": "ok"}))
+        }))
+        .route("/auth/login", login_handler)
+        .nest("/admin/twitter", twitter_admin);
+
+    // Spawn server in background.
+    tokio::spawn(async move {
+        axum::serve(listener, app).await.ok();
+    });
+
+    // Wait for server to be ready.
+    tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+    // Create BFF client connected to the server.
+    let bff = TwitterBff::new(&server_url);
+
+    (server_url, bff)
 }
 
-/// Unsubscribe by pattern and ID.
-#[no_mangle]
-pub extern "C" fn flux_unsubscribe(
-    handle: *mut FluxHandle,
-    pattern: *const c_char,
-    sub_id: u64,
-) {
-    // TODO: implement with ID mapping
+fn get_lan_ip() -> Option<String> {
+    use std::net::UdpSocket;
+    let socket = UdpSocket::bind("0.0.0.0:0").ok()?;
+    socket.connect("8.8.8.8:80").ok()?;
+    socket.local_addr().ok().map(|a| a.ip().to_string())
+}
+
+fn base64_url(input: &str) -> String {
+    use base64::Engine;
+    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(input.as_bytes())
+}
+
+fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
+    use openerp_store::KvOps;
+    use openerp_types::*;
+    use flux_golden::server::model::*;
+
+    let users_ops = KvOps::<User>::new(kv.clone());
+    let tweets_ops = KvOps::<Tweet>::new(kv.clone());
+
+    for &(username, display, bio) in &[
+        ("alice", "Alice Wang", "Rust developer & open source enthusiast"),
+        ("bob", "Bob Li", "Product designer at Haivivi"),
+        ("carol", "Carol Zhang", "Full-stack engineer"),
+    ] {
+        users_ops.save_new(User {
+            id: Id::default(), username: username.into(),
+            bio: Some(bio.into()),
+            avatar: Some(Avatar::new(&format!("https://api.dicebear.com/7.x/initials/svg?seed={}", username))),
+            follower_count: 0, following_count: 0, tweet_count: 0,
+            display_name: Some(display.into()),
+            description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        }).unwrap();
+    }
+
+    for &(author, content) in &[
+        ("alice", "Just shipped Flux — a cross-platform state engine in Rust!"),
+        ("bob", "Dark mode design system is ready. Ship it!"),
+        ("carol", "Hot take: Bazel > Cargo for monorepos."),
+    ] {
+        tweets_ops.save_new(Tweet {
+            id: Id::default(), author_id: Id::new(author),
+            content: content.into(),
+            like_count: 0, reply_count: 0, reply_to_id: None,
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        }).unwrap();
+        if let Ok(Some(mut u)) = users_ops.get(author) {
+            u.tweet_count += 1;
+            let _ = users_ops.save(u);
+        }
+        std::thread::sleep(std::time::Duration::from_millis(2));
+    }
 }
 
 // ============================================================================
-// Serialization — type registry (golden test: hand-written switch)
+// Serialization — type registry
 // ============================================================================
 
-/// Serialize a StateValue to JSON bytes based on its path.
-/// This is what the codegen will generate — one branch per #[state] type.
 fn serialize_state(path: &str, value: &StateValue) -> Option<Vec<u8>> {
-    // Match by well-known paths first.
     if path == AuthState::PATH {
         return value.downcast_ref::<AuthState>()
             .and_then(|v| serde_json::to_vec(v).ok());
@@ -227,7 +301,6 @@ fn serialize_state(path: &str, value: &StateValue) -> Option<Vec<u8>> {
         return value.downcast_ref::<AppRoute>()
             .and_then(|v| serde_json::to_vec(v).ok());
     }
-
     if path == SearchState::PATH {
         return value.downcast_ref::<SearchState>()
             .and_then(|v| serde_json::to_vec(v).ok());
@@ -240,8 +313,6 @@ fn serialize_state(path: &str, value: &StateValue) -> Option<Vec<u8>> {
         return value.downcast_ref::<PasswordState>()
             .and_then(|v| serde_json::to_vec(v).ok());
     }
-
-    // Dynamic paths: profile/{id}, tweet/{id}.
     if path.starts_with("profile/") {
         return value.downcast_ref::<ProfilePage>()
             .and_then(|v| serde_json::to_vec(v).ok());
@@ -250,32 +321,27 @@ fn serialize_state(path: &str, value: &StateValue) -> Option<Vec<u8>> {
         return value.downcast_ref::<TweetDetail>()
             .and_then(|v| serde_json::to_vec(v).ok());
     }
-
     None
 }
 
-/// Deserialize a JSON request payload to the correct typed request.
-/// Returns Arc<dyn Any> for Flux.emit_arc().
 fn deserialize_request(path: &str, json: &str) -> Option<Arc<dyn Any + Send + Sync>> {
     match path {
         "app/initialize" => Some(Arc::new(InitializeReq)),
         "auth/login" => {
             serde_json::from_str::<serde_json::Value>(json).ok().map(|v| {
-                let req = LoginReq {
+                Arc::new(LoginReq {
                     username: v["username"].as_str().unwrap_or("").to_string(),
-                };
-                Arc::new(req) as Arc<dyn Any + Send + Sync>
+                }) as Arc<dyn Any + Send + Sync>
             })
         }
         "auth/logout" => Some(Arc::new(LogoutReq)),
         "timeline/load" => Some(Arc::new(TimelineLoadReq)),
         "tweet/create" => {
             serde_json::from_str::<serde_json::Value>(json).ok().map(|v| {
-                let req = CreateTweetReq {
+                Arc::new(CreateTweetReq {
                     content: v["content"].as_str().unwrap_or("").to_string(),
                     reply_to_id: v["replyToId"].as_str().map(|s| s.to_string()),
-                };
-                Arc::new(req) as Arc<dyn Any + Send + Sync>
+                }) as Arc<dyn Any + Send + Sync>
             })
         }
         "tweet/like" => {
@@ -357,56 +423,9 @@ fn deserialize_request(path: &str, json: &str) -> Option<Arc<dyn Any + Send + Sy
     }
 }
 
-/// Convert a Vec<u8> to FFI-safe FluxBytes.
 fn bytes_to_ffi(bytes: Vec<u8>) -> FluxBytes {
     let len = bytes.len();
     let ptr = bytes.as_ptr();
-    std::mem::forget(bytes); // Caller frees via flux_bytes_free.
+    std::mem::forget(bytes);
     FluxBytes { ptr, len }
-}
-
-// ============================================================================
-// Seed demo data
-// ============================================================================
-
-fn seed_demo_data(bff: &TwitterBff) {
-    use openerp_types::*;
-    use flux_golden::server::model::*;
-
-    let users = vec![
-        ("alice", "Alice Wang", "Rust developer & open source enthusiast"),
-        ("bob", "Bob Li", "Product designer at Haivivi"),
-        ("carol", "Carol Zhang", "Full-stack engineer"),
-    ];
-    for &(username, display, bio) in &users {
-        bff.users.save_new(User {
-            id: Id::default(), username: username.into(),
-            bio: Some(bio.into()),
-            avatar: Some(Avatar::new(&format!("https://api.dicebear.com/7.x/initials/svg?seed={}", username))),
-            follower_count: 0, following_count: 0, tweet_count: 0,
-            display_name: Some(display.into()),
-            description: None, metadata: None,
-            created_at: DateTime::default(), updated_at: DateTime::default(),
-        }).unwrap();
-    }
-
-    let tweets = vec![
-        ("alice", "Just shipped Flux — a cross-platform state engine in Rust!"),
-        ("bob", "Dark mode design system is ready. Ship it!"),
-        ("carol", "Hot take: Bazel > Cargo for monorepos."),
-    ];
-    for &(author, content) in &tweets {
-        bff.tweets.save_new(Tweet {
-            id: Id::default(), author_id: Id::new(author),
-            content: content.into(),
-            like_count: 0, reply_count: 0, reply_to_id: None,
-            display_name: None, description: None, metadata: None,
-            created_at: DateTime::default(), updated_at: DateTime::default(),
-        }).unwrap();
-        if let Ok(Some(mut u)) = bff.users.get(author) {
-            u.tweet_count += 1;
-            let _ = bff.users.save(u);
-        }
-        std::thread::sleep(std::time::Duration::from_millis(2));
-    }
 }
