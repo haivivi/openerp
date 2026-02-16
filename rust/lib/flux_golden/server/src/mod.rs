@@ -11,6 +11,7 @@ pub mod model;
 pub mod rest_app;
 
 pub mod store_impls;
+pub mod facet_handlers;
 
 use std::sync::Arc;
 

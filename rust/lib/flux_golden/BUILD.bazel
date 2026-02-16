@@ -18,6 +18,7 @@ rust_library(
         "//rust/lib/core",
         "//rust/lib/kv",
         "@crates//:axum",
+        "@crates//:base64",
         "@crates//:chrono",
         "@crates//:reqwest",
         "@crates//:serde",

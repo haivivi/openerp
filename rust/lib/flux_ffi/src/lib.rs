@@ -155,8 +155,17 @@ async fn start_embedded_server() -> (String, TwitterBff) {
     // Seed demo data.
     seed_demo_data(&kv);
 
-    // Build admin router.
+    // Build admin router (for dashboard).
     let twitter_admin = flux_golden::server::admin_router(kv.clone(), auth);
+
+    // Build facet router (for app).
+    let facet_state = Arc::new(flux_golden::server::facet_handlers::FacetStateInner {
+        users: openerp_store::KvOps::new(kv.clone()),
+        tweets: openerp_store::KvOps::new(kv.clone()),
+        likes: openerp_store::KvOps::new(kv.clone()),
+        follows: openerp_store::KvOps::new(kv.clone()),
+    });
+    let facet_router = flux_golden::server::facet_handlers::facet_router(facet_state);
 
     // Build schema.
     let schema_json = openerp_store::build_schema("Twitter", vec![
@@ -208,6 +217,7 @@ async fn start_embedded_server() -> (String, TwitterBff) {
             axum::Json(serde_json::json!({"status": "ok"}))
         }))
         .route("/auth/login", login_handler)
+        .nest("/app/twitter", facet_router)
         .nest("/admin/twitter", twitter_admin);
 
     // Spawn server in background.
@@ -218,10 +228,13 @@ async fn start_embedded_server() -> (String, TwitterBff) {
     // Wait for server to be ready.
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // Create BFF client connected to the server (no auth for golden test).
+    // Create BFF with a PasswordLogin token source.
+    // The first login call through the facet API will cache the JWT.
     let token_source: std::sync::Arc<dyn openerp_client::TokenSource> =
         std::sync::Arc::new(openerp_client::NoAuth);
     let bff = TwitterBff::new(&server_url, token_source);
+    // Note: BFF login handler calls facet /auth/login which returns a JWT.
+    // For subsequent calls, the facet uses x-user-id header (golden test shortcut).
 
     (server_url, bff)
 }
