@@ -1,5 +1,5 @@
 use std::sync::Arc;
-use axum::extract::{Query, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::get;
 use axum::{Json, Router};
 use openerp_core::{ListParams, ListResult, ServiceError};
@@ -12,6 +12,7 @@ type S = Arc<KvOps<Model>>;
 pub fn routes(ops: S) -> Router {
     Router::new()
         .route("/models", get(list))
+        .route("/models/{code}", get(get_one))
         .with_state(ops)
 }
 
@@ -30,4 +31,9 @@ async fn list(
     let result = ops.list_paginated(&params)?;
     let items = result.items.iter().map(project).collect();
     Ok(Json(ListResult { items, has_more: result.has_more }))
+}
+
+async fn get_one(State(ops): State<S>, Path(code): Path<String>) -> Result<Json<MfgModel>, ServiceError> {
+    let m = ops.get_or_err(&code)?;
+    Ok(Json(project(&m)))
 }

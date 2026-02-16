@@ -106,7 +106,8 @@ pub fn expand(attr: TokenStream, item: ItemMod) -> syn::Result<TokenStream> {
         let n = fn_name_from_type(&a.type_name);
         let m = &a.method;
         let p = &a.path;
-        let has_body = a.params.iter().any(|p| !p.is_path_param);
+        // DELETE never sends a body, regardless of fn signature.
+        let has_body = a.method != "DELETE" && a.params.iter().any(|p| !p.is_path_param);
         quote! { serde_json::json!({"name": #n, "method": #m, "path": #p, "hasBody": #has_body}) }
     });
 
@@ -347,6 +348,20 @@ fn parse_action(t: &ItemType) -> syn::Result<ActionInfo> {
         });
     }
 
+    // Validate: every URL template param must have a matching fn param.
+    let fn_param_names: Vec<String> = params.iter().map(|p| p.name.to_string()).collect();
+    for url_param in &path_param_names {
+        if !fn_param_names.contains(url_param) {
+            return Err(syn::Error::new_spanned(
+                &t.ident,
+                format!(
+                    "URL template has {{{}}} but fn signature has no parameter named `{}`",
+                    url_param, url_param
+                ),
+            ));
+        }
+    }
+
     let return_type = match &bare_fn.output {
         syn::ReturnType::Type(_, ty) => Some(ty.as_ref().clone()),
         syn::ReturnType::Default => None,
@@ -415,8 +430,18 @@ fn emit_resource_client_methods(
 
     quote! {
         #[doc = #list_doc]
-        pub async fn #list_fn(&self) -> Result<openerp_client::ListResult<#struct_name>, openerp_client::ApiError> {
-            self.base.list(#list_path).await
+        pub async fn #list_fn(&self, params: Option<&openerp_client::ListParams>) -> Result<openerp_client::ListResult<#struct_name>, openerp_client::ApiError> {
+            let mut url = #list_path.to_string();
+            if let Some(p) = params {
+                let mut parts = Vec::new();
+                if let Some(limit) = p.limit { parts.push(format!("limit={}", limit)); }
+                if let Some(offset) = p.offset { parts.push(format!("offset={}", offset)); }
+                if !parts.is_empty() {
+                    url.push('?');
+                    url.push_str(&parts.join("&"));
+                }
+            }
+            self.base.list(&url).await
         }
 
         #[doc = #get_doc]

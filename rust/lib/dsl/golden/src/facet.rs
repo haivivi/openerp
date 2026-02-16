@@ -398,13 +398,13 @@ mod tests {
         // Verify that the generated methods have the expected signatures.
         // This is a compile-time check — if signatures are wrong, it won't compile.
         async fn _verify_mfg(c: &mfg::MfgClient) {
-            let _: Result<openerp_client::ListResult<mfg::MfgModel>, _> = c.list_models().await;
+            let _: Result<openerp_client::ListResult<mfg::MfgModel>, _> = c.list_models(None).await;
             let _: Result<mfg::MfgModel, _> = c.get_model("1001").await;
-            let _: Result<openerp_client::ListResult<mfg::MfgBatch>, _> = c.list_batches().await;
+            let _: Result<openerp_client::ListResult<mfg::MfgBatch>, _> = c.list_batches(None).await;
             let _: Result<mfg::MfgBatch, _> = c.get_batch("b1").await;
-            let _: Result<openerp_client::ListResult<mfg::MfgDevice>, _> = c.list_devices().await;
+            let _: Result<openerp_client::ListResult<mfg::MfgDevice>, _> = c.list_devices(None).await;
             let _: Result<mfg::MfgDevice, _> = c.get_device("SN1").await;
-            let _: Result<openerp_client::ListResult<mfg::MfgFirmware>, _> = c.list_firmwares().await;
+            let _: Result<openerp_client::ListResult<mfg::MfgFirmware>, _> = c.list_firmwares(None).await;
             let _: Result<mfg::MfgFirmware, _> = c.get_firmware("fw1").await;
 
             let req = ProvisionRequest { count: Some(10) };
@@ -413,7 +413,7 @@ mod tests {
         }
 
         async fn _verify_app(c: &app_km::AppClient) {
-            let _: Result<openerp_client::ListResult<app_km::AppArticle>, _> = c.list_articles().await;
+            let _: Result<openerp_client::ListResult<app_km::AppArticle>, _> = c.list_articles(None).await;
             let _: Result<app_km::AppArticle, _> = c.get_article("a1").await;
 
             let req = PublishRequest { visibility: "public".into() };
@@ -421,7 +421,7 @@ mod tests {
         }
 
         async fn _verify_public(c: &public_org::PublicClient) {
-            let _: Result<openerp_client::ListResult<public_org::PublicCompany>, _> = c.list_companies().await;
+            let _: Result<openerp_client::ListResult<public_org::PublicCompany>, _> = c.list_companies(None).await;
             let _: Result<public_org::PublicCompany, _> = c.get_company("c1").await;
         }
 
