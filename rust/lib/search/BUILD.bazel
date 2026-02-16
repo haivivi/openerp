@@ -4,7 +4,7 @@ rust_library(
     name = "search",
     crate_name = "openerp_search",
     srcs = glob(["src/**/*.rs"]),
-    visibility = ["//rust:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [
         "@crates//:serde_json",
         "@crates//:tantivy",

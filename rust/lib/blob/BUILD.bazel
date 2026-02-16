@@ -4,7 +4,7 @@ rust_library(
     name = "blob",
     crate_name = "openerp_blob",
     srcs = glob(["src/**/*.rs"]),
-    visibility = ["//rust:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [
         "@crates//:thiserror",
     ],

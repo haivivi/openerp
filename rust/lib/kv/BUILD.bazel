@@ -4,7 +4,7 @@ rust_library(
     name = "kv",
     crate_name = "openerp_kv",
     srcs = glob(["src/**/*.rs"]),
-    visibility = ["//rust:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [
         "@crates//:redb",
         "@crates//:thiserror",

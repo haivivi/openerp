@@ -4,7 +4,7 @@ rust_library(
     name = "core",
     crate_name = "openerp_core",
     srcs = glob(["src/**/*.rs"]),
-    visibility = ["//rust:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [
         "@crates//:axum",
         "@crates//:chrono",
