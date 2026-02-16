@@ -147,7 +147,7 @@ mod facet_tests {
         }
 
         /// Production batch for MFG app.
-        #[resource(path = "/batches", pk = "id")]
+        #[resource(path = "/batches", pk = "id", singular = "batch")]
         pub struct MfgBatch {
             pub id: String,
             pub model: u32,

@@ -28,6 +28,9 @@ struct ResourceInfo {
     struct_name: syn::Ident,
     path: String,
     pk: String,
+    /// Explicit singular form (e.g. "batch" for "/batches").
+    /// If None, defaults to stripping trailing 's'.
+    singular: Option<String>,
 }
 
 struct ActionParam {
@@ -230,6 +233,7 @@ fn parse_facet_attrs(attr: TokenStream) -> syn::Result<FacetAttrs> {
 fn parse_resource(s: &ItemStruct) -> syn::Result<ResourceInfo> {
     let mut path = None;
     let mut pk = None;
+    let mut singular = None;
 
     for attr in &s.attrs {
         if attr.path().is_ident("resource") {
@@ -246,6 +250,12 @@ fn parse_resource(s: &ItemStruct) -> syn::Result<ResourceInfo> {
                     if let Lit::Str(s) = lit {
                         pk = Some(s.value());
                     }
+                } else if meta.path.is_ident("singular") {
+                    let v = meta.value()?;
+                    let lit: Lit = v.parse()?;
+                    if let Lit::Str(s) = lit {
+                        singular = Some(s.value());
+                    }
                 }
                 Ok(())
             })?;
@@ -260,6 +270,7 @@ fn parse_resource(s: &ItemStruct) -> syn::Result<ResourceInfo> {
         pk: pk.ok_or_else(|| {
             syn::Error::new_spanned(&s.ident, "#[resource] requires: pk = \"...\"")
         })?,
+        singular,
     })
 }
 
@@ -388,7 +399,10 @@ fn emit_resource_client_methods(
 ) -> TokenStream {
     let struct_name = &res.struct_name;
     let path_segment = res.path.trim_start_matches('/');
-    let singular = singularize(path_segment);
+    let singular = match &res.singular {
+        Some(s) => s.clone(),
+        None => path_segment.strip_suffix('s').unwrap_or(path_segment).to_string(),
+    };
     let list_fn = format_ident!("list_{}", path_segment);
     let get_fn = format_ident!("get_{}", singular);
     let pk_ident = format_ident!("{}", res.pk);
@@ -564,19 +578,6 @@ fn to_pascal_case(s: &str) -> String {
         .collect()
 }
 
-/// Simple singularization: models → model, batches → batch, devices → device
-fn singularize(s: &str) -> String {
-    if s.ends_with("ies") && s.len() > 3 {
-        format!("{}y", &s[..s.len() - 3])
-    } else if s.ends_with("ches") || s.ends_with("shes") || s.ends_with("sses") || s.ends_with("xes") || s.ends_with("zes") {
-        s[..s.len() - 2].to_string()
-    } else if s.ends_with('s') && !s.ends_with("ss") && !s.ends_with("us") {
-        s[..s.len() - 1].to_string()
-    } else {
-        s.to_string()
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -612,16 +613,6 @@ mod tests {
             build_path_format("mfg", "pms", "/models"),
             "/mfg/pms/models"
         );
-    }
-
-    #[test]
-    fn test_singularize() {
-        assert_eq!(singularize("models"), "model");
-        assert_eq!(singularize("batches"), "batch");
-        assert_eq!(singularize("devices"), "device");
-        assert_eq!(singularize("firmwares"), "firmware");
-        assert_eq!(singularize("policies"), "policy");
-        assert_eq!(singularize("status"), "status");
     }
 
     #[test]

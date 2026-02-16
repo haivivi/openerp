@@ -65,7 +65,7 @@ mod tests {
         }
 
         /// Production batch tracking.
-        #[resource(path = "/batches", pk = "id")]
+        #[resource(path = "/batches", pk = "id", singular = "batch")]
         pub struct MfgBatch {
             pub id: String,
             pub model: u32,
@@ -130,7 +130,7 @@ mod tests {
     #[facet(name = "public", module = "org")]
     pub mod public_org {
         /// Public company info.
-        #[resource(path = "/companies", pk = "id")]
+        #[resource(path = "/companies", pk = "id", singular = "company")]
         pub struct PublicCompany {
             pub id: String,
             pub name: String,
