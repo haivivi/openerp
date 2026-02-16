@@ -7,6 +7,9 @@
 #[path = "../dsl/model/mod.rs"]
 pub mod model;
 
+#[path = "../dsl/rest/app.rs"]
+pub mod rest_app;
+
 pub mod store_impls;
 
 use std::sync::Arc;
