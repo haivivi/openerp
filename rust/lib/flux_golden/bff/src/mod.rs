@@ -1,12 +1,14 @@
 //! Twitter BFF — Flux state engine layer.
 //!
-//! `TwitterBff` holds HTTP client (not KvOps). Handlers call the
-//! backend server via typed REST API, then update Flux state.
+//! `TwitterBff` holds HTTP clients (admin ResourceClient).
+//! Handlers call the backend server via typed REST API, then update Flux state.
 
 pub mod global;
 
+use std::sync::Arc;
+
 use flux_derive::flux_handlers;
-use openerp_client::ResourceClient;
+use openerp_client::{ApiError, ResourceClient, NoAuth, TokenSource, ListResponse};
 use openerp_flux::StateStore;
 
 use crate::request::*;
@@ -15,32 +17,25 @@ use crate::server::model;
 use self::global::helpers;
 
 /// BFF context — holds typed HTTP clients for each resource.
-/// The backend runs as an HTTP server; BFF talks to it over HTTP.
 pub struct TwitterBff {
     pub users: ResourceClient<model::User>,
     pub tweets: ResourceClient<model::Tweet>,
     pub likes: ResourceClient<model::Like>,
     pub follows: ResourceClient<model::Follow>,
-    /// The server's URL (for opening admin dashboard in browser).
     pub server_url: String,
 }
 
 impl TwitterBff {
-    /// Create a new BFF connected to a backend at the given URL.
-    pub fn new(base_url: &str) -> Self {
-        let http = reqwest::Client::new();
-        let admin = format!("{}/admin/twitter", base_url);
+    pub fn new(base_url: &str, token_source: Arc<dyn TokenSource>) -> Self {
         Self {
-            users: ResourceClient::new(&http, &admin, "users"),
-            tweets: ResourceClient::new(&http, &admin, "tweets"),
-            likes: ResourceClient::new(&http, &admin, "likes"),
-            follows: ResourceClient::new(&http, &admin, "follows"),
+            users: ResourceClient::new(base_url, token_source.clone()),
+            tweets: ResourceClient::new(base_url, token_source.clone()),
+            likes: ResourceClient::new(base_url, token_source.clone()),
+            follows: ResourceClient::new(base_url, token_source),
             server_url: base_url.to_string(),
         }
     }
 }
-
-// ── Handler methods ──
 
 #[flux_handlers]
 impl TwitterBff {
@@ -52,14 +47,12 @@ impl TwitterBff {
     }
 
     async fn reload_timeline(&self, uid: &str, store: &StateStore) {
-        let mut tweets = self.tweets.list().await.unwrap_or_default();
-        let users = self.users.list().await.unwrap_or_default();
-        let likes = self.likes.list().await.unwrap_or_default();
+        let mut tweets = self.tweets.list(None).await.map(|r| r.items).unwrap_or_default();
+        let users = self.users.list(None).await.map(|r| r.items).unwrap_or_default();
+        let likes = self.likes.list(None).await.map(|r| r.items).unwrap_or_default();
         let feed = helpers::build_timeline(uid, &mut tweets, &users, &likes);
         store.set(TimelineFeed::PATH, feed);
     }
-
-    // ── App lifecycle ──
 
     #[handle(InitializeReq)]
     pub async fn handle_initialize(&self, _req: &InitializeReq, store: &StateStore) {
@@ -68,8 +61,6 @@ impl TwitterBff {
         });
         store.set(AppRoute::PATH, AppRoute("/login".into()));
     }
-
-    // ── Auth ──
 
     #[handle(LoginReq)]
     pub async fn handle_login(&self, req: &LoginReq, store: &StateStore) {
@@ -87,7 +78,7 @@ impl TwitterBff {
                 store.set(AppRoute::PATH, AppRoute("/home".into()));
                 self.reload_timeline(&uid, store).await;
             }
-            Err(e) => {
+            Err(_) => {
                 store.set(AuthState::PATH, AuthState {
                     phase: AuthPhase::Unauthenticated, user: None, busy: false,
                     error: Some(format!("User '{}' not found", req.username)),
@@ -106,8 +97,6 @@ impl TwitterBff {
         store.remove(ComposeState::PATH);
     }
 
-    // ── Timeline ──
-
     #[handle(TimelineLoadReq)]
     pub async fn handle_timeline_load(&self, _req: &TimelineLoadReq, store: &StateStore) {
         let uid = self.current_user_id(store);
@@ -116,8 +105,6 @@ impl TwitterBff {
         });
         self.reload_timeline(&uid, store).await;
     }
-
-    // ── Tweet CRUD ──
 
     #[handle(CreateTweetReq)]
     pub async fn handle_create_tweet(&self, req: &CreateTweetReq, store: &StateStore) {
@@ -150,16 +137,15 @@ impl TwitterBff {
             display_name: None, description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
 
         match self.tweets.create(&tweet).await {
-            Ok(created) => {
-                // Update author tweet count.
+            Ok(_) => {
                 if let Ok(mut user) = self.users.get(&uid).await {
                     user.tweet_count += 1;
                     let _ = self.users.update(&uid, &user).await;
                 }
-                // Update parent reply count.
                 if let Some(ref parent_id) = req.reply_to_id {
                     if let Ok(mut parent) = self.tweets.get(parent_id).await {
                         parent.reply_count += 1;
@@ -188,6 +174,7 @@ impl TwitterBff {
             display_name: None, description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
         if self.likes.create(&like).await.is_ok() {
             if let Ok(mut tweet) = self.tweets.get(&req.tweet_id).await {
@@ -215,24 +202,20 @@ impl TwitterBff {
     pub async fn handle_load_tweet(&self, req: &LoadTweetReq, store: &StateStore) {
         let uid = self.current_user_id(store);
         if let Ok(tweet) = self.tweets.get(&req.tweet_id).await {
-            let users = self.users.list().await.unwrap_or_default();
-            let likes = self.likes.list().await.unwrap_or_default();
+            let users = self.users.list(None).await.map(|r| r.items).unwrap_or_default();
+            let likes = self.likes.list(None).await.map(|r| r.items).unwrap_or_default();
             let item = helpers::tweet_to_feed_item(&tweet, &uid, &users, &likes);
-
-            let mut all_tweets = self.tweets.list().await.unwrap_or_default();
+            let all_tweets = self.tweets.list(None).await.map(|r| r.items).unwrap_or_default();
             let replies: Vec<FeedItem> = all_tweets.iter()
                 .filter(|t| t.reply_to_id.as_ref().map(|s| s.as_str()) == Some(&req.tweet_id))
                 .map(|t| helpers::tweet_to_feed_item(t, &uid, &users, &likes))
                 .collect();
-
             store.set(&TweetDetail::path(&req.tweet_id), TweetDetail {
                 tweet: item, replies, loading: false,
             });
             store.set(AppRoute::PATH, AppRoute(format!("/tweet/{}", req.tweet_id)));
         }
     }
-
-    // ── Social ──
 
     #[handle(FollowUserReq)]
     pub async fn handle_follow(&self, req: &FollowUserReq, store: &StateStore) {
@@ -244,6 +227,7 @@ impl TwitterBff {
             display_name: None, description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
+            rev: 0,
         };
         if self.follows.create(&follow).await.is_ok() {
             if let Ok(mut me) = self.users.get(&uid).await {
@@ -280,17 +264,15 @@ impl TwitterBff {
         let uid = self.current_user_id(store);
         if let Ok(user) = self.users.get(&req.user_id).await {
             let profile = helpers::user_to_profile(&user);
-            let users = self.users.list().await.unwrap_or_default();
-            let likes = self.likes.list().await.unwrap_or_default();
-            let mut all_tweets = self.tweets.list().await.unwrap_or_default();
+            let users = self.users.list(None).await.map(|r| r.items).unwrap_or_default();
+            let likes = self.likes.list(None).await.map(|r| r.items).unwrap_or_default();
+            let all_tweets = self.tweets.list(None).await.map(|r| r.items).unwrap_or_default();
             let tweet_items: Vec<FeedItem> = all_tweets.iter()
                 .filter(|t| t.author_id.as_str() == req.user_id)
                 .map(|t| helpers::tweet_to_feed_item(t, &uid, &users, &likes))
                 .collect();
-
             let follow_key = format!("{}:{}", uid, req.user_id);
             let followed_by_me = self.follows.get(&follow_key).await.is_ok();
-
             store.set(&ProfilePage::path(&req.user_id), ProfilePage {
                 user: profile, tweets: tweet_items, followed_by_me, loading: false,
             });
@@ -311,8 +293,6 @@ impl TwitterBff {
         store.set(ComposeState::PATH, state);
     }
 
-    // ── Search ──
-
     #[handle(SearchReq)]
     pub async fn handle_search(&self, req: &SearchReq, store: &StateStore) {
         let uid = self.current_user_id(store);
@@ -328,24 +308,20 @@ impl TwitterBff {
             query: req.query.clone(), users: vec![], tweets: vec![],
             loading: true, error: None,
         });
-
-        let all_users = self.users.list().await.unwrap_or_default();
-        let all_likes = self.likes.list().await.unwrap_or_default();
+        let all_users = self.users.list(None).await.map(|r| r.items).unwrap_or_default();
+        let all_likes = self.likes.list(None).await.map(|r| r.items).unwrap_or_default();
         let users: Vec<UserProfile> = all_users.iter()
             .filter(|u| u.username.to_lowercase().contains(&query)
                 || u.display_name.as_deref().unwrap_or("").to_lowercase().contains(&query))
             .map(|u| helpers::user_to_profile(u))
             .collect();
-
-        let all_tweets = self.tweets.list().await.unwrap_or_default();
+        let all_tweets = self.tweets.list(None).await.map(|r| r.items).unwrap_or_default();
         let tweets: Vec<FeedItem> = all_tweets.iter()
             .filter(|t| t.content.to_lowercase().contains(&query))
             .map(|t| helpers::tweet_to_feed_item(t, &uid, &all_users, &all_likes))
             .collect();
-
         store.set(SearchState::PATH, SearchState {
-            query: req.query.clone(), users, tweets,
-            loading: false, error: None,
+            query: req.query.clone(), users, tweets, loading: false, error: None,
         });
     }
 
@@ -353,8 +329,6 @@ impl TwitterBff {
     pub async fn handle_search_clear(&self, _req: &SearchClearReq, store: &StateStore) {
         store.remove(SearchState::PATH);
     }
-
-    // ── Settings ──
 
     #[handle(SettingsLoadReq)]
     pub async fn handle_settings_load(&self, _req: &SettingsLoadReq, store: &StateStore) {
@@ -380,10 +354,6 @@ impl TwitterBff {
             });
             return;
         }
-        store.set(SettingsState::PATH, SettingsState {
-            display_name: req.display_name.clone(), bio: req.bio.clone(),
-            busy: true, saved: false, error: None,
-        });
         if let Ok(mut user) = self.users.get(&uid).await {
             user.display_name = Some(req.display_name.clone());
             user.bio = Some(req.bio.clone());

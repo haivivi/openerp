@@ -516,6 +516,90 @@ string_newtype!(
 
 // ── Pluralization ──
 
+// ── Flexible number deserializers ──
+// Accept both JSON number (42) and string ("42").
+// Used by #[model] macro on numeric fields for robust API input.
+
+/// Flexible u32 deserializer. Accepts: 42, "42", null→0.
+pub fn deserialize_u32_flexible<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u32, D::Error> {
+    struct V;
+    impl<'de> serde::de::Visitor<'de> for V {
+        type Value = u32;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result { f.write_str("number or string") }
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<u32, E> { Ok(v as u32) }
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<u32, E> { Ok(v as u32) }
+        fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<u32, E> { Ok(v as u32) }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<u32, E> {
+            if v.is_empty() { return Ok(0); }
+            v.parse().map_err(|_| E::custom(format!("cannot parse '{}' as u32", v)))
+        }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<u32, E> { Ok(0) }
+        fn visit_none<E: serde::de::Error>(self) -> Result<u32, E> { Ok(0) }
+        fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<u32, D2::Error> { d.deserialize_any(V) }
+    }
+    d.deserialize_any(V)
+}
+
+/// Flexible u64 deserializer. Accepts: 42, "42", null→0.
+pub fn deserialize_u64_flexible<'de, D: serde::Deserializer<'de>>(d: D) -> Result<u64, D::Error> {
+    struct V;
+    impl<'de> serde::de::Visitor<'de> for V {
+        type Value = u64;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result { f.write_str("number or string") }
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<u64, E> { Ok(v) }
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<u64, E> { Ok(v as u64) }
+        fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<u64, E> { Ok(v as u64) }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<u64, E> {
+            if v.is_empty() { return Ok(0); }
+            v.parse().map_err(|_| E::custom(format!("cannot parse '{}' as u64", v)))
+        }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<u64, E> { Ok(0) }
+        fn visit_none<E: serde::de::Error>(self) -> Result<u64, E> { Ok(0) }
+        fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<u64, D2::Error> { d.deserialize_any(V) }
+    }
+    d.deserialize_any(V)
+}
+
+/// Flexible i64 deserializer. Accepts: -42, "-42", null→0.
+pub fn deserialize_i64_flexible<'de, D: serde::Deserializer<'de>>(d: D) -> Result<i64, D::Error> {
+    struct V;
+    impl<'de> serde::de::Visitor<'de> for V {
+        type Value = i64;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result { f.write_str("number or string") }
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<i64, E> { Ok(v as i64) }
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<i64, E> { Ok(v) }
+        fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<i64, E> { Ok(v as i64) }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<i64, E> {
+            if v.is_empty() { return Ok(0); }
+            v.parse().map_err(|_| E::custom(format!("cannot parse '{}' as i64", v)))
+        }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<i64, E> { Ok(0) }
+        fn visit_none<E: serde::de::Error>(self) -> Result<i64, E> { Ok(0) }
+        fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<i64, D2::Error> { d.deserialize_any(V) }
+    }
+    d.deserialize_any(V)
+}
+
+/// Flexible f64 deserializer. Accepts: 3.14, "3.14", null→0.0.
+pub fn deserialize_f64_flexible<'de, D: serde::Deserializer<'de>>(d: D) -> Result<f64, D::Error> {
+    struct V;
+    impl<'de> serde::de::Visitor<'de> for V {
+        type Value = f64;
+        fn expecting(&self, f: &mut fmt::Formatter) -> fmt::Result { f.write_str("number or string") }
+        fn visit_u64<E: serde::de::Error>(self, v: u64) -> Result<f64, E> { Ok(v as f64) }
+        fn visit_i64<E: serde::de::Error>(self, v: i64) -> Result<f64, E> { Ok(v as f64) }
+        fn visit_f64<E: serde::de::Error>(self, v: f64) -> Result<f64, E> { Ok(v) }
+        fn visit_str<E: serde::de::Error>(self, v: &str) -> Result<f64, E> {
+            if v.is_empty() { return Ok(0.0); }
+            v.parse().map_err(|_| E::custom(format!("cannot parse '{}' as f64", v)))
+        }
+        fn visit_unit<E: serde::de::Error>(self) -> Result<f64, E> { Ok(0.0) }
+        fn visit_none<E: serde::de::Error>(self) -> Result<f64, E> { Ok(0.0) }
+        fn visit_some<D2: serde::Deserializer<'de>>(self, d: D2) -> Result<f64, D2::Error> { d.deserialize_any(V) }
+    }
+    d.deserialize_any(V)
+}
+
 /// Simple English pluralization for URL paths.
 ///
 /// Handles common cases:

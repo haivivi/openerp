@@ -218,8 +218,10 @@ async fn start_embedded_server() -> (String, TwitterBff) {
     // Wait for server to be ready.
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // Create BFF client connected to the server.
-    let bff = TwitterBff::new(&server_url);
+    // Create BFF client connected to the server (no auth for golden test).
+    let token_source: std::sync::Arc<dyn openerp_client::TokenSource> =
+        std::sync::Arc::new(openerp_client::NoAuth);
+    let bff = TwitterBff::new(&server_url, token_source);
 
     (server_url, bff)
 }
@@ -256,7 +258,7 @@ fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
             follower_count: 0, following_count: 0, tweet_count: 0,
             display_name: Some(display.into()),
             description: None, metadata: None,
-            created_at: DateTime::default(), updated_at: DateTime::default(),
+            created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
         }).unwrap();
     }
 
@@ -270,7 +272,7 @@ fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
             content: content.into(),
             like_count: 0, reply_count: 0, reply_to_id: None,
             display_name: None, description: None, metadata: None,
-            created_at: DateTime::default(), updated_at: DateTime::default(),
+            created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
         }).unwrap();
         if let Ok(Some(mut u)) = users_ops.get(author) {
             u.tweet_count += 1;
