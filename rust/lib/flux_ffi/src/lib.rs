@@ -164,6 +164,7 @@ async fn start_embedded_server() -> (String, TwitterBff) {
         tweets: openerp_store::KvOps::new(kv.clone()),
         likes: openerp_store::KvOps::new(kv.clone()),
         follows: openerp_store::KvOps::new(kv.clone()),
+        jwt: flux_golden::server::jwt::JwtService::golden_test(),
     });
     let facet_router = flux_golden::server::facet_handlers::facet_router(facet_state);
 
@@ -228,13 +229,8 @@ async fn start_embedded_server() -> (String, TwitterBff) {
     // Wait for server to be ready.
     tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
 
-    // Create BFF with a PasswordLogin token source.
-    // The first login call through the facet API will cache the JWT.
-    let token_source: std::sync::Arc<dyn openerp_client::TokenSource> =
-        std::sync::Arc::new(openerp_client::NoAuth);
-    let bff = TwitterBff::new(&server_url, token_source);
-    // Note: BFF login handler calls facet /auth/login which returns a JWT.
-    // For subsequent calls, the facet uses x-user-id header (golden test shortcut).
+    // Create BFF — login handler saves JWT, subsequent calls use it.
+    let bff = TwitterBff::new(&server_url);
 
     (server_url, bff)
 }

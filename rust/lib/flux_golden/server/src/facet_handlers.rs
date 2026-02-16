@@ -16,49 +16,44 @@ use openerp_types::*;
 use crate::server::model::*;
 use crate::server::rest_app::app::*;
 
+use crate::server::jwt::JwtService;
+
 /// Shared state for facet handlers.
-/// Wrapped in Arc inside the router (axum State requires Clone).
 pub struct FacetStateInner {
     pub users: KvOps<User>,
     pub tweets: KvOps<Tweet>,
     pub likes: KvOps<Like>,
     pub follows: KvOps<Follow>,
+    pub jwt: JwtService,
 }
 
 pub type FacetState = Arc<FacetStateInner>;
 
-/// Extract current user ID from request headers.
-/// Golden test: uses "x-user-id" header directly.
-/// Production: would decode JWT from "Authorization: Bearer <token>".
-fn current_user(headers: &HeaderMap) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
-    // Try x-user-id header first (golden test shortcut).
-    if let Some(uid) = headers.get("x-user-id").and_then(|v| v.to_str().ok()) {
-        return Ok(uid.to_string());
-    }
-    // Try JWT from Authorization header.
-    if let Some(auth) = headers.get("authorization").and_then(|v| v.to_str().ok()) {
-        if let Some(token) = auth.strip_prefix("Bearer ") {
-            // Simple JWT decode (no verification for golden test).
-            if let Some(payload) = token.split('.').nth(1) {
-                if let Ok(bytes) = base64_decode(payload) {
-                    if let Ok(claims) = serde_json::from_slice::<serde_json::Value>(&bytes) {
-                        if let Some(sub) = claims["sub"].as_str() {
-                            return Ok(sub.to_string());
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Err((StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "not authenticated"}))))
-}
+/// Extract and verify current user from JWT in Authorization header.
+///
+/// This is the public function that every facet handler calls.
+/// Verifies the JWT signature — rejects tampered or expired tokens.
+fn current_user(
+    headers: &HeaderMap,
+    jwt: &JwtService,
+) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .ok_or_else(|| {
+            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+                "error": "missing Authorization header"
+            })))
+        })?;
 
-fn base64_decode(input: &str) -> Result<Vec<u8>, ()> {
-    use base64::Engine;
-    base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(input)
-        .or_else(|_| base64::engine::general_purpose::STANDARD.decode(input))
-        .map_err(|_| ())
+    let claims = jwt.verify(token).map_err(|e| {
+        (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
+            "error": format!("invalid token: {}", e)
+        })))
+    })?;
+
+    Ok(claims.sub)
 }
 
 /// Build an AppTweet from a backend Tweet.
@@ -120,23 +115,19 @@ pub async fn login(
 ) -> impl IntoResponse {
     match state.users.get(&req.username) {
         Ok(Some(user)) => {
-            // Issue a simple JWT (golden test — no real password check).
-            let now = chrono::Utc::now().timestamp();
-            let header = b64("{}");
-            let payload = b64(&serde_json::json!({
-                "sub": user.id.as_str(),
-                "name": user.display_name.as_deref().unwrap_or(&user.username),
-                "iat": now, "exp": now + 86400,
-            }).to_string());
-            let sig = b64("golden-test");
-            let token = format!("{}.{}.{}", header, payload, sig);
-
-            (StatusCode::OK, Json(serde_json::to_value(LoginResponse {
-                access_token: token,
-                token_type: "Bearer".into(),
-                expires_in: 86400,
-                user: to_app_user(&user),
-            }).unwrap()))
+            let display = user.display_name.as_deref().unwrap_or(&user.username);
+            match state.jwt.issue(user.id.as_str(), display) {
+                Ok(token) => {
+                    (StatusCode::OK, Json(serde_json::to_value(LoginResponse {
+                        access_token: token,
+                        token_type: "Bearer".into(),
+                        expires_in: 86400,
+                        user: to_app_user(&user),
+                    }).unwrap()))
+                }
+                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({"error": e}))),
+            }
         }
         _ => (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "user not found"}))),
     }
@@ -147,7 +138,7 @@ pub async fn get_me(
     headers: HeaderMap,
     State(state): State<FacetState>,
 ) -> impl IntoResponse {
-    let uid = current_user(&headers)?;
+    let uid = current_user(&headers, &state.jwt)?;
     match state.users.get(&uid) {
         Ok(Some(user)) => Ok(Json(to_app_user(&user))),
         _ => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "user not found"})))),
@@ -159,7 +150,7 @@ pub async fn get_timeline(
     headers: HeaderMap,
     State(state): State<FacetState>,
 ) -> impl IntoResponse {
-    let uid = current_user(&headers)?;
+    let uid = current_user(&headers, &state.jwt)?;
     let mut tweets = state.tweets.list().unwrap_or_default();
     tweets.sort_by(|a, b| b.created_at.as_str().cmp(a.created_at.as_str()));
 
@@ -180,7 +171,7 @@ pub async fn create_tweet(
     State(state): State<FacetState>,
     Json(req): Json<CreateTweetRequest>,
 ) -> impl IntoResponse {
-    let uid = current_user(&headers)?;
+    let uid = current_user(&headers, &state.jwt)?;
 
     if req.content.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "content cannot be empty"}))));
@@ -223,7 +214,7 @@ pub async fn tweet_detail(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let uid = current_user(&headers)?;
+    let uid = current_user(&headers, &state.jwt)?;
     match state.tweets.get(&id) {
         Ok(Some(tweet)) => {
             let item = to_app_tweet(&tweet, &uid, &state);
@@ -245,7 +236,7 @@ pub async fn like_tweet(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let uid = current_user(&headers)?;
+    let uid = current_user(&headers, &state.jwt)?;
     let like = Like {
         id: Id::default(),
         user_id: Id::new(&uid),
@@ -271,7 +262,7 @@ pub async fn unlike_tweet(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let uid = current_user(&headers)?;
+    let uid = current_user(&headers, &state.jwt)?;
     let like_key = format!("{}:{}", uid, id);
     let _ = state.likes.delete(&like_key);
     if let Ok(Some(mut tweet)) = state.tweets.get(&id) {
@@ -288,7 +279,7 @@ pub async fn follow_user(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let uid = current_user(&headers)?;
+    let uid = current_user(&headers, &state.jwt)?;
     let follow = Follow {
         id: Id::default(),
         follower_id: Id::new(&uid),
@@ -316,7 +307,7 @@ pub async fn unfollow_user(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let uid = current_user(&headers)?;
+    let uid = current_user(&headers, &state.jwt)?;
     let key = format!("{}:{}", uid, id);
     if state.follows.delete(&key).is_ok() {
         if let Ok(Some(mut me)) = state.users.get(&uid) {
@@ -337,7 +328,7 @@ pub async fn user_profile(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> impl IntoResponse {
-    let uid = current_user(&headers)?;
+    let uid = current_user(&headers, &state.jwt)?;
     match state.users.get(&id) {
         Ok(Some(user)) => {
             let profile = to_app_profile(&user, &uid, &state);
@@ -358,7 +349,7 @@ pub async fn update_profile(
     State(state): State<FacetState>,
     Json(req): Json<UpdateProfileRequest>,
 ) -> impl IntoResponse {
-    let uid = current_user(&headers)?;
+    let uid = current_user(&headers, &state.jwt)?;
     if req.display_name.trim().is_empty() {
         return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "display name cannot be empty"}))));
     }
@@ -379,7 +370,7 @@ pub async fn search(
     State(state): State<FacetState>,
     Json(req): Json<SearchRequest>,
 ) -> impl IntoResponse {
-    let uid = current_user(&headers)?;
+    let uid = current_user(&headers, &state.jwt)?;
     let q = req.query.to_lowercase();
 
     let users: Vec<AppProfile> = state.users.list().unwrap_or_default().iter()
@@ -414,7 +405,3 @@ pub fn facet_router(state: FacetState) -> axum::Router {
         .with_state(state)
 }
 
-fn b64(s: &str) -> String {
-    use base64::Engine;
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(s.as_bytes())
-}

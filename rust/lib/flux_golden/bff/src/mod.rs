@@ -15,17 +15,41 @@ use crate::state::*;
 use crate::server::rest_app::app::{self, AppClient, AppTweet};
 use self::global::helpers;
 
-/// BFF context — holds the facet client.
-/// All data operations go through the facet API (auth-aware).
+/// Mutable token source — stores the JWT from login, used for subsequent calls.
+pub struct MutableToken {
+    token: tokio::sync::RwLock<Option<String>>,
+}
+
+impl MutableToken {
+    pub fn new() -> Self {
+        Self { token: tokio::sync::RwLock::new(None) }
+    }
+    pub async fn set(&self, token: String) {
+        *self.token.write().await = Some(token);
+    }
+}
+
+#[async_trait::async_trait]
+impl openerp_client::TokenSource for MutableToken {
+    async fn token(&self) -> Result<Option<String>, openerp_client::ApiError> {
+        Ok(self.token.read().await.clone())
+    }
+}
+
+/// BFF context — holds the facet client + mutable token.
 pub struct TwitterBff {
     pub client: AppClient,
+    pub token: Arc<MutableToken>,
     pub server_url: String,
 }
 
 impl TwitterBff {
-    pub fn new(base_url: &str, token_source: Arc<dyn openerp_client::TokenSource>) -> Self {
+    pub fn new(base_url: &str) -> Self {
+        let token = Arc::new(MutableToken::new());
+        let ts: Arc<dyn openerp_client::TokenSource> = token.clone();
         Self {
-            client: AppClient::new(base_url, token_source),
+            client: AppClient::new(base_url, ts),
+            token,
             server_url: base_url.to_string(),
         }
     }
@@ -90,13 +114,16 @@ impl TwitterBff {
 
         match self.client.login(&login_req).await {
             Ok(resp) => {
+                // Save JWT for subsequent authenticated requests.
+                self.token.set(resp.access_token.clone()).await;
+
                 let profile = to_user_profile(&resp.user);
                 store.set(AuthState::PATH, AuthState {
                     phase: AuthPhase::Authenticated, user: Some(profile),
                     busy: false, error: None,
                 });
                 store.set(AppRoute::PATH, AppRoute("/home".into()));
-                // Load timeline.
+                // Load timeline (now authenticated — token is set).
                 if let Ok(tl) = self.client.timeline().await {
                     store.set(TimelineFeed::PATH, TimelineFeed {
                         items: tl.items.iter().map(to_feed_item).collect(),
