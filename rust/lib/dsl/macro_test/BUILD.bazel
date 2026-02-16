@@ -8,6 +8,7 @@ rust_test(
         "//rust/lib/dsl/macro",
     ],
     deps = [
+        "//rust/lib/dsl/client",
         "//rust/lib/dsl/types",
         "@crates//:serde",
         "@crates//:serde_json",

@@ -11,6 +11,7 @@ rust_library(
         "//rust/lib/dsl/macro",
     ],
     deps = [
+        "//rust/lib/dsl/client",
         "//rust/lib/dsl/store",
         "//rust/lib/dsl/types",
         "//rust/lib/core",

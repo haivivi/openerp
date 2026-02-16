@@ -9,18 +9,13 @@ use openerp_core::ServiceError;
 use openerp_store::KvOps;
 
 use crate::model::Device;
+use crate::mfg::ActivateResponse;
 
 pub fn routes(kv: Arc<dyn openerp_kv::KVStore>) -> Router {
     let ops = Arc::new(KvOps::<Device>::new(kv));
     Router::new()
         .route("/devices/{sn}/@activate", post(activate))
         .with_state(ops)
-}
-
-#[derive(serde::Serialize)]
-pub struct ActivateResponse {
-    pub sn: String,
-    pub status: String,
 }
 
 async fn activate(

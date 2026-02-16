@@ -1,14 +1,11 @@
 use std::sync::Arc;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::routing::get;
 use axum::{Json, Router};
-use openerp_core::{ListResult, ServiceError};
+use openerp_core::{ListParams, ListResult, ServiceError};
 use openerp_store::KvOps;
 use crate::model::Firmware;
-
-#[path = "../../../dsl/rest/mfg/firmware.rs"]
-mod mfg_firmware_def;
-use mfg_firmware_def::MfgFirmware;
+use crate::mfg::MfgFirmware;
 
 type S = Arc<KvOps<Firmware>>;
 
@@ -30,10 +27,13 @@ fn project(f: &Firmware) -> MfgFirmware {
     }
 }
 
-async fn list(State(ops): State<S>) -> Result<Json<ListResult<MfgFirmware>>, ServiceError> {
-    let all = ops.list()?;
-    let items: Vec<MfgFirmware> = all.iter().map(project).collect();
-    Ok(Json(ListResult { items, has_more: false }))
+async fn list(
+    State(ops): State<S>,
+    Query(params): Query<ListParams>,
+) -> Result<Json<ListResult<MfgFirmware>>, ServiceError> {
+    let result = ops.list_paginated(&params)?;
+    let items = result.items.iter().map(project).collect();
+    Ok(Json(ListResult { items, has_more: result.has_more }))
 }
 
 async fn get_one(State(ops): State<S>, Path(id): Path<String>) -> Result<Json<MfgFirmware>, ServiceError> {

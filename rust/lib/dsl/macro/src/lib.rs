@@ -9,7 +9,9 @@
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
+mod facet;
 mod model;
+mod util;
 
 /// Define a DSL model.
 ///
@@ -33,6 +35,36 @@ mod model;
 pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = parse_macro_input!(item as syn::ItemStruct);
     model::expand(attr.into(), item)
+        .unwrap_or_else(|e| e.to_compile_error().into())
+        .into()
+}
+
+/// Define a facet — a typed API surface for a specific consumer.
+///
+/// ```ignore
+/// #[facet(name = "mfg", module = "pms")]
+/// pub mod mfg {
+///     #[resource(path = "/models", pk = "code")]
+///     pub struct MfgModel {
+///         pub code: u32,
+///         pub series_name: String,
+///     }
+///
+///     #[action(method = "POST", path = "/batches/{id}/@provision")]
+///     pub type Provision = fn(id: String, req: ProvisionRequest) -> ProvisionResponse;
+/// }
+/// ```
+///
+/// Generates:
+/// - Serde-derived structs for each `#[resource]`
+/// - Facet metadata (`__FACET_NAME`, `__FACET_MODULE`, `__facet_ir()`)
+/// - Typed HTTP client struct (`MfgClient`) with methods for each resource and action
+///
+/// Handlers are **not** generated — they remain hand-written.
+#[proc_macro_attribute]
+pub fn facet(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(item as syn::ItemMod);
+    facet::expand(attr.into(), item)
         .unwrap_or_else(|e| e.to_compile_error().into())
         .into()
 }
