@@ -1,22 +1,23 @@
 //! Facet handler implementations for the "app" facet.
 //!
 //! Each handler is a hand-written axum handler. No auto-CRUD.
-//! Current user identity comes from JWT (x-user-id header for golden test).
+//! Current user identity comes from JWT (verified signature).
+//! Errors use ServiceError → {"code": "NOT_FOUND", "message": "..."}.
 
 use std::sync::Arc;
 
 use axum::extract::{Path, State};
-use axum::http::{HeaderMap, StatusCode};
+use axum::http::HeaderMap;
 use axum::response::IntoResponse;
 use axum::Json;
 
+use openerp_core::ServiceError;
 use openerp_store::KvOps;
 use openerp_types::*;
 
+use crate::server::jwt::JwtService;
 use crate::server::model::*;
 use crate::server::rest_app::app::*;
-
-use crate::server::jwt::JwtService;
 
 /// Shared state for facet handlers.
 pub struct FacetStateInner {
@@ -29,39 +30,29 @@ pub struct FacetStateInner {
 
 pub type FacetState = Arc<FacetStateInner>;
 
-/// Extract and verify current user from JWT in Authorization header.
-///
-/// This is the public function that every facet handler calls.
-/// Verifies the JWT signature — rejects tampered or expired tokens.
-fn current_user(
-    headers: &HeaderMap,
-    jwt: &JwtService,
-) -> Result<String, (StatusCode, Json<serde_json::Value>)> {
+// ── Auth helper ──
+
+/// Extract and verify current user from JWT.
+/// Returns user ID or ServiceError::Unauthorized.
+fn current_user(headers: &HeaderMap, jwt: &JwtService) -> Result<String, ServiceError> {
     let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .ok_or_else(|| {
-            (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
-                "error": "missing Authorization header"
-            })))
-        })?;
+        .ok_or_else(|| ServiceError::Unauthorized("missing Authorization header".into()))?;
 
-    let claims = jwt.verify(token).map_err(|e| {
-        (StatusCode::UNAUTHORIZED, Json(serde_json::json!({
-            "error": format!("invalid token: {}", e)
-        })))
-    })?;
+    let claims = jwt.verify(token)
+        .map_err(|e| ServiceError::Unauthorized(format!("invalid token: {}", e)))?;
 
     Ok(claims.sub)
 }
 
-/// Build an AppTweet from a backend Tweet.
-fn to_app_tweet(t: &Tweet, uid: &str, state: &FacetState) -> AppTweet {
+// ── Converters ──
+
+fn to_app_tweet(t: &Tweet, uid: &str, state: &FacetStateInner) -> AppTweet {
     let author = state.users.get(&t.author_id).ok().flatten();
     let like_key = format!("{}:{}", uid, t.id);
     let liked = state.likes.get(&like_key).ok().flatten().is_some();
-
     AppTweet {
         id: t.id.to_string(),
         author_id: t.author_id.to_string(),
@@ -77,7 +68,7 @@ fn to_app_tweet(t: &Tweet, uid: &str, state: &FacetState) -> AppTweet {
     }
 }
 
-fn to_app_profile(u: &User, uid: &str, state: &FacetState) -> AppProfile {
+fn to_app_profile(u: &User, uid: &str, state: &FacetStateInner) -> AppProfile {
     let follow_key = format!("{}:{}", uid, u.id);
     let followed = state.follows.get(&follow_key).ok().flatten().is_some();
     AppProfile {
@@ -108,61 +99,52 @@ fn to_app_user(u: &User) -> AppUser {
 
 // ── Handlers ──
 
-/// POST /auth/login
+/// POST /auth/login — public, no JWT required.
 pub async fn login(
     State(state): State<FacetState>,
     Json(req): Json<LoginRequest>,
-) -> impl IntoResponse {
-    match state.users.get(&req.username) {
-        Ok(Some(user)) => {
-            let display = user.display_name.as_deref().unwrap_or(&user.username);
-            match state.jwt.issue(user.id.as_str(), display) {
-                Ok(token) => {
-                    (StatusCode::OK, Json(serde_json::to_value(LoginResponse {
-                        access_token: token,
-                        token_type: "Bearer".into(),
-                        expires_in: 86400,
-                        user: to_app_user(&user),
-                    }).unwrap()))
-                }
-                Err(e) => (StatusCode::INTERNAL_SERVER_ERROR,
-                    Json(serde_json::json!({"error": e}))),
-            }
-        }
-        _ => (StatusCode::UNAUTHORIZED, Json(serde_json::json!({"error": "user not found"}))),
-    }
+) -> Result<Json<LoginResponse>, ServiceError> {
+    let user = state.users.get(&req.username)
+        .map_err(|e| ServiceError::Internal(e.to_string()))?
+        .ok_or_else(|| ServiceError::Unauthorized(format!("user '{}' not found", req.username)))?;
+
+    let display = user.display_name.as_deref().unwrap_or(&user.username);
+    let token = state.jwt.issue(user.id.as_str(), display)
+        .map_err(|e| ServiceError::Internal(e))?;
+
+    Ok(Json(LoginResponse {
+        access_token: token,
+        token_type: "Bearer".into(),
+        expires_in: 86400,
+        user: to_app_user(&user),
+    }))
 }
 
 /// GET /me
 pub async fn get_me(
     headers: HeaderMap,
     State(state): State<FacetState>,
-) -> impl IntoResponse {
+) -> Result<Json<AppUser>, ServiceError> {
     let uid = current_user(&headers, &state.jwt)?;
-    match state.users.get(&uid) {
-        Ok(Some(user)) => Ok(Json(to_app_user(&user))),
-        _ => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "user not found"})))),
-    }
+    let user = state.users.get(&uid)
+        .map_err(|e| ServiceError::Internal(e.to_string()))?
+        .ok_or_else(|| ServiceError::NotFound(format!("user '{}'", uid)))?;
+    Ok(Json(to_app_user(&user)))
 }
 
 /// POST /timeline
 pub async fn get_timeline(
     headers: HeaderMap,
     State(state): State<FacetState>,
-) -> impl IntoResponse {
+) -> Result<Json<TimelineResponse>, ServiceError> {
     let uid = current_user(&headers, &state.jwt)?;
-    let mut tweets = state.tweets.list().unwrap_or_default();
+    let mut tweets = state.tweets.list().map_err(|e| ServiceError::Internal(e.to_string()))?;
     tweets.sort_by(|a, b| b.created_at.as_str().cmp(a.created_at.as_str()));
-
     let items: Vec<AppTweet> = tweets.iter()
         .filter(|t| t.reply_to_id.is_none())
         .map(|t| to_app_tweet(t, &uid, &state))
         .collect();
-
-    Ok::<_, (StatusCode, Json<serde_json::Value>)>(Json(TimelineResponse {
-        items,
-        has_more: false,
-    }))
+    Ok(Json(TimelineResponse { items, has_more: false }))
 }
 
 /// POST /tweets
@@ -170,16 +152,14 @@ pub async fn create_tweet(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Json(req): Json<CreateTweetRequest>,
-) -> impl IntoResponse {
+) -> Result<Json<AppTweet>, ServiceError> {
     let uid = current_user(&headers, &state.jwt)?;
-
     if req.content.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "content cannot be empty"}))));
+        return Err(ServiceError::Validation("content cannot be empty".into()));
     }
     if req.content.len() > 280 {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "exceeds 280 characters"}))));
+        return Err(ServiceError::Validation("exceeds 280 characters".into()));
     }
-
     let tweet = Tweet {
         id: Id::default(),
         author_id: Id::new(&uid),
@@ -189,23 +169,18 @@ pub async fn create_tweet(
         display_name: None, description: None, metadata: None,
         created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
     };
-
-    match state.tweets.save_new(tweet) {
-        Ok(created) => {
-            if let Ok(Some(mut user)) = state.users.get(&uid) {
-                user.tweet_count += 1;
-                let _ = state.users.save(user);
-            }
-            if let Some(ref pid) = created.reply_to_id {
-                if let Ok(Some(mut parent)) = state.tweets.get(pid.as_str()) {
-                    parent.reply_count += 1;
-                    let _ = state.tweets.save(parent);
-                }
-            }
-            Ok(Json(to_app_tweet(&created, &uid, &state)))
-        }
-        Err(e) => Err((StatusCode::INTERNAL_SERVER_ERROR, Json(serde_json::json!({"error": e.to_string()})))),
+    let created = state.tweets.save_new(tweet).map_err(|e| ServiceError::Internal(e.to_string()))?;
+    if let Ok(Some(mut user)) = state.users.get(&uid) {
+        user.tweet_count += 1;
+        let _ = state.users.save(user);
     }
+    if let Some(ref pid) = created.reply_to_id {
+        if let Ok(Some(mut parent)) = state.tweets.get(pid.as_str()) {
+            parent.reply_count += 1;
+            let _ = state.tweets.save(parent);
+        }
+    }
+    Ok(Json(to_app_tweet(&created, &uid, &state)))
 }
 
 /// POST /tweets/{id}/detail
@@ -213,21 +188,19 @@ pub async fn tweet_detail(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+) -> Result<Json<TweetDetailResponse>, ServiceError> {
     let uid = current_user(&headers, &state.jwt)?;
-    match state.tweets.get(&id) {
-        Ok(Some(tweet)) => {
-            let item = to_app_tweet(&tweet, &uid, &state);
-            let all = state.tweets.list().unwrap_or_default();
-            let mut replies: Vec<AppTweet> = all.iter()
-                .filter(|t| t.reply_to_id.as_ref().map(|s| s.as_str()) == Some(&id))
-                .map(|t| to_app_tweet(t, &uid, &state))
-                .collect();
-            replies.sort_by(|a, b| a.created_at.cmp(&b.created_at));
-            Ok(Json(TweetDetailResponse { tweet: item, replies }))
-        }
-        _ => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "tweet not found"})))),
-    }
+    let tweet = state.tweets.get(&id)
+        .map_err(|e| ServiceError::Internal(e.to_string()))?
+        .ok_or_else(|| ServiceError::NotFound(format!("tweet '{}'", id)))?;
+    let item = to_app_tweet(&tweet, &uid, &state);
+    let all = state.tweets.list().unwrap_or_default();
+    let mut replies: Vec<AppTweet> = all.iter()
+        .filter(|t| t.reply_to_id.as_ref().map(|s| s.as_str()) == Some(&id))
+        .map(|t| to_app_tweet(t, &uid, &state))
+        .collect();
+    replies.sort_by(|a, b| a.created_at.cmp(&b.created_at));
+    Ok(Json(TweetDetailResponse { tweet: item, replies }))
 }
 
 /// POST /tweets/{id}/like
@@ -235,7 +208,7 @@ pub async fn like_tweet(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+) -> Result<Json<AppTweet>, ServiceError> {
     let uid = current_user(&headers, &state.jwt)?;
     let like = Like {
         id: Id::default(),
@@ -244,16 +217,15 @@ pub async fn like_tweet(
         display_name: None, description: None, metadata: None,
         created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
     };
-    let _ = state.likes.save_new(like); // Idempotent — ignore duplicate.
-    if let Ok(Some(mut tweet)) = state.tweets.get(&id) {
-        // Recount likes for accuracy.
-        let all_likes = state.likes.list().unwrap_or_default();
-        tweet.like_count = all_likes.iter().filter(|l| l.tweet_id.as_str() == id).count() as u32;
-        let _ = state.tweets.save(tweet.clone());
-        Ok(Json(to_app_tweet(&tweet, &uid, &state)))
-    } else {
-        Err((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "tweet not found"}))))
-    }
+    let _ = state.likes.save_new(like); // Idempotent.
+    let mut tweet = state.tweets.get(&id)
+        .map_err(|e| ServiceError::Internal(e.to_string()))?
+        .ok_or_else(|| ServiceError::NotFound(format!("tweet '{}'", id)))?;
+    // Recount for accuracy.
+    let all_likes = state.likes.list().unwrap_or_default();
+    tweet.like_count = all_likes.iter().filter(|l| l.tweet_id.as_str() == id).count() as u32;
+    let _ = state.tweets.save(tweet.clone());
+    Ok(Json(to_app_tweet(&tweet, &uid, &state)))
 }
 
 /// DELETE /tweets/{id}/like
@@ -261,7 +233,7 @@ pub async fn unlike_tweet(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+) -> Result<(), ServiceError> {
     let uid = current_user(&headers, &state.jwt)?;
     let like_key = format!("{}:{}", uid, id);
     let _ = state.likes.delete(&like_key);
@@ -270,7 +242,7 @@ pub async fn unlike_tweet(
         tweet.like_count = all_likes.iter().filter(|l| l.tweet_id.as_str() == id).count() as u32;
         let _ = state.tweets.save(tweet);
     }
-    Ok::<_, (StatusCode, Json<serde_json::Value>)>(StatusCode::OK)
+    Ok(())
 }
 
 /// POST /users/{id}/follow
@@ -278,7 +250,7 @@ pub async fn follow_user(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+) -> Result<Json<AppProfile>, ServiceError> {
     let uid = current_user(&headers, &state.jwt)?;
     let follow = Follow {
         id: Id::default(),
@@ -294,11 +266,13 @@ pub async fn follow_user(
         }
         if let Ok(Some(mut them)) = state.users.get(&id) {
             them.follower_count += 1;
-            let _ = state.users.save(them.clone());
-            return Ok(Json(to_app_profile(&them, &uid, &state)));
+            let _ = state.users.save(them);
         }
     }
-    Err((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "user not found"}))))
+    let user = state.users.get(&id)
+        .map_err(|e| ServiceError::Internal(e.to_string()))?
+        .ok_or_else(|| ServiceError::NotFound(format!("user '{}'", id)))?;
+    Ok(Json(to_app_profile(&user, &uid, &state)))
 }
 
 /// DELETE /users/{id}/follow
@@ -306,7 +280,7 @@ pub async fn unfollow_user(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+) -> Result<(), ServiceError> {
     let uid = current_user(&headers, &state.jwt)?;
     let key = format!("{}:{}", uid, id);
     if state.follows.delete(&key).is_ok() {
@@ -319,7 +293,7 @@ pub async fn unfollow_user(
             let _ = state.users.save(them);
         }
     }
-    Ok::<_, (StatusCode, Json<serde_json::Value>)>(StatusCode::OK)
+    Ok(())
 }
 
 /// POST /users/{id}/profile
@@ -327,20 +301,18 @@ pub async fn user_profile(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Path(id): Path<String>,
-) -> impl IntoResponse {
+) -> Result<Json<UserProfileResponse>, ServiceError> {
     let uid = current_user(&headers, &state.jwt)?;
-    match state.users.get(&id) {
-        Ok(Some(user)) => {
-            let profile = to_app_profile(&user, &uid, &state);
-            let all = state.tweets.list().unwrap_or_default();
-            let tweets: Vec<AppTweet> = all.iter()
-                .filter(|t| t.author_id.as_str() == id)
-                .map(|t| to_app_tweet(t, &uid, &state))
-                .collect();
-            Ok(Json(UserProfileResponse { user: profile, tweets }))
-        }
-        _ => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "user not found"})))),
-    }
+    let user = state.users.get(&id)
+        .map_err(|e| ServiceError::Internal(e.to_string()))?
+        .ok_or_else(|| ServiceError::NotFound(format!("user '{}'", id)))?;
+    let profile = to_app_profile(&user, &uid, &state);
+    let all = state.tweets.list().unwrap_or_default();
+    let tweets: Vec<AppTweet> = all.iter()
+        .filter(|t| t.author_id.as_str() == id)
+        .map(|t| to_app_tweet(t, &uid, &state))
+        .collect();
+    Ok(Json(UserProfileResponse { user: profile, tweets }))
 }
 
 /// PUT /me/profile
@@ -348,20 +320,18 @@ pub async fn update_profile(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Json(req): Json<UpdateProfileRequest>,
-) -> impl IntoResponse {
+) -> Result<Json<AppUser>, ServiceError> {
     let uid = current_user(&headers, &state.jwt)?;
     if req.display_name.trim().is_empty() {
-        return Err((StatusCode::BAD_REQUEST, Json(serde_json::json!({"error": "display name cannot be empty"}))));
+        return Err(ServiceError::Validation("display name cannot be empty".into()));
     }
-    match state.users.get(&uid) {
-        Ok(Some(mut user)) => {
-            user.display_name = Some(req.display_name);
-            user.bio = Some(req.bio);
-            let _ = state.users.save(user.clone());
-            Ok(Json(to_app_user(&user)))
-        }
-        _ => Err((StatusCode::NOT_FOUND, Json(serde_json::json!({"error": "user not found"})))),
-    }
+    let mut user = state.users.get(&uid)
+        .map_err(|e| ServiceError::Internal(e.to_string()))?
+        .ok_or_else(|| ServiceError::NotFound(format!("user '{}'", uid)))?;
+    user.display_name = Some(req.display_name);
+    user.bio = Some(req.bio);
+    state.users.save(user.clone()).map_err(|e| ServiceError::Internal(e.to_string()))?;
+    Ok(Json(to_app_user(&user)))
 }
 
 /// POST /search
@@ -369,28 +339,24 @@ pub async fn search(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Json(req): Json<SearchRequest>,
-) -> impl IntoResponse {
+) -> Result<Json<SearchResponse>, ServiceError> {
     let uid = current_user(&headers, &state.jwt)?;
     let q = req.query.to_lowercase();
-
     let users: Vec<AppProfile> = state.users.list().unwrap_or_default().iter()
         .filter(|u| u.username.to_lowercase().contains(&q)
             || u.display_name.as_deref().unwrap_or("").to_lowercase().contains(&q))
         .map(|u| to_app_profile(u, &uid, &state))
         .collect();
-
     let tweets: Vec<AppTweet> = state.tweets.list().unwrap_or_default().iter()
         .filter(|t| t.content.to_lowercase().contains(&q))
         .map(|t| to_app_tweet(t, &uid, &state))
         .collect();
-
-    Ok::<_, (StatusCode, Json<serde_json::Value>)>(Json(SearchResponse { users, tweets }))
+    Ok(Json(SearchResponse { users, tweets }))
 }
 
 /// Build the facet router.
 pub fn facet_router(state: FacetState) -> axum::Router {
     use axum::routing::{get, post, put, delete};
-
     axum::Router::new()
         .route("/auth/login", post(login))
         .route("/me", get(get_me))
@@ -405,3 +371,365 @@ pub fn facet_router(state: FacetState) -> axum::Router {
         .with_state(state)
 }
 
+// ── Tests ──
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::body::Body;
+    use axum::http::{Request, StatusCode};
+    use tower::ServiceExt;
+
+    fn setup() -> (axum::Router, JwtService) {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("test.redb")).unwrap(),
+        );
+        let jwt = JwtService::golden_test();
+
+        // Seed users.
+        let users = KvOps::<User>::new(kv.clone());
+        users.save_new(User {
+            id: Id::default(), username: "alice".into(),
+            bio: Some("Rust dev".into()), avatar: None,
+            follower_count: 0, following_count: 0, tweet_count: 0,
+            display_name: Some("Alice".into()),
+            description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
+        }).unwrap();
+        users.save_new(User {
+            id: Id::default(), username: "bob".into(),
+            bio: None, avatar: None,
+            follower_count: 0, following_count: 0, tweet_count: 0,
+            display_name: Some("Bob".into()),
+            description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
+        }).unwrap();
+
+        let state = Arc::new(FacetStateInner {
+            users: KvOps::new(kv.clone()),
+            tweets: KvOps::new(kv.clone()),
+            likes: KvOps::new(kv.clone()),
+            follows: KvOps::new(kv.clone()),
+            jwt: jwt.clone(),
+        });
+        let router = facet_router(state);
+        // Leak tempdir to keep DB alive.
+        std::mem::forget(dir);
+        (router, jwt)
+    }
+
+    async fn call(
+        router: &axum::Router,
+        method: &str,
+        uri: &str,
+        token: Option<&str>,
+        body: Option<serde_json::Value>,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut builder = Request::builder().method(method).uri(uri);
+        if let Some(t) = token {
+            builder = builder.header("authorization", format!("Bearer {}", t));
+        }
+        if body.is_some() {
+            builder = builder.header("content-type", "application/json");
+        }
+        let body = match body {
+            Some(v) => Body::from(serde_json::to_string(&v).unwrap()),
+            None => Body::empty(),
+        };
+        let req = builder.body(body).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let status = resp.status();
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let json = if bytes.is_empty() {
+            serde_json::json!(null)
+        } else {
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::json!(null))
+        };
+        (status, json)
+    }
+
+    // ── Auth ──
+
+    #[tokio::test]
+    async fn login_success() {
+        let (r, _) = setup();
+        let (s, body) = call(&r, "POST", "/auth/login", None,
+            Some(serde_json::json!({"username": "alice", "password": ""}))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(body["accessToken"].as_str().unwrap().contains('.'));
+        assert_eq!(body["user"]["username"], "alice");
+    }
+
+    #[tokio::test]
+    async fn login_unknown_user() {
+        let (r, _) = setup();
+        let (s, body) = call(&r, "POST", "/auth/login", None,
+            Some(serde_json::json!({"username": "nobody", "password": ""}))).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["code"], "UNAUTHENTICATED");
+    }
+
+    #[tokio::test]
+    async fn no_token_rejected() {
+        let (r, _) = setup();
+        let (s, body) = call(&r, "GET", "/me", None, None).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["code"], "UNAUTHENTICATED");
+    }
+
+    #[tokio::test]
+    async fn invalid_token_rejected() {
+        let (r, _) = setup();
+        let (s, body) = call(&r, "GET", "/me", Some("invalid.jwt.token"), None).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["code"], "UNAUTHENTICATED");
+    }
+
+    #[tokio::test]
+    async fn wrong_secret_rejected() {
+        let (r, _) = setup();
+        let wrong = JwtService::new("wrong-secret", 3600);
+        let token = wrong.issue("alice", "Alice").unwrap();
+        let (s, body) = call(&r, "GET", "/me", Some(&token), None).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["code"], "UNAUTHENTICATED");
+    }
+
+    // ── Me ──
+
+    #[tokio::test]
+    async fn get_me_success() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+        let (s, body) = call(&r, "GET", "/me", Some(&token), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(body["username"], "alice");
+        assert_eq!(body["displayName"], "Alice");
+    }
+
+    // ── Timeline ──
+
+    #[tokio::test]
+    async fn empty_timeline() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+        let (s, body) = call(&r, "POST", "/timeline", Some(&token), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(body["items"].as_array().unwrap().len(), 0);
+    }
+
+    // ── Tweets ──
+
+    #[tokio::test]
+    async fn create_and_list_tweet() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        // Create.
+        let (s, tweet) = call(&r, "POST", "/tweets", Some(&token),
+            Some(serde_json::json!({"content": "Hello!"}))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(tweet["content"], "Hello!");
+        assert_eq!(tweet["authorUsername"], "alice");
+
+        // Timeline.
+        let (s, tl) = call(&r, "POST", "/timeline", Some(&token), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(tl["items"].as_array().unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn create_empty_tweet_rejected() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+        let (s, body) = call(&r, "POST", "/tweets", Some(&token),
+            Some(serde_json::json!({"content": "  "}))).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "VALIDATION_FAILED");
+    }
+
+    #[tokio::test]
+    async fn create_long_tweet_rejected() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+        let long = "x".repeat(281);
+        let (s, body) = call(&r, "POST", "/tweets", Some(&token),
+            Some(serde_json::json!({"content": long}))).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "VALIDATION_FAILED");
+    }
+
+    // ── Like ──
+
+    #[tokio::test]
+    async fn like_and_unlike() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        // Create tweet.
+        let (_, tweet) = call(&r, "POST", "/tweets", Some(&token),
+            Some(serde_json::json!({"content": "Likeable"}))).await;
+        let id = tweet["id"].as_str().unwrap();
+
+        // Like.
+        let (s, liked) = call(&r, "POST", &format!("/tweets/{}/like", id), Some(&token), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(liked["likeCount"], 1);
+        assert_eq!(liked["likedByMe"], true);
+
+        // Unlike.
+        let (s, _) = call(&r, "DELETE", &format!("/tweets/{}/like", id), Some(&token), None).await;
+        assert_eq!(s, StatusCode::OK);
+
+        // Verify via detail.
+        let (_, detail) = call(&r, "POST", &format!("/tweets/{}/detail", id), Some(&token), None).await;
+        assert_eq!(detail["tweet"]["likeCount"], 0);
+        assert_eq!(detail["tweet"]["likedByMe"], false);
+    }
+
+    // ── Follow ──
+
+    #[tokio::test]
+    async fn follow_and_unfollow() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        // Follow bob.
+        let (s, profile) = call(&r, "POST", "/users/bob/follow", Some(&token), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(profile["followedByMe"], true);
+        assert_eq!(profile["followerCount"], 1);
+
+        // Unfollow.
+        let (s, _) = call(&r, "DELETE", "/users/bob/follow", Some(&token), None).await;
+        assert_eq!(s, StatusCode::OK);
+
+        // Verify.
+        let (_, resp) = call(&r, "POST", "/users/bob/profile", Some(&token), None).await;
+        assert_eq!(resp["user"]["followedByMe"], false);
+        assert_eq!(resp["user"]["followerCount"], 0);
+    }
+
+    // ── Profile ──
+
+    #[tokio::test]
+    async fn view_user_profile() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+        let (s, resp) = call(&r, "POST", "/users/bob/profile", Some(&token), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(resp["user"]["username"], "bob");
+        assert_eq!(resp["user"]["followedByMe"], false);
+    }
+
+    #[tokio::test]
+    async fn view_nonexistent_user() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+        let (s, body) = call(&r, "POST", "/users/nobody/profile", Some(&token), None).await;
+        assert_eq!(s, StatusCode::NOT_FOUND);
+        assert_eq!(body["code"], "NOT_FOUND");
+    }
+
+    // ── Update profile ──
+
+    #[tokio::test]
+    async fn update_my_profile() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+        let (s, updated) = call(&r, "PUT", "/me/profile", Some(&token),
+            Some(serde_json::json!({"displayName": "Alice W", "bio": "New bio"}))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(updated["displayName"], "Alice W");
+
+        // Verify via GET /me.
+        let (_, me) = call(&r, "GET", "/me", Some(&token), None).await;
+        assert_eq!(me["displayName"], "Alice W");
+        assert_eq!(me["bio"], "New bio");
+    }
+
+    #[tokio::test]
+    async fn update_empty_name_rejected() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+        let (s, body) = call(&r, "PUT", "/me/profile", Some(&token),
+            Some(serde_json::json!({"displayName": " ", "bio": ""}))).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST);
+        assert_eq!(body["code"], "VALIDATION_FAILED");
+    }
+
+    // ── Reply ──
+
+    #[tokio::test]
+    async fn reply_to_tweet() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        // Create parent.
+        let (_, parent) = call(&r, "POST", "/tweets", Some(&token),
+            Some(serde_json::json!({"content": "Parent"}))).await;
+        let pid = parent["id"].as_str().unwrap();
+
+        // Reply.
+        let (s, reply) = call(&r, "POST", "/tweets", Some(&token),
+            Some(serde_json::json!({"content": "Reply!", "replyToId": pid}))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(reply["replyToId"], pid);
+
+        // Parent reply count updated.
+        let (_, detail) = call(&r, "POST", &format!("/tweets/{}/detail", pid), Some(&token), None).await;
+        assert_eq!(detail["tweet"]["replyCount"], 1);
+        assert_eq!(detail["replies"].as_array().unwrap().len(), 1);
+    }
+
+    // ── Search ──
+
+    #[tokio::test]
+    async fn search_users_and_tweets() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        // Create a tweet.
+        call(&r, "POST", "/tweets", Some(&token),
+            Some(serde_json::json!({"content": "Rust is great"}))).await;
+
+        // Search.
+        let (s, resp) = call(&r, "POST", "/search", Some(&token),
+            Some(serde_json::json!({"query": "alice"}))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert!(!resp["users"].as_array().unwrap().is_empty());
+
+        let (_, resp) = call(&r, "POST", "/search", Some(&token),
+            Some(serde_json::json!({"query": "rust"}))).await;
+        assert!(!resp["tweets"].as_array().unwrap().is_empty());
+    }
+
+    // ── Multi-user ──
+
+    #[tokio::test]
+    async fn two_users_like_same_tweet() {
+        let (r, jwt) = setup();
+        let alice_token = jwt.issue("alice", "Alice").unwrap();
+        let bob_token = jwt.issue("bob", "Bob").unwrap();
+
+        // Alice creates tweet.
+        let (_, tweet) = call(&r, "POST", "/tweets", Some(&alice_token),
+            Some(serde_json::json!({"content": "Like me"}))).await;
+        let id = tweet["id"].as_str().unwrap();
+
+        // Alice likes.
+        call(&r, "POST", &format!("/tweets/{}/like", id), Some(&alice_token), None).await;
+        // Bob likes.
+        call(&r, "POST", &format!("/tweets/{}/like", id), Some(&bob_token), None).await;
+
+        // Verify count = 2.
+        let (_, detail) = call(&r, "POST", &format!("/tweets/{}/detail", id), Some(&alice_token), None).await;
+        assert_eq!(detail["tweet"]["likeCount"], 2);
+        assert_eq!(detail["tweet"]["likedByMe"], true); // Alice liked
+
+        // Bob's view: also liked.
+        let (_, detail_bob) = call(&r, "POST", &format!("/tweets/{}/detail", id), Some(&bob_token), None).await;
+        assert_eq!(detail_bob["tweet"]["likedByMe"], true);
+    }
+}

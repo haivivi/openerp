@@ -103,7 +103,7 @@ mod tests {
 
     #[test]
     fn verify_expired_token_rejected() {
-        let svc = JwtService::new(GOLDEN_TEST_SECRET, -1); // Already expired.
+        let svc = JwtService::new(GOLDEN_TEST_SECRET, -120); // Expired 2 minutes ago (past leeway).
         let token = svc.issue("alice", "Alice").unwrap();
         let result = svc.verify(&token);
         assert!(result.is_err());
