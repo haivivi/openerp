@@ -1,5 +1,5 @@
 load("@rules_swift//swift:swift.bzl", "swift_library", "swift_test")
-load("//bazel/ios:defs.bzl", "ios_app")
+load("//bazel/ios:defs.bzl", "ios_app", "ios_ui_runner")
 load("//bazel/ios:probe.bzl", "ios_probe")
 
 swift_library(
@@ -48,4 +48,17 @@ ios_app(
         ":TwitterFluxLib",
         "//rust/lib/flux_ffi:flux_ffi_static",
     ],
+)
+
+# XCUITest — UI test library.
+# XCUITest runner.
+# Bazel builds the .app, then swiftc compiles XCUITest bundle, simctl runs it.
+#
+# Usage:
+#   bazel run //ios/TwitterFlux:UITests
+ios_ui_runner(
+    name = "UITests",
+    app = [":TwitterFlux"],
+    app_bundle_id = "com.haivivi.twitterflux",
+    test_srcs = glob(["UITests/**/*.swift"]),
 )
