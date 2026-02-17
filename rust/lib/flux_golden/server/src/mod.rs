@@ -12,6 +12,7 @@ pub mod rest_app;
 
 pub mod store_impls;
 pub mod jwt;
+pub mod i18n;
 pub mod facet_handlers;
 
 use std::sync::Arc;

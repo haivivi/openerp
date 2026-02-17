@@ -165,6 +165,7 @@ async fn start_embedded_server() -> (String, TwitterBff) {
         likes: openerp_store::KvOps::new(kv.clone()),
         follows: openerp_store::KvOps::new(kv.clone()),
         jwt: flux_golden::server::jwt::JwtService::golden_test(),
+        i18n: Box::new(flux_golden::server::i18n::DefaultLocalizer),
     });
     let facet_router = flux_golden::server::facet_handlers::facet_router(facet_state);
 

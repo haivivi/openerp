@@ -15,6 +15,7 @@ use openerp_core::ServiceError;
 use openerp_store::KvOps;
 use openerp_types::*;
 
+use crate::server::i18n::Localizer;
 use crate::server::jwt::JwtService;
 use crate::server::model::*;
 use crate::server::rest_app::app::*;
@@ -26,6 +27,7 @@ pub struct FacetStateInner {
     pub likes: KvOps<Like>,
     pub follows: KvOps<Follow>,
     pub jwt: JwtService,
+    pub i18n: Box<dyn Localizer>,
 }
 
 pub type FacetState = Arc<FacetStateInner>;
@@ -34,15 +36,19 @@ pub type FacetState = Arc<FacetStateInner>;
 
 /// Extract and verify current user from JWT.
 /// Returns user ID or ServiceError::Unauthorized.
-fn current_user(headers: &HeaderMap, jwt: &JwtService) -> Result<String, ServiceError> {
+fn current_user(headers: &HeaderMap, state: &FacetStateInner) -> Result<String, ServiceError> {
     let token = headers
         .get("authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
-        .ok_or_else(|| ServiceError::Unauthorized("missing Authorization header".into()))?;
+        .ok_or_else(|| ServiceError::Unauthorized(
+            state.i18n.t("error.auth.missing_token", &[])
+        ))?;
 
-    let claims = jwt.verify(token)
-        .map_err(|e| ServiceError::Unauthorized(format!("invalid token: {}", e)))?;
+    let claims = state.jwt.verify(token)
+        .map_err(|e| ServiceError::Unauthorized(
+            state.i18n.t("error.auth.invalid_token", &[])
+        ))?;
 
     Ok(claims.sub)
 }
@@ -106,7 +112,9 @@ pub async fn login(
 ) -> Result<Json<LoginResponse>, ServiceError> {
     let user = state.users.get(&req.username)
         .map_err(|e| ServiceError::Internal(e.to_string()))?
-        .ok_or_else(|| ServiceError::Unauthorized(format!("user '{}' not found", req.username)))?;
+        .ok_or_else(|| ServiceError::Unauthorized(
+            state.i18n.t("error.auth.user_not_found", &[("username", &req.username)])
+        ))?;
 
     let display = user.display_name.as_deref().unwrap_or(&user.username);
     let token = state.jwt.issue(user.id.as_str(), display)
@@ -125,10 +133,10 @@ pub async fn get_me(
     headers: HeaderMap,
     State(state): State<FacetState>,
 ) -> Result<Json<AppUser>, ServiceError> {
-    let uid = current_user(&headers, &state.jwt)?;
+    let uid = current_user(&headers, &state)?;
     let user = state.users.get(&uid)
         .map_err(|e| ServiceError::Internal(e.to_string()))?
-        .ok_or_else(|| ServiceError::NotFound(format!("user '{}'", uid)))?;
+        .ok_or_else(|| ServiceError::NotFound(state.i18n.t("error.profile.not_found", &[("id", &uid)])))?;
     Ok(Json(to_app_user(&user)))
 }
 
@@ -137,7 +145,7 @@ pub async fn get_timeline(
     headers: HeaderMap,
     State(state): State<FacetState>,
 ) -> Result<Json<TimelineResponse>, ServiceError> {
-    let uid = current_user(&headers, &state.jwt)?;
+    let uid = current_user(&headers, &state)?;
     let mut tweets = state.tweets.list().map_err(|e| ServiceError::Internal(e.to_string()))?;
     tweets.sort_by(|a, b| b.created_at.as_str().cmp(a.created_at.as_str()));
     let items: Vec<AppTweet> = tweets.iter()
@@ -153,12 +161,12 @@ pub async fn create_tweet(
     State(state): State<FacetState>,
     Json(req): Json<CreateTweetRequest>,
 ) -> Result<Json<AppTweet>, ServiceError> {
-    let uid = current_user(&headers, &state.jwt)?;
+    let uid = current_user(&headers, &state)?;
     if req.content.trim().is_empty() {
-        return Err(ServiceError::Validation("content cannot be empty".into()));
+        return Err(ServiceError::Validation(state.i18n.t("error.tweet.empty", &[])));
     }
     if req.content.len() > 280 {
-        return Err(ServiceError::Validation("exceeds 280 characters".into()));
+        return Err(ServiceError::Validation(state.i18n.t("error.tweet.too_long", &[("max", "280")])));
     }
     let tweet = Tweet {
         id: Id::default(),
@@ -189,10 +197,10 @@ pub async fn tweet_detail(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> Result<Json<TweetDetailResponse>, ServiceError> {
-    let uid = current_user(&headers, &state.jwt)?;
+    let uid = current_user(&headers, &state)?;
     let tweet = state.tweets.get(&id)
         .map_err(|e| ServiceError::Internal(e.to_string()))?
-        .ok_or_else(|| ServiceError::NotFound(format!("tweet '{}'", id)))?;
+        .ok_or_else(|| ServiceError::NotFound(state.i18n.t("error.tweet.not_found", &[("id", &id)])))?;
     let item = to_app_tweet(&tweet, &uid, &state);
     let all = state.tweets.list().unwrap_or_default();
     let mut replies: Vec<AppTweet> = all.iter()
@@ -209,7 +217,7 @@ pub async fn like_tweet(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> Result<Json<AppTweet>, ServiceError> {
-    let uid = current_user(&headers, &state.jwt)?;
+    let uid = current_user(&headers, &state)?;
     let like = Like {
         id: Id::default(),
         user_id: Id::new(&uid),
@@ -220,7 +228,7 @@ pub async fn like_tweet(
     let _ = state.likes.save_new(like); // Idempotent.
     let mut tweet = state.tweets.get(&id)
         .map_err(|e| ServiceError::Internal(e.to_string()))?
-        .ok_or_else(|| ServiceError::NotFound(format!("tweet '{}'", id)))?;
+        .ok_or_else(|| ServiceError::NotFound(state.i18n.t("error.tweet.not_found", &[("id", &id)])))?;
     // Recount for accuracy.
     let all_likes = state.likes.list().unwrap_or_default();
     tweet.like_count = all_likes.iter().filter(|l| l.tweet_id.as_str() == id).count() as u32;
@@ -234,7 +242,7 @@ pub async fn unlike_tweet(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> Result<(), ServiceError> {
-    let uid = current_user(&headers, &state.jwt)?;
+    let uid = current_user(&headers, &state)?;
     let like_key = format!("{}:{}", uid, id);
     let _ = state.likes.delete(&like_key);
     if let Ok(Some(mut tweet)) = state.tweets.get(&id) {
@@ -251,7 +259,7 @@ pub async fn follow_user(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> Result<Json<AppProfile>, ServiceError> {
-    let uid = current_user(&headers, &state.jwt)?;
+    let uid = current_user(&headers, &state)?;
     let follow = Follow {
         id: Id::default(),
         follower_id: Id::new(&uid),
@@ -271,7 +279,7 @@ pub async fn follow_user(
     }
     let user = state.users.get(&id)
         .map_err(|e| ServiceError::Internal(e.to_string()))?
-        .ok_or_else(|| ServiceError::NotFound(format!("user '{}'", id)))?;
+        .ok_or_else(|| ServiceError::NotFound(state.i18n.t("error.profile.not_found", &[("id", &id)])))?;
     Ok(Json(to_app_profile(&user, &uid, &state)))
 }
 
@@ -281,7 +289,7 @@ pub async fn unfollow_user(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> Result<(), ServiceError> {
-    let uid = current_user(&headers, &state.jwt)?;
+    let uid = current_user(&headers, &state)?;
     let key = format!("{}:{}", uid, id);
     if state.follows.delete(&key).is_ok() {
         if let Ok(Some(mut me)) = state.users.get(&uid) {
@@ -302,10 +310,10 @@ pub async fn user_profile(
     State(state): State<FacetState>,
     Path(id): Path<String>,
 ) -> Result<Json<UserProfileResponse>, ServiceError> {
-    let uid = current_user(&headers, &state.jwt)?;
+    let uid = current_user(&headers, &state)?;
     let user = state.users.get(&id)
         .map_err(|e| ServiceError::Internal(e.to_string()))?
-        .ok_or_else(|| ServiceError::NotFound(format!("user '{}'", id)))?;
+        .ok_or_else(|| ServiceError::NotFound(state.i18n.t("error.profile.not_found", &[("id", &id)])))?;
     let profile = to_app_profile(&user, &uid, &state);
     let all = state.tweets.list().unwrap_or_default();
     let tweets: Vec<AppTweet> = all.iter()
@@ -321,13 +329,13 @@ pub async fn update_profile(
     State(state): State<FacetState>,
     Json(req): Json<UpdateProfileRequest>,
 ) -> Result<Json<AppUser>, ServiceError> {
-    let uid = current_user(&headers, &state.jwt)?;
+    let uid = current_user(&headers, &state)?;
     if req.display_name.trim().is_empty() {
-        return Err(ServiceError::Validation("display name cannot be empty".into()));
+        return Err(ServiceError::Validation(state.i18n.t("error.profile.name_empty", &[])));
     }
     let mut user = state.users.get(&uid)
         .map_err(|e| ServiceError::Internal(e.to_string()))?
-        .ok_or_else(|| ServiceError::NotFound(format!("user '{}'", uid)))?;
+        .ok_or_else(|| ServiceError::NotFound(state.i18n.t("error.profile.not_found", &[("id", &uid)])))?;
     user.display_name = Some(req.display_name);
     user.bio = Some(req.bio);
     state.users.save(user.clone()).map_err(|e| ServiceError::Internal(e.to_string()))?;
@@ -340,7 +348,7 @@ pub async fn search(
     State(state): State<FacetState>,
     Json(req): Json<SearchRequest>,
 ) -> Result<Json<SearchResponse>, ServiceError> {
-    let uid = current_user(&headers, &state.jwt)?;
+    let uid = current_user(&headers, &state)?;
     let q = req.query.to_lowercase();
     let users: Vec<AppProfile> = state.users.list().unwrap_or_default().iter()
         .filter(|u| u.username.to_lowercase().contains(&q)
@@ -412,6 +420,7 @@ mod tests {
             likes: KvOps::new(kv.clone()),
             follows: KvOps::new(kv.clone()),
             jwt: jwt.clone(),
+            i18n: Box::new(crate::server::i18n::DefaultLocalizer),
         });
         let router = facet_router(state);
         // Leak tempdir to keep DB alive.
