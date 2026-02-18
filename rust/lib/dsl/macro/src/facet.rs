@@ -78,6 +78,7 @@ pub fn expand(attr: TokenStream, item: ItemMod) -> syn::Result<TokenStream> {
                 let info = parse_resource(s)?;
                 resources.push(info);
                 output_items.push(emit_resource_struct(s));
+                output_items.push(crate::flatbuf::emit_flatbuffer_impls(s));
             }
             Item::Type(t) if has_attr(&t.attrs, "action") => {
                 let info = parse_action(t)?;
@@ -169,6 +170,15 @@ pub fn expand(attr: TokenStream, item: ItemMod) -> syn::Result<TokenStream> {
                     Self {
                         base: openerp_client::FacetClientBase::new(base_url, token_source),
                     }
+                }
+
+                /// Set the preferred wire format for resource operations.
+                ///
+                /// `Format::FlatBuffers` enables zero-copy binary responses
+                /// for `list_*` and `get_*` methods. Actions always use JSON.
+                pub fn format(mut self, format: openerp_types::Format) -> Self {
+                    self.base = self.base.with_format(format);
+                    self
                 }
 
                 #(#resource_methods)*

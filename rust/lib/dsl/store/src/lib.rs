@@ -13,6 +13,7 @@
 
 pub mod admin;
 pub mod facet;
+pub mod format;
 pub mod hierarchy;
 pub mod kv;
 pub mod sql;
@@ -26,6 +27,7 @@ pub use sql::{SqlStore, SqlOps};
 pub use search::{SearchStore, SearchOps};
 pub use admin::admin_kv_router;
 pub use facet::FacetDef;
+pub use format::{negotiate_format, FacetResponse, FacetListResponse};
 pub use hierarchy::HierarchyNode;
 pub use schema::{build_schema, ModuleDef, ResourceDef};
 pub use ui::{WidgetOverride, apply_overrides};

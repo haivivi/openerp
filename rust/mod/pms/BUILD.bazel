@@ -18,6 +18,7 @@ rust_library(
         "//rust/lib/kv",
         "@crates//:axum",
         "@crates//:chrono",
+        "@crates//:flatbuffers",
         "@crates//:serde",
         "@crates//:serde_json",
         "@crates//:uuid",

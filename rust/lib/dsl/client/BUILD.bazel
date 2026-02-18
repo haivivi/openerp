@@ -12,6 +12,7 @@ rust_library(
     deps = [
         "//rust/lib/dsl/types",
         "@crates//:chrono",
+        "@crates//:flatbuffers",
         "@crates//:reqwest",
         "@crates//:serde",
         "@crates//:serde_json",

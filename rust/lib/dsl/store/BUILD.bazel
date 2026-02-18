@@ -13,6 +13,7 @@ rust_library(
         "//rust/lib/sql",
         "//rust/lib/search",
         "@crates//:axum",
+        "@crates//:flatbuffers",
         "@crates//:serde",
         "@crates//:serde_json",
     ],

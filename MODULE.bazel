@@ -71,6 +71,9 @@ crate.spec(package = "tower-http", version = "0.6", features = ["cors"])
 crate.spec(package = "reqwest", version = "0.12", features = ["json", "rustls-tls", "blocking"], default_features = False)
 crate.spec(package = "base64", version = "0.22")
 
+# FlatBuffers
+crate.spec(package = "flatbuffers", version = "24.12.23")
+
 # Testing & Benchmarks
 crate.spec(package = "tempfile", version = "3")
 crate.spec(package = "criterion", version = "0.5", features = ["html_reports"])
