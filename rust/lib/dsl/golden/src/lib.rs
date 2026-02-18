@@ -40,8 +40,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new("auto-id");
             }
-            self.created_at = DateTime::new("2026-01-01T00:00:00Z");
-            self.updated_at = DateTime::new("2026-01-01T00:00:00Z");
         }
     }
 
@@ -62,12 +60,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -93,12 +85,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -331,7 +317,7 @@ mod tests {
         };
         let created = ops.save_new(w).unwrap();
         assert_eq!(created.id.as_str(), "auto-id");
-        assert_eq!(created.created_at.as_str(), "2026-01-01T00:00:00Z");
+        assert!(!created.created_at.is_empty(), "store layer should set createdAt");
 
         // Get.
         let fetched = ops.get_or_err("auto-id").unwrap();

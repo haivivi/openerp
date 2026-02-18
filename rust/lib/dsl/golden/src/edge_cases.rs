@@ -38,12 +38,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -69,12 +63,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -95,12 +83,6 @@ mod tests {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
             if self.status.is_empty() { self.status = "open".into(); }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -419,9 +401,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
         }
         fn after_delete(&self) {
             DELETE_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -681,11 +660,6 @@ mod tests {
         const KEY: Field = Self::id;
         fn kv_prefix() -> &'static str { "edge:localrole:" }
         fn key_value(&self) -> String { self.id.to_string() }
-        fn before_create(&mut self) {
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
     }
 
     struct LocalAuth { kv: Arc<dyn openerp_kv::KVStore> }

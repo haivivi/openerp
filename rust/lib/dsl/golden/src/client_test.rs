@@ -40,13 +40,9 @@ mod tests {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
             self.email = Email::new(&self.email.as_str().to_lowercase());
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
         }
         fn before_update(&mut self) {
             self.email = Email::new(&self.email.as_str().to_lowercase());
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -68,12 +64,6 @@ mod tests {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
             if self.status.is_empty() { self.status = "draft".into(); }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 

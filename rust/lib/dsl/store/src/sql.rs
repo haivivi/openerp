@@ -247,12 +247,37 @@ impl<T: SqlStore> SqlOps<T> {
         Ok(records)
     }
 
+    fn now() -> String {
+        chrono::Utc::now().to_rfc3339()
+    }
+
+    fn stamp_create(val: &mut serde_json::Value) {
+        if let Some(obj) = val.as_object_mut() {
+            let now = Self::now();
+            let ca = obj.get("createdAt").and_then(|v| v.as_str()).unwrap_or("");
+            if ca.is_empty() {
+                obj.insert("createdAt".into(), serde_json::json!(now));
+            }
+            obj.insert("updatedAt".into(), serde_json::json!(now));
+        }
+    }
+
+    fn stamp_update(val: &mut serde_json::Value) {
+        if let Some(obj) = val.as_object_mut() {
+            obj.insert("updatedAt".into(), serde_json::json!(Self::now()));
+        }
+    }
+
     /// Insert a new record. Calls before_create hook.
+    /// The store layer sets `createdAt` and `updatedAt`.
     pub fn save_new(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_create();
 
-        let json_val: serde_json::Value = serde_json::to_value(&record)
+        let mut json_val: serde_json::Value = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+        Self::stamp_create(&mut json_val);
+        let record: T = serde_json::from_value(json_val.clone())
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
 
         let data = serde_json::to_vec(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
@@ -301,7 +326,7 @@ impl<T: SqlStore> SqlOps<T> {
     ///
     /// Compares the incoming record's `updatedAt` with the stored value.
     /// If they don't match, returns `ServiceError::Conflict` (409).
-    /// On success, `before_update()` has already set a fresh `updatedAt`.
+    /// The store layer sets a fresh `updatedAt`.
     pub fn save(&self, mut record: T) -> Result<T, ServiceError> {
         let pk_values = record.pk_values();
         let pk_refs: Vec<&str> = pk_values.iter().map(|s| s.as_str()).collect();
@@ -324,6 +349,13 @@ impl<T: SqlStore> SqlOps<T> {
         }
 
         record.before_update();
+
+        let mut json_val = serde_json::to_value(&record)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+        Self::stamp_update(&mut json_val);
+        let record: T = serde_json::from_value(json_val)
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
+
         self.exec_update(&record)
     }
 
@@ -331,6 +363,7 @@ impl<T: SqlStore> SqlOps<T> {
     ///
     /// Reads the existing record, applies the patch, and saves.
     /// Include `updatedAt` from the GET response for optimistic locking.
+    /// The store layer sets a fresh `updatedAt` after merge.
     pub fn patch(&self, pk: &[&str], patch: &serde_json::Value) -> Result<T, ServiceError> {
         let existing = self.get_or_err(pk)?;
         let mut base = serde_json::to_value(&existing)
@@ -347,13 +380,7 @@ impl<T: SqlStore> SqlOps<T> {
         }
 
         openerp_core::merge_patch(&mut base, patch);
-
-        if let Some(obj) = base.as_object_mut() {
-            obj.insert(
-                "updatedAt".into(),
-                serde_json::json!(chrono::Utc::now().to_rfc3339()),
-            );
-        }
+        Self::stamp_update(&mut base);
 
         let record: T = serde_json::from_value(base)
             .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;

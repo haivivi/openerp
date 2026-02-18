@@ -120,7 +120,32 @@ impl<T: KvStore> KvOps<T> {
         Ok(entries.len())
     }
 
+    fn now() -> String {
+        chrono::Utc::now().to_rfc3339()
+    }
+
+    /// Stamp `createdAt` (if empty) and `updatedAt` on a JSON object.
+    /// Called by save_new. Returns the deserialized record.
+    fn stamp_create(val: &mut serde_json::Value) {
+        if let Some(obj) = val.as_object_mut() {
+            let now = Self::now();
+            let ca = obj.get("createdAt").and_then(|v| v.as_str()).unwrap_or("");
+            if ca.is_empty() {
+                obj.insert("createdAt".into(), serde_json::json!(now));
+            }
+            obj.insert("updatedAt".into(), serde_json::json!(now));
+        }
+    }
+
+    /// Stamp a fresh `updatedAt` on a JSON object. Called by save/patch.
+    fn stamp_update(val: &mut serde_json::Value) {
+        if let Some(obj) = val.as_object_mut() {
+            obj.insert("updatedAt".into(), serde_json::json!(Self::now()));
+        }
+    }
+
     /// Create a new record. Calls before_create hook, checks for duplicates.
+    /// The store layer sets `createdAt` and `updatedAt` — models don't need to.
     pub fn save_new(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_create();
 
@@ -134,6 +159,12 @@ impl<T: KvStore> KvOps<T> {
             )));
         }
 
+        let mut json_val = serde_json::to_value(&record)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+        Self::stamp_create(&mut json_val);
+        let record: T = serde_json::from_value(json_val)
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
+
         let bytes = serde_json::to_vec(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
         self.kv.set(&key, &bytes).map_err(Self::kv_err)?;
@@ -144,15 +175,12 @@ impl<T: KvStore> KvOps<T> {
     /// Update an existing record with optimistic locking on `updatedAt`.
     ///
     /// Compares the incoming record's `updatedAt` with the stored value.
-    /// If they don't match, another writer has modified the record and
-    /// we return `ServiceError::Conflict` (409).
-    /// On success, `before_update()` has already set a fresh `updatedAt`.
+    /// If they don't match, returns `ServiceError::Conflict` (409).
+    /// The store layer sets a fresh `updatedAt` — models don't need to.
     pub fn save(&self, mut record: T) -> Result<T, ServiceError> {
         let id = record.key_value();
         let key = Self::make_key(&id);
 
-        // Read existing for optimistic locking check BEFORE calling
-        // before_update (which overwrites updatedAt with "now").
         let existing_bytes = self.kv.get(&key).map_err(Self::kv_err)?;
         if let Some(existing_bytes) = &existing_bytes {
             let existing: serde_json::Value = serde_json::from_slice(existing_bytes)
@@ -171,8 +199,13 @@ impl<T: KvStore> KvOps<T> {
             }
         }
 
-        // Now apply before_update which sets fresh updatedAt.
         record.before_update();
+
+        let mut json_val = serde_json::to_value(&record)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+        Self::stamp_update(&mut json_val);
+        let record: T = serde_json::from_value(json_val)
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
 
         let bytes = serde_json::to_vec(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
@@ -186,12 +219,12 @@ impl<T: KvStore> KvOps<T> {
     /// Reads the existing record, applies the patch, and saves.
     /// Include `updatedAt` from the GET response in the patch for
     /// optimistic locking — the server returns 409 if it doesn't match.
+    /// The store layer sets a fresh `updatedAt` after merge.
     pub fn patch(&self, id: &str, patch: &serde_json::Value) -> Result<T, ServiceError> {
         let existing = self.get_or_err(id)?;
         let mut base = serde_json::to_value(&existing)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
 
-        // Check updatedAt from patch if provided.
         if let Some(patch_ts) = patch.get("updatedAt").and_then(|v| v.as_str()) {
             let base_ts = base.get("updatedAt").and_then(|v| v.as_str()).unwrap_or("");
             if patch_ts != base_ts {
@@ -203,14 +236,7 @@ impl<T: KvStore> KvOps<T> {
         }
 
         openerp_core::merge_patch(&mut base, patch);
-
-        // Set fresh updatedAt after merge.
-        if let Some(obj) = base.as_object_mut() {
-            obj.insert(
-                "updatedAt".into(),
-                serde_json::json!(chrono::Utc::now().to_rfc3339()),
-            );
-        }
+        Self::stamp_update(&mut base);
 
         let record: T = serde_json::from_value(base)
             .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
@@ -245,6 +271,8 @@ mod tests {
         name: String,
         count: u32,
         #[serde(default)]
+        created_at: String,
+        #[serde(default)]
         updated_at: String,
     }
 
@@ -263,14 +291,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = "auto-id".to_string();
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.updated_at.is_empty() {
-                self.updated_at = now;
-            }
-        }
-
-        fn before_update(&mut self) {
-            self.updated_at = chrono::Utc::now().to_rfc3339();
         }
     }
 
@@ -282,7 +302,7 @@ mod tests {
     }
 
     fn new_thing(id: &str, name: &str, count: u32) -> Thing {
-        Thing { id: id.into(), name: name.into(), count, updated_at: String::new() }
+        Thing { id: id.into(), name: name.into(), count, created_at: String::new(), updated_at: String::new() }
     }
 
     #[test]

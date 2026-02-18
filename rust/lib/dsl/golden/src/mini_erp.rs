@@ -82,22 +82,14 @@ mod tests {
         const KEY: Field = Self::id;
         fn kv_prefix() -> &'static str { "hr:employee:" }
         fn key_value(&self) -> String { self.id.to_string() }
-
         fn before_create(&mut self) {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            // Normalize email to lowercase.
             self.email = Email::new(&self.email.as_str().to_lowercase());
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
         }
-
         fn before_update(&mut self) {
-            // Normalize email on update too.
             self.email = Email::new(&self.email.as_str().to_lowercase());
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -105,18 +97,10 @@ mod tests {
         const KEY: Field = Self::id;
         fn kv_prefix() -> &'static str { "hr:department:" }
         fn key_value(&self) -> String { self.id.to_string() }
-
         fn before_create(&mut self) {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -124,35 +108,17 @@ mod tests {
         const KEY: Field = Self::id;
         fn kv_prefix() -> &'static str { "hr:role:" }
         fn key_value(&self) -> String { self.id.to_string() }
-
-        fn before_create(&mut self) {
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
-        }
     }
 
     impl KvStore for Project {
         const KEY: Field = Self::id;
         fn kv_prefix() -> &'static str { "pm:project:" }
         fn key_value(&self) -> String { self.id.to_string() }
-
         fn before_create(&mut self) {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
             if self.status.is_empty() { self.status = "draft".into(); }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -822,13 +788,9 @@ mod tests {
             }
             if self.visibility.is_empty() { self.visibility = "private".into(); }
             if self.version == 0 { self.version = 1; }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
         }
         fn before_update(&mut self) {
             self.version += 1;
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -856,12 +818,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
