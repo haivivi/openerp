@@ -8,7 +8,7 @@ use axum::{Json, Router};
 use openerp_core::ServiceError;
 use openerp_store::KvOps;
 
-use crate::model::Device;
+use crate::model::{Device, DeviceStatus};
 use crate::mfg::ActivateResponse;
 
 pub fn routes(kv: Arc<dyn openerp_kv::KVStore>) -> Router {
@@ -24,24 +24,18 @@ async fn activate(
 ) -> Result<Json<ActivateResponse>, ServiceError> {
     let mut device = ops.get_or_err(&sn)?;
 
-    match device.status.as_str() {
-        "provisioned" | "inactive" => {}
-        "active" => {
+    match device.status {
+        DeviceStatus::Provisioned | DeviceStatus::Inactive => {}
+        DeviceStatus::Active => {
             return Err(ServiceError::Validation("device is already active".into()));
-        }
-        other => {
-            return Err(ServiceError::Validation(format!(
-                "cannot activate device in '{}' status",
-                other
-            )));
         }
     }
 
-    device.status = "active".into();
+    device.status = DeviceStatus::Active;
     ops.save(device)?;
 
     Ok(Json(ActivateResponse {
         sn,
-        status: "active".into(),
+        status: DeviceStatus::Active.to_string(),
     }))
 }

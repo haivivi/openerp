@@ -1,6 +1,8 @@
 use openerp_macro::model;
 use openerp_types::*;
 
+use super::status::FirmwareStatus;
+
 /// Device firmware version. Compound key: model + semver.
 #[model(module = "pms")]
 pub struct Firmware {
@@ -8,7 +10,7 @@ pub struct Firmware {
     pub model: u32,
     pub semver: SemVer,
     pub build: u64,
-    pub status: String,
+    pub status: FirmwareStatus,
     pub release_notes: Option<String>,
     // display_name, description, metadata, created_at, updated_at → auto
 }

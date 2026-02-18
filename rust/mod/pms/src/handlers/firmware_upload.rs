@@ -9,7 +9,7 @@ use openerp_core::ServiceError;
 use openerp_store::KvOps;
 use openerp_types::*;
 
-use crate::model::Firmware;
+use crate::model::{Firmware, FirmwareStatus};
 
 pub fn routes(kv: Arc<dyn openerp_kv::KVStore>) -> Router {
     let ops = Arc::new(KvOps::<Firmware>::new(kv));
@@ -44,7 +44,7 @@ async fn upload(
         model: req.model,
         semver: SemVer::new(&req.semver),
         build: req.build,
-        status: "uploaded".into(),
+        status: FirmwareStatus::Uploaded,
         release_notes: req.release_notes,
         display_name: Some(format!("v{}", req.semver)),
         description: None,
@@ -60,6 +60,6 @@ async fn upload(
         id: created.id.to_string(),
         model: created.model,
         semver: created.semver.to_string(),
-        status: created.status,
+        status: created.status.to_string(),
     }))
 }
