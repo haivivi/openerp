@@ -12,7 +12,7 @@ use axum::response::IntoResponse;
 use axum::Json;
 
 use openerp_core::ServiceError;
-use openerp_store::KvOps;
+use openerp_store::{FacetResponse, KvOps};
 use openerp_types::*;
 
 use crate::server::i18n::Localizer;
@@ -107,6 +107,7 @@ fn to_app_user(u: &User) -> AppUser {
 
 /// POST /auth/login — public, no JWT required.
 pub async fn login(
+    headers: HeaderMap,
     State(state): State<FacetState>,
     Json(req): Json<LoginRequest>,
 ) -> Result<Json<LoginResponse>, ServiceError> {
@@ -132,12 +133,12 @@ pub async fn login(
 pub async fn get_me(
     headers: HeaderMap,
     State(state): State<FacetState>,
-) -> Result<Json<AppUser>, ServiceError> {
+) -> Result<FacetResponse<AppUser>, ServiceError> {
     let uid = current_user(&headers, &state)?;
     let user = state.users.get(&uid)
         .map_err(|e| ServiceError::Internal(e.to_string()))?
         .ok_or_else(|| ServiceError::NotFound(state.i18n.t("error.profile.not_found", &[("id", &uid)])))?;
-    Ok(Json(to_app_user(&user)))
+    Ok(FacetResponse::negotiate(to_app_user(&user), &headers))
 }
 
 /// POST /timeline
@@ -160,7 +161,7 @@ pub async fn create_tweet(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Json(req): Json<CreateTweetRequest>,
-) -> Result<Json<AppTweet>, ServiceError> {
+) -> Result<FacetResponse<AppTweet>, ServiceError> {
     let uid = current_user(&headers, &state)?;
     if req.content.trim().is_empty() {
         return Err(ServiceError::Validation(state.i18n.t("error.tweet.empty", &[])));
@@ -188,7 +189,7 @@ pub async fn create_tweet(
             let _ = state.tweets.save(parent);
         }
     }
-    Ok(Json(to_app_tweet(&created, &uid, &state)))
+    Ok(FacetResponse::negotiate(to_app_tweet(&created, &uid, &state), &headers))
 }
 
 /// POST /tweets/{id}/detail
@@ -216,7 +217,7 @@ pub async fn like_tweet(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Path(id): Path<String>,
-) -> Result<Json<AppTweet>, ServiceError> {
+) -> Result<FacetResponse<AppTweet>, ServiceError> {
     let uid = current_user(&headers, &state)?;
     let like = Like {
         id: Id::default(),
@@ -233,7 +234,7 @@ pub async fn like_tweet(
     let all_likes = state.likes.list().unwrap_or_default();
     tweet.like_count = all_likes.iter().filter(|l| l.tweet_id.as_str() == id).count() as u32;
     let _ = state.tweets.save(tweet.clone());
-    Ok(Json(to_app_tweet(&tweet, &uid, &state)))
+    Ok(FacetResponse::negotiate(to_app_tweet(&tweet, &uid, &state), &headers))
 }
 
 /// DELETE /tweets/{id}/like
@@ -258,7 +259,7 @@ pub async fn follow_user(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Path(id): Path<String>,
-) -> Result<Json<AppProfile>, ServiceError> {
+) -> Result<FacetResponse<AppProfile>, ServiceError> {
     let uid = current_user(&headers, &state)?;
     let follow = Follow {
         id: Id::default(),
@@ -280,7 +281,7 @@ pub async fn follow_user(
     let user = state.users.get(&id)
         .map_err(|e| ServiceError::Internal(e.to_string()))?
         .ok_or_else(|| ServiceError::NotFound(state.i18n.t("error.profile.not_found", &[("id", &id)])))?;
-    Ok(Json(to_app_profile(&user, &uid, &state)))
+    Ok(FacetResponse::negotiate(to_app_profile(&user, &uid, &state), &headers))
 }
 
 /// DELETE /users/{id}/follow
@@ -328,7 +329,7 @@ pub async fn update_profile(
     headers: HeaderMap,
     State(state): State<FacetState>,
     Json(req): Json<UpdateProfileRequest>,
-) -> Result<Json<AppUser>, ServiceError> {
+) -> Result<FacetResponse<AppUser>, ServiceError> {
     let uid = current_user(&headers, &state)?;
     if req.display_name.trim().is_empty() {
         return Err(ServiceError::Validation(state.i18n.t("error.profile.name_empty", &[])));
@@ -339,7 +340,7 @@ pub async fn update_profile(
     user.display_name = Some(req.display_name);
     user.bio = Some(req.bio);
     state.users.save(user.clone()).map_err(|e| ServiceError::Internal(e.to_string()))?;
-    Ok(Json(to_app_user(&user)))
+    Ok(FacetResponse::negotiate(to_app_user(&user), &headers))
 }
 
 /// POST /search
