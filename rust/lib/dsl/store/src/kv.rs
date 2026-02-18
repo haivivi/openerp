@@ -120,30 +120,6 @@ impl<T: KvStore> KvOps<T> {
         Ok(entries.len())
     }
 
-    fn now() -> String {
-        chrono::Utc::now().to_rfc3339()
-    }
-
-    /// Stamp `createdAt` (if empty) and `updatedAt` on a JSON object.
-    /// Called by save_new. Returns the deserialized record.
-    fn stamp_create(val: &mut serde_json::Value) {
-        if let Some(obj) = val.as_object_mut() {
-            let now = Self::now();
-            let ca = obj.get("createdAt").and_then(|v| v.as_str()).unwrap_or("");
-            if ca.is_empty() {
-                obj.insert("createdAt".into(), serde_json::json!(now));
-            }
-            obj.insert("updatedAt".into(), serde_json::json!(now));
-        }
-    }
-
-    /// Stamp a fresh `updatedAt` on a JSON object. Called by save/patch.
-    fn stamp_update(val: &mut serde_json::Value) {
-        if let Some(obj) = val.as_object_mut() {
-            obj.insert("updatedAt".into(), serde_json::json!(Self::now()));
-        }
-    }
-
     /// Create a new record. Calls before_create hook, checks for duplicates.
     /// The store layer sets `createdAt` and `updatedAt` — models don't need to.
     pub fn save_new(&self, mut record: T) -> Result<T, ServiceError> {
@@ -161,7 +137,7 @@ impl<T: KvStore> KvOps<T> {
 
         let mut json_val = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
-        Self::stamp_create(&mut json_val);
+        crate::timestamp::stamp_create(&mut json_val);
         let record: T = serde_json::from_value(json_val)
             .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
 
@@ -203,7 +179,7 @@ impl<T: KvStore> KvOps<T> {
 
         let mut json_val = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
-        Self::stamp_update(&mut json_val);
+        crate::timestamp::stamp_update(&mut json_val);
         let record: T = serde_json::from_value(json_val)
             .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
 
@@ -236,7 +212,7 @@ impl<T: KvStore> KvOps<T> {
         }
 
         openerp_core::merge_patch(&mut base, patch);
-        Self::stamp_update(&mut base);
+        crate::timestamp::stamp_update(&mut base);
 
         let record: T = serde_json::from_value(base)
             .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
