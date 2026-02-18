@@ -144,7 +144,6 @@ pub fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
         _ => {
             if field_name.ends_with("_at") { return "datetime"; }
             if field_name == "description" || field_name == "notes" { return "textarea"; }
-            if field_name == "rev" { return "readonly"; }
             if is_enum_type(ty_name) { return "select"; }
             "text"
         }

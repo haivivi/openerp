@@ -61,7 +61,6 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
         ("metadata", syn::parse_quote!(Option<String>)),
         ("created_at", syn::parse_quote!(openerp_types::DateTime)),
         ("updated_at", syn::parse_quote!(openerp_types::DateTime)),
-        ("rev", syn::parse_quote!(u64)),
     ];
 
     for (name, ty) in &common_fields {
@@ -296,8 +295,6 @@ fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
                 "datetime"
             } else if field_name == "description" || field_name == "notes" {
                 "textarea"
-            } else if field_name == "rev" {
-                "readonly"
             } else if is_enum_type(ty_name) {
                 "select"
             } else {
