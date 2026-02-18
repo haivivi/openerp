@@ -44,6 +44,7 @@ pub fn schema_def() -> openerp_store::ModuleDef {
                 .with_action("task", "cancel"),
             ResourceDef::from_ir("task", TaskType::__dsl_ir()).with_desc("Task type definitions"),
         ],
+        enums: vec![],
         hierarchy: hierarchy_def::hierarchy(),
     }
 }

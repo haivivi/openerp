@@ -63,6 +63,7 @@ pub fn schema_def() -> openerp_store::ModuleDef {
                 .with_action("pms", "import"),
             ResourceDef::from_ir("pms", Segment::__dsl_ir()).with_desc("SN encoding segments"),
         ],
+        enums: vec![],
         hierarchy: hierarchy_def::hierarchy(),
     }
 }

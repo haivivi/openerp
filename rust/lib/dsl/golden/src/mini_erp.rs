@@ -318,6 +318,7 @@ mod tests {
                         ResourceDef::from_ir("hr", Department::__dsl_ir()).with_desc("Organizational units"),
                         ResourceDef::from_ir("hr", Role::__dsl_ir()).with_desc("Permission roles"),
                     ],
+                    enums: vec![],
                     hierarchy: vec![
                         HierarchyNode {
                             resource: "employee", label: "Employees", icon: "users",
@@ -340,6 +341,7 @@ mod tests {
                             .with_action("pm", "archive")
                             .with_action("pm", "activate"),
                     ],
+                    enums: vec![],
                     hierarchy: vec![
                         HierarchyNode::leaf("project", "Projects", "folder", "Projects"),
                     ],
@@ -1228,6 +1230,7 @@ mod tests {
                         ResourceDef::from_ir("hr", Department::__dsl_ir()),
                         ResourceDef::from_ir("hr", Role::__dsl_ir()),
                     ],
+                    enums: vec![],
                     hierarchy: vec![
                         HierarchyNode { resource: "employee", label: "Employees", icon: "users",
                             description: "", children: vec![HierarchyNode::leaf("role", "Roles", "shield", "")] },
@@ -1240,6 +1243,7 @@ mod tests {
                         ResourceDef::from_ir("pm", Project::__dsl_ir())
                             .with_action("pm", "archive").with_action("pm", "publish"),
                     ],
+                    enums: vec![],
                     hierarchy: vec![HierarchyNode::leaf("project", "Projects", "folder", "")],
                 },
                 ModuleDef {
@@ -1248,6 +1252,7 @@ mod tests {
                         ResourceDef::from_ir("km", Document::__dsl_ir())
                             .with_action("km", "publish").with_action("km", "archive"),
                     ],
+                    enums: vec![],
                     hierarchy: vec![HierarchyNode::leaf("document", "Documents", "file-text", "")],
                 },
                 ModuleDef {
@@ -1255,6 +1260,7 @@ mod tests {
                     resources: vec![
                         ResourceDef::from_ir("org", CompanyProfile::__dsl_ir()),
                     ],
+                    enums: vec![],
                     hierarchy: vec![HierarchyNode::leaf("company_profile", "Companies", "building", "")],
                 },
             ],

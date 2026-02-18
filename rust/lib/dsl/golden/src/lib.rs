@@ -208,6 +208,7 @@ mod tests {
                     ResourceDef::from_ir("test", Widget::__dsl_ir()).with_desc("Test widgets"),
                     ResourceDef::from_ir("test", Item::__dsl_ir()).with_desc("Widget items"),
                 ],
+                enums: vec![],
                 hierarchy: vec![
                     HierarchyNode {
                         resource: "widget", label: "Widgets", icon: "cube",
@@ -257,6 +258,7 @@ mod tests {
                 resources: vec![
                     ResourceDef::from_ir("test", Item::__dsl_ir()),
                 ],
+                enums: vec![],
                 hierarchy: vec![HierarchyNode::leaf("item", "Items", "file-text", "Items")],
             }],
         );
@@ -445,6 +447,7 @@ mod tests {
                         ResourceDef::from_ir("test", Widget::__dsl_ir()),
                         ResourceDef::from_ir("test", Item::__dsl_ir()),
                     ],
+                    enums: vec![],
                     hierarchy: vec![
                         HierarchyNode {
                             resource: "widget", label: "Widgets", icon: "cube",
@@ -461,6 +464,7 @@ mod tests {
                     resources: vec![
                         ResourceDef::from_ir("infra", Server::__dsl_ir()),
                     ],
+                    enums: vec![],
                     hierarchy: vec![
                         HierarchyNode::leaf("server", "Servers", "desktop", "Servers"),
                     ],
@@ -793,6 +797,7 @@ mod tests {
                             .with_action("crm", "export")
                             .with_action("crm", "archive"),
                     ],
+                    enums: vec![],
                     hierarchy: vec![HierarchyNode::leaf("widget", "Widgets", "cube", "")],
                 },
             ],

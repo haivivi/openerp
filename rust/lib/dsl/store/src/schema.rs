@@ -8,12 +8,20 @@ use serde_json::{json, Value};
 
 use crate::hierarchy::HierarchyNode;
 
+/// An enum definition for the schema (from `#[dsl_enum]`).
+pub struct EnumDef {
+    pub name: &'static str,
+    pub variants: &'static [&'static str],
+}
+
 /// A module definition for the schema.
 pub struct ModuleDef {
     pub id: &'static str,
     pub label: &'static str,
     pub icon: &'static str,
     pub resources: Vec<ResourceDef>,
+    /// Enum types defined in this module (for select widget options).
+    pub enums: Vec<EnumDef>,
     /// Resource hierarchy tree for sidebar navigation and detail page relations.
     pub hierarchy: Vec<HierarchyNode>,
 }
@@ -144,12 +152,18 @@ pub fn build_schema(app_name: &str, modules: Vec<ModuleDef>) -> Value {
             all_permissions
                 .insert(m.id.to_string(), Value::Object(mod_perms));
 
+            // Build enum map: name → variants.
+            let enum_map: serde_json::Map<String, Value> = m.enums.iter().map(|e| {
+                (e.name.to_string(), json!(e.variants))
+            }).collect();
+
             // Build module JSON.
             json!({
                 "id": m.id,
                 "label": m.label,
                 "icon": m.icon,
                 "resources": m.resources.iter().map(|r| &r.ir).collect::<Vec<_>>(),
+                "enums": enum_map,
                 "hierarchy": {
                     "nav": m.hierarchy.iter().map(|h| h.to_json()).collect::<Vec<_>>()
                 },
@@ -181,6 +195,7 @@ mod tests {
                     ResourceDef::from_ir("auth", json!({"name": "User", "module": "auth", "resource": "user", "fields": []}))
                         .with_desc("User identity management"),
                 ],
+                enums: vec![],
                 hierarchy: vec![
                     HierarchyNode::leaf("user", "Users", "users", "User identity management"),
                 ],
@@ -190,12 +205,33 @@ mod tests {
         assert_eq!(schema["name"], "TestApp");
         assert_eq!(schema["modules"][0]["id"], "auth");
         assert_eq!(schema["modules"][0]["hierarchy"]["nav"][0]["label"], "Users");
+        assert!(schema["modules"][0]["enums"].as_object().unwrap().is_empty());
 
         let user_perms = &schema["permissions"]["auth"]["user"];
         assert_eq!(user_perms["description"], "User identity management");
         assert_eq!(user_perms["actions"].as_array().unwrap().len(), 5);
         assert_eq!(user_perms["actions"][0]["action"], "create");
         assert!(user_perms["actions"][0]["desc"].as_str().unwrap().contains("User"));
+    }
+
+    #[test]
+    fn build_schema_with_enums() {
+        let schema = build_schema(
+            "TestApp",
+            vec![ModuleDef {
+                id: "pms",
+                label: "PMS",
+                icon: "box",
+                resources: vec![],
+                enums: vec![
+                    EnumDef { name: "BatchStatus", variants: &["DRAFT", "IN_PROGRESS", "COMPLETED", "CANCELLED"] },
+                ],
+                hierarchy: vec![],
+            }],
+        );
+
+        let enums = &schema["modules"][0]["enums"];
+        assert_eq!(enums["BatchStatus"], json!(["DRAFT", "IN_PROGRESS", "COMPLETED", "CANCELLED"]));
     }
 
     #[test]

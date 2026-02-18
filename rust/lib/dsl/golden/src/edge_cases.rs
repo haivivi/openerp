@@ -503,6 +503,7 @@ mod tests {
                 resources: vec![
                     ResourceDef::from_ir("edge", MinimalRecord::__dsl_ir()),
                 ],
+                enums: vec![],
                 hierarchy: vec![HierarchyNode::leaf("minimal_record", "Records", "file", "")],
             }],
         );
@@ -544,6 +545,7 @@ mod tests {
                     label: "Empty Module",
                     icon: "box",
                     resources: vec![],
+                    enums: vec![],
                     hierarchy: vec![],
                 },
                 ModuleDef {
@@ -551,6 +553,7 @@ mod tests {
                     label: "Full",
                     icon: "cube",
                     resources: vec![ResourceDef::from_ir("full", MinimalRecord::__dsl_ir())],
+                    enums: vec![],
                     hierarchy: vec![HierarchyNode::leaf("minimal_record", "Records", "file", "")],
                 },
             ],

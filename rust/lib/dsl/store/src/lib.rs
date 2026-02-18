@@ -29,5 +29,5 @@ pub use admin::admin_kv_router;
 pub use facet::FacetDef;
 pub use format::{negotiate_format, FacetResponse, FacetListResponse};
 pub use hierarchy::HierarchyNode;
-pub use schema::{build_schema, ModuleDef, ResourceDef};
+pub use schema::{build_schema, EnumDef, ModuleDef, ResourceDef};
 pub use ui::{WidgetOverride, apply_overrides};

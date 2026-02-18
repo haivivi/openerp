@@ -83,6 +83,7 @@ pub fn schema_def() -> openerp_store::ModuleDef {
             ResourceDef::from_ir("auth", Provider::__dsl_ir())
                 .with_desc("OAuth provider configuration"),
         ],
+        enums: vec![],
         hierarchy: hierarchy_def::hierarchy(),
     }
 }
