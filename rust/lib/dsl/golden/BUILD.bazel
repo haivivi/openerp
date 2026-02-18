@@ -15,6 +15,7 @@ rust_test(
         "//rust/lib/core",
         "//rust/lib/kv",
         "@crates//:axum",
+        "@crates//:flatbuffers",
         "@crates//:jsonwebtoken",
         "@crates//:reqwest",
         "@crates//:serde",

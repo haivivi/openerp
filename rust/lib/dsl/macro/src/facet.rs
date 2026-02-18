@@ -78,6 +78,7 @@ pub fn expand(attr: TokenStream, item: ItemMod) -> syn::Result<TokenStream> {
                 let info = parse_resource(s)?;
                 resources.push(info);
                 output_items.push(emit_resource_struct(s));
+                output_items.push(crate::flatbuf::emit_flatbuffer_impls(s));
             }
             Item::Type(t) if has_attr(&t.attrs, "action") => {
                 let info = parse_action(t)?;
