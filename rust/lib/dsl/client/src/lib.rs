@@ -17,7 +17,7 @@
 use std::marker::PhantomData;
 use std::sync::Arc;
 
-use openerp_types::DslModel;
+use openerp_types::{DslModel, Format, FromFlatBuffer, FromFlatBufferList, MIME_FLATBUFFERS};
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 // ── Error ───────────────────────────────────────────────────────────
@@ -476,13 +476,17 @@ pub struct ListResult<T> {
 
 /// Shared HTTP client used by all `#[facet]` generated clients.
 ///
-/// Handles URL construction, authentication, and response parsing.
-/// Generated `{Facet}Client` structs hold a `FacetClientBase` and
-/// delegate HTTP operations to it.
+/// Handles URL construction, authentication, response format negotiation,
+/// and response parsing. Generated `{Facet}Client` structs hold a
+/// `FacetClientBase` and delegate HTTP operations to it.
+///
+/// Supports JSON (default) and FlatBuffers wire formats for `list` and
+/// `get` operations. Actions always use JSON.
 pub struct FacetClientBase {
     http: reqwest::Client,
     base_url: String,
     token_source: Arc<dyn TokenSource>,
+    format: Format,
 }
 
 impl FacetClientBase {
@@ -491,7 +495,23 @@ impl FacetClientBase {
             http: reqwest::Client::new(),
             base_url: base_url.trim_end_matches('/').to_string(),
             token_source,
+            format: Format::Json,
         }
+    }
+
+    /// Set the preferred wire format for resource operations (list, get).
+    ///
+    /// When `FlatBuffers` is selected, requests include
+    /// `Accept: application/x-flatbuffers` and responses are decoded
+    /// as FlatBuffers. Actions always use JSON regardless of this setting.
+    pub fn with_format(mut self, format: Format) -> Self {
+        self.format = format;
+        self
+    }
+
+    /// Current wire format.
+    pub fn format(&self) -> Format {
+        self.format
     }
 
     async fn authed(
@@ -505,7 +525,24 @@ impl FacetClientBase {
         }
     }
 
-    async fn parse<T: DeserializeOwned>(resp: reqwest::Response) -> Result<T, ApiError> {
+    /// Add Accept header based on the configured format.
+    fn accept_header(&self, req: reqwest::RequestBuilder) -> reqwest::RequestBuilder {
+        match self.format {
+            Format::FlatBuffers => req.header("Accept", MIME_FLATBUFFERS),
+            Format::Json => req,
+        }
+    }
+
+    /// Detect response format from Content-Type header.
+    fn response_format(resp: &reqwest::Response) -> Format {
+        resp.headers()
+            .get("content-type")
+            .and_then(|v| v.to_str().ok())
+            .map(Format::from_content_type)
+            .unwrap_or(Format::Json)
+    }
+
+    async fn parse_json<T: DeserializeOwned>(resp: reqwest::Response) -> Result<T, ApiError> {
         let status = resp.status();
         if !status.is_success() {
             let body = resp.text().await.unwrap_or_default();
@@ -516,25 +553,83 @@ impl FacetClientBase {
             .map_err(|e| ApiError::Decode(e.to_string()))
     }
 
+    async fn check_status(resp: &reqwest::Response) -> Result<(), ApiError> {
+        if !resp.status().is_success() {
+            // We can't consume the body here since resp is borrowed,
+            // so this is used only as a pre-check pattern.
+            return Ok(());
+        }
+        Ok(())
+    }
+
     /// GET a list endpoint — returns ListResult<T> with hasMore pagination.
-    pub async fn list<T: DeserializeOwned>(&self, path: &str) -> Result<ListResult<T>, ApiError> {
+    ///
+    /// Format-aware: sends Accept header and decodes based on Content-Type.
+    pub async fn list<T>(&self, path: &str) -> Result<ListResult<T>, ApiError>
+    where
+        T: DeserializeOwned + FromFlatBufferList,
+    {
         let url = format!("{}{}", self.base_url, path);
-        let req = self.http.get(&url);
+        let req = self.accept_header(self.http.get(&url));
         let req = self.authed(req).await?;
         let resp = req.send().await?;
-        Self::parse(resp).await
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ApiError::from_response_body(status.as_u16(), &body));
+        }
+
+        match Self::response_format(&resp) {
+            Format::FlatBuffers => {
+                let bytes = resp.bytes().await
+                    .map_err(|e| ApiError::Decode(e.to_string()))?;
+                let (items, has_more) = T::decode_flatbuffer_list(&bytes)
+                    .map_err(|e| ApiError::Decode(e.to_string()))?;
+                Ok(ListResult { items, has_more })
+            }
+            Format::Json => {
+                resp.json::<ListResult<T>>()
+                    .await
+                    .map_err(|e| ApiError::Decode(e.to_string()))
+            }
+        }
     }
 
     /// GET a single item endpoint.
-    pub async fn get<T: DeserializeOwned>(&self, path: &str) -> Result<T, ApiError> {
+    ///
+    /// Format-aware: sends Accept header and decodes based on Content-Type.
+    pub async fn get<T>(&self, path: &str) -> Result<T, ApiError>
+    where
+        T: DeserializeOwned + FromFlatBuffer,
+    {
         let url = format!("{}{}", self.base_url, path);
-        let req = self.http.get(&url);
+        let req = self.accept_header(self.http.get(&url));
         let req = self.authed(req).await?;
         let resp = req.send().await?;
-        Self::parse(resp).await
+
+        let status = resp.status();
+        if !status.is_success() {
+            let body = resp.text().await.unwrap_or_default();
+            return Err(ApiError::from_response_body(status.as_u16(), &body));
+        }
+
+        match Self::response_format(&resp) {
+            Format::FlatBuffers => {
+                let bytes = resp.bytes().await
+                    .map_err(|e| ApiError::Decode(e.to_string()))?;
+                T::decode_flatbuffer(&bytes)
+                    .map_err(|e| ApiError::Decode(e.to_string()))
+            }
+            Format::Json => {
+                resp.json::<T>()
+                    .await
+                    .map_err(|e| ApiError::Decode(e.to_string()))
+            }
+        }
     }
 
-    /// POST with a JSON body.
+    /// POST with a JSON body (actions — always JSON).
     pub async fn post<Req: Serialize, Resp: DeserializeOwned>(
         &self,
         path: &str,
@@ -544,10 +639,10 @@ impl FacetClientBase {
         let req = self.http.post(&url).json(body);
         let req = self.authed(req).await?;
         let resp = req.send().await?;
-        Self::parse(resp).await
+        Self::parse_json(resp).await
     }
 
-    /// POST without a body.
+    /// POST without a body (actions — always JSON).
     pub async fn post_empty<Resp: DeserializeOwned>(
         &self,
         path: &str,
@@ -556,10 +651,10 @@ impl FacetClientBase {
         let req = self.http.post(&url);
         let req = self.authed(req).await?;
         let resp = req.send().await?;
-        Self::parse(resp).await
+        Self::parse_json(resp).await
     }
 
-    /// PUT with a JSON body.
+    /// PUT with a JSON body (actions — always JSON).
     pub async fn put<Req: Serialize, Resp: DeserializeOwned>(
         &self,
         path: &str,
@@ -569,10 +664,10 @@ impl FacetClientBase {
         let req = self.http.put(&url).json(body);
         let req = self.authed(req).await?;
         let resp = req.send().await?;
-        Self::parse(resp).await
+        Self::parse_json(resp).await
     }
 
-    /// PUT without a body.
+    /// PUT without a body (actions — always JSON).
     pub async fn put_empty<Resp: DeserializeOwned>(
         &self,
         path: &str,
@@ -581,10 +676,10 @@ impl FacetClientBase {
         let req = self.http.put(&url);
         let req = self.authed(req).await?;
         let resp = req.send().await?;
-        Self::parse(resp).await
+        Self::parse_json(resp).await
     }
 
-    /// DELETE (no response body).
+    /// DELETE (no response body, always JSON).
     pub async fn delete(&self, path: &str) -> Result<(), ApiError> {
         let url = format!("{}{}", self.base_url, path);
         let req = self.http.delete(&url);

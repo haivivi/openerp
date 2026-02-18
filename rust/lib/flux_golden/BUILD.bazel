@@ -21,6 +21,7 @@ rust_library(
         "@crates//:axum",
         "@crates//:base64",
         "@crates//:chrono",
+        "@crates//:flatbuffers",
         "@crates//:jsonwebtoken",
         "@crates//:reqwest",
         "@crates//:serde",
