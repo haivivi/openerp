@@ -172,6 +172,15 @@ pub fn expand(attr: TokenStream, item: ItemMod) -> syn::Result<TokenStream> {
                     }
                 }
 
+                /// Set the preferred wire format for resource operations.
+                ///
+                /// `Format::FlatBuffers` enables zero-copy binary responses
+                /// for `list_*` and `get_*` methods. Actions always use JSON.
+                pub fn format(mut self, format: openerp_types::Format) -> Self {
+                    self.base = self.base.with_format(format);
+                    self
+                }
+
                 #(#resource_methods)*
                 #(#action_methods)*
             }
