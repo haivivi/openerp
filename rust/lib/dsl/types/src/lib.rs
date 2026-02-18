@@ -112,9 +112,19 @@ pub const fn widget_for_type(ty: &str) -> &str {
     "text"
 }
 
+/// Known DSL builtin type names — anything not in this set that starts
+/// with an uppercase letter is assumed to be a `#[dsl_enum]` → `"select"`.
+const BUILTIN_TYPES: &[&str] = &[
+    "Id", "Email", "Phone", "Url", "Avatar", "ImageUrl",
+    "Password", "PasswordHash", "Secret",
+    "Text", "Markdown", "Code",
+    "DateTime", "Date", "Color", "SemVer",
+    "String", "bool", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64",
+    "f32", "f64", "Vec",
+];
+
 /// Non-const widget inference from type name. Called by the macro at compile time.
 pub fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
-    // Type name takes priority.
     match ty_name {
         "Id" => "readonly",
         "Email" => "email",
@@ -132,13 +142,19 @@ pub fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
         "SemVer" => "text",
         "bool" => "switch",
         _ => {
-            // Field name heuristics for plain String fields.
             if field_name.ends_with("_at") { return "datetime"; }
             if field_name == "description" || field_name == "notes" { return "textarea"; }
             if field_name == "rev" { return "readonly"; }
+            if is_enum_type(ty_name) { return "select"; }
             "text"
         }
     }
+}
+
+/// Heuristic: a type name that starts uppercase and isn't a known builtin
+/// is treated as a `#[dsl_enum]` → select widget.
+pub fn is_enum_type(ty_name: &str) -> bool {
+    ty_name.starts_with(|c: char| c.is_ascii_uppercase()) && !BUILTIN_TYPES.contains(&ty_name)
 }
 
 /// Macro to define a newtype wrapper around String.

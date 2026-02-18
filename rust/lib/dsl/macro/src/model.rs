@@ -261,6 +261,18 @@ fn extract_ui_widget(attrs: &[syn::Attribute]) -> syn::Result<Option<String>> {
     Ok(None)
 }
 
+/// Known DSL builtin type names — anything not in this set that starts
+/// with an uppercase letter is assumed to be a `#[dsl_enum]` and gets
+/// the `"select"` widget.
+const BUILTIN_TYPES: &[&str] = &[
+    "Id", "Email", "Phone", "Url", "Avatar", "ImageUrl",
+    "Password", "PasswordHash", "Secret",
+    "Text", "Markdown", "Code",
+    "DateTime", "Date", "Color", "SemVer",
+    "String", "bool", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64",
+    "f32", "f64", "Vec",
+];
+
 fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
     match ty_name {
         "Id" => "readonly",
@@ -286,11 +298,19 @@ fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
                 "textarea"
             } else if field_name == "rev" {
                 "readonly"
+            } else if is_enum_type(ty_name) {
+                "select"
             } else {
                 "text"
             }
         }
     }
+}
+
+/// Heuristic: a type name that starts uppercase and isn't a known builtin
+/// is treated as a `#[dsl_enum]` → select widget.
+fn is_enum_type(ty_name: &str) -> bool {
+    ty_name.starts_with(|c: char| c.is_ascii_uppercase()) && !BUILTIN_TYPES.contains(&ty_name)
 }
 
 fn to_snake_case(s: &str) -> String {
