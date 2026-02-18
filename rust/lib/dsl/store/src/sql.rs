@@ -361,8 +361,9 @@ impl<T: SqlStore> SqlOps<T> {
         openerp_core::merge_patch(&mut base, patch);
         crate::timestamp::stamp_update(&mut base);
 
-        let record: T = serde_json::from_value(base)
+        let mut record: T = serde_json::from_value(base)
             .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
+        record.before_update();
 
         self.exec_update(&record)
     }
