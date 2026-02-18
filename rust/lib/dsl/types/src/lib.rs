@@ -147,6 +147,7 @@ pub fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
         "Color" => "color",
         "SemVer" => "text",
         "bool" => "switch",
+        "Vec" => "tags",
         _ => {
             if field_name.ends_with("_at") { return "datetime"; }
             if field_name == "description" || field_name == "notes" { return "textarea"; }
