@@ -20,7 +20,7 @@ fn project(d: &Device) -> MfgDevice {
     MfgDevice {
         sn: d.sn.clone(),
         model: d.model,
-        status: d.status.clone(),
+        status: d.status.to_string(),
         sku: d.sku.clone(),
         imei: d.imei.clone(),
         licenses: d.licenses.clone(),
