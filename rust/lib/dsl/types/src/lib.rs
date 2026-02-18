@@ -24,6 +24,13 @@
 //! }
 //! ```
 
+pub mod format;
+
+pub use format::{
+    create_string_vector, vt_offset, FlatBufferDecodeError, Format, FromFlatBuffer,
+    FromFlatBufferList, IntoFlatBuffer, IntoFlatBufferList, MIME_FLATBUFFERS, MIME_JSON,
+};
+
 use serde::{de::DeserializeOwned, Deserialize, Serialize};
 use std::fmt;
 use std::ops::Deref;
