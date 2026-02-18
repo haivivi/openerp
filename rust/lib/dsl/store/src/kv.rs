@@ -212,11 +212,16 @@ impl<T: KvStore> KvOps<T> {
         }
 
         openerp_core::merge_patch(&mut base, patch);
-        crate::timestamp::stamp_update(&mut base);
 
         let mut record: T = serde_json::from_value(base)
             .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
         record.before_update();
+
+        let mut json_val = serde_json::to_value(&record)
+            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
+        crate::timestamp::stamp_update(&mut json_val);
+        let record: T = serde_json::from_value(json_val)
+            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
 
         let key = Self::make_key(id);
         let bytes = serde_json::to_vec(&record)

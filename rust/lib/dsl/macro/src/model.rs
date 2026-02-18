@@ -263,6 +263,9 @@ fn extract_ui_widget(attrs: &[syn::Attribute]) -> syn::Result<Option<String>> {
 /// Known DSL builtin type names — anything not in this set that starts
 /// with an uppercase letter is assumed to be a `#[dsl_enum]` and gets
 /// the `"select"` widget.
+///
+/// **Must stay in sync with `openerp_types::BUILTIN_TYPES`.**
+/// Duplicated here because proc-macro crates cannot depend on runtime crates.
 const BUILTIN_TYPES: &[&str] = &[
     "Id", "Email", "Phone", "Url", "Avatar", "ImageUrl",
     "Password", "PasswordHash", "Secret",

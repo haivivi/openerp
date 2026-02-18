@@ -114,6 +114,9 @@ pub const fn widget_for_type(ty: &str) -> &str {
 
 /// Known DSL builtin type names — anything not in this set that starts
 /// with an uppercase letter is assumed to be a `#[dsl_enum]` → `"select"`.
+///
+/// **Must stay in sync with `openerp_macro::model::BUILTIN_TYPES`.**
+/// Duplicated here because proc-macro crates cannot depend on runtime crates.
 const BUILTIN_TYPES: &[&str] = &[
     "Id", "Email", "Phone", "Url", "Avatar", "ImageUrl",
     "Password", "PasswordHash", "Secret",
@@ -123,7 +126,10 @@ const BUILTIN_TYPES: &[&str] = &[
     "f32", "f64", "Vec",
 ];
 
-/// Non-const widget inference from type name. Called by the macro at compile time.
+/// Non-const widget inference from type name.
+///
+/// **Must stay in sync with `openerp_macro::model::infer_widget`.**
+/// Duplicated here because proc-macro crates cannot depend on runtime crates.
 pub fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
     match ty_name {
         "Id" => "readonly",
@@ -152,6 +158,8 @@ pub fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
 
 /// Heuristic: a type name that starts uppercase and isn't a known builtin
 /// is treated as a `#[dsl_enum]` → select widget.
+///
+/// **Must stay in sync with `openerp_macro::model::is_enum_type`.**
 pub fn is_enum_type(ty_name: &str) -> bool {
     ty_name.starts_with(|c: char| c.is_ascii_uppercase()) && !BUILTIN_TYPES.contains(&ty_name)
 }
