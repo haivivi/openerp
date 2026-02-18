@@ -10,6 +10,7 @@ rust_test(
     deps = [
         "//rust/lib/dsl/client",
         "//rust/lib/dsl/types",
+        "@crates//:flatbuffers",
         "@crates//:serde",
         "@crates//:serde_json",
     ],

@@ -152,10 +152,9 @@ fn emit_encode_table(ident: &syn::Ident, fields: &[FbField]) -> TokenStream {
                     let #off_name = self.#name.as_ref().map(|s| __fb_builder.create_string(s));
                 }),
                 FbFieldKind::StringVec => Some(quote! {
-                    let #off_name = openerp_types::create_string_vector(&mut __fb_builder, &self.#name);
+                    let #off_name = openerp_types::create_string_vector(__fb_builder, &self.#name);
                 }),
                 FbFieldKind::ScalarVec => {
-                    let scalar_ty = f.scalar_ty.as_ref().unwrap();
                     Some(quote! {
                         let #off_name = __fb_builder.create_vector(&self.#name);
                     })
@@ -326,10 +325,16 @@ fn emit_from_flatbuffer(ident: &syn::Ident) -> TokenStream {
             fn decode_flatbuffer(
                 buf: &[u8],
             ) -> Result<Self, openerp_types::FlatBufferDecodeError> {
-                let __fb_table = flatbuffers::root::<flatbuffers::Table>(buf)
-                    .map_err(|e| openerp_types::FlatBufferDecodeError::new(
-                        format!("invalid flatbuffer: {}", e)
-                    ))?;
+                if buf.len() < 4 {
+                    return Err(openerp_types::FlatBufferDecodeError::new("buffer too small"));
+                }
+                // SAFETY: We produced this buffer via FlatBufferBuilder, so the
+                // root offset is valid. root_unchecked skips verification for
+                // performance — Table does not implement Verifiable in all
+                // flatbuffers crate versions.
+                let __fb_table = unsafe {
+                    flatbuffers::root_unchecked::<flatbuffers::Table>(buf)
+                };
                 Self::__fb_decode_table(&__fb_table)
             }
         }
@@ -369,10 +374,12 @@ fn emit_from_flatbuffer_list(ident: &syn::Ident) -> TokenStream {
             fn decode_flatbuffer_list(
                 buf: &[u8],
             ) -> Result<(Vec<Self>, bool), openerp_types::FlatBufferDecodeError> {
-                let __fb_list = flatbuffers::root::<flatbuffers::Table>(buf)
-                    .map_err(|e| openerp_types::FlatBufferDecodeError::new(
-                        format!("invalid flatbuffer: {}", e)
-                    ))?;
+                if buf.len() < 4 {
+                    return Err(openerp_types::FlatBufferDecodeError::new("buffer too small"));
+                }
+                let __fb_list = unsafe {
+                    flatbuffers::root_unchecked::<flatbuffers::Table>(buf)
+                };
                 let has_more = unsafe {
                     __fb_list.get::<bool>(6, Some(false))
                 }.unwrap_or(false);

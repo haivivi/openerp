@@ -503,4 +503,302 @@ mod tests {
         assert_eq!(ir["resources"].as_array().unwrap().len(), 1);
         assert_eq!(ir["actions"].as_array().unwrap().len(), 0);
     }
+
+    // =====================================================================
+    // Golden: FlatBuffer encode/decode roundtrip
+    // =====================================================================
+
+    #[test]
+    fn golden_flatbuffer_roundtrip_simple() {
+        use openerp_types::{IntoFlatBuffer, FromFlatBuffer};
+
+        let model = mfg::MfgModel {
+            code: 1001,
+            series_name: "H106".into(),
+            display_name: Some("H106 Speaker".into()),
+        };
+
+        let buf = model.encode_flatbuffer();
+        assert!(!buf.is_empty());
+
+        let decoded = mfg::MfgModel::decode_flatbuffer(&buf).unwrap();
+        assert_eq!(decoded.code, 1001);
+        assert_eq!(decoded.series_name, "H106");
+        assert_eq!(decoded.display_name, Some("H106 Speaker".into()));
+    }
+
+    #[test]
+    fn golden_flatbuffer_roundtrip_all_field_types() {
+        use openerp_types::{IntoFlatBuffer, FromFlatBuffer};
+
+        let device = mfg::MfgDevice {
+            sn: "SN-ABCD-1234".into(),
+            model: 42,
+            status: "provisioned".into(),
+            sku: Some("SKU-A".into()),
+            imei: vec!["860000001".into(), "860000002".into()],
+        };
+
+        let buf = device.encode_flatbuffer();
+        let decoded = mfg::MfgDevice::decode_flatbuffer(&buf).unwrap();
+
+        assert_eq!(decoded.sn, "SN-ABCD-1234");
+        assert_eq!(decoded.model, 42);
+        assert_eq!(decoded.status, "provisioned");
+        assert_eq!(decoded.sku, Some("SKU-A".into()));
+        assert_eq!(decoded.imei, vec!["860000001", "860000002"]);
+    }
+
+    #[test]
+    fn golden_flatbuffer_roundtrip_option_none() {
+        use openerp_types::{IntoFlatBuffer, FromFlatBuffer};
+
+        let model = mfg::MfgModel {
+            code: 0,
+            series_name: "X".into(),
+            display_name: None,
+        };
+
+        let buf = model.encode_flatbuffer();
+        let decoded = mfg::MfgModel::decode_flatbuffer(&buf).unwrap();
+        assert_eq!(decoded.code, 0);
+        assert_eq!(decoded.series_name, "X");
+        assert_eq!(decoded.display_name, None);
+    }
+
+    #[test]
+    fn golden_flatbuffer_roundtrip_empty_vec() {
+        use openerp_types::{IntoFlatBuffer, FromFlatBuffer};
+
+        let device = mfg::MfgDevice {
+            sn: "SN1".into(),
+            model: 1,
+            status: "new".into(),
+            sku: None,
+            imei: vec![],
+        };
+
+        let buf = device.encode_flatbuffer();
+        let decoded = mfg::MfgDevice::decode_flatbuffer(&buf).unwrap();
+        assert_eq!(decoded.sn, "SN1");
+        assert!(decoded.sku.is_none());
+        assert!(decoded.imei.is_empty());
+    }
+
+    #[test]
+    fn golden_flatbuffer_roundtrip_u64_field() {
+        use openerp_types::{IntoFlatBuffer, FromFlatBuffer};
+
+        let fw = mfg::MfgFirmware {
+            id: "fw-001".into(),
+            model: 7,
+            semver: "2.0.0-beta".into(),
+            build: 999_999_999,
+            status: "uploaded".into(),
+        };
+
+        let buf = fw.encode_flatbuffer();
+        let decoded = mfg::MfgFirmware::decode_flatbuffer(&buf).unwrap();
+        assert_eq!(decoded.id, "fw-001");
+        assert_eq!(decoded.model, 7);
+        assert_eq!(decoded.semver, "2.0.0-beta");
+        assert_eq!(decoded.build, 999_999_999);
+        assert_eq!(decoded.status, "uploaded");
+    }
+
+    // =====================================================================
+    // Golden: FlatBuffer ↔ JSON equivalence
+    // =====================================================================
+
+    #[test]
+    fn golden_flatbuffer_json_equivalence() {
+        use openerp_types::{IntoFlatBuffer, FromFlatBuffer};
+
+        let batch = mfg::MfgBatch {
+            id: "b-100".into(),
+            model: 42,
+            quantity: 500,
+            provisioned_count: 123,
+            status: "in_progress".into(),
+        };
+
+        // JSON roundtrip.
+        let json_str = serde_json::to_string(&batch).unwrap();
+        let json_back: mfg::MfgBatch = serde_json::from_str(&json_str).unwrap();
+
+        // FlatBuffer roundtrip.
+        let fb_buf = batch.encode_flatbuffer();
+        let fb_back = mfg::MfgBatch::decode_flatbuffer(&fb_buf).unwrap();
+
+        // Both should produce identical data.
+        assert_eq!(json_back.id, fb_back.id);
+        assert_eq!(json_back.model, fb_back.model);
+        assert_eq!(json_back.quantity, fb_back.quantity);
+        assert_eq!(json_back.provisioned_count, fb_back.provisioned_count);
+        assert_eq!(json_back.status, fb_back.status);
+    }
+
+    #[test]
+    fn golden_flatbuffer_json_equivalence_with_optionals() {
+        use openerp_types::{IntoFlatBuffer, FromFlatBuffer};
+
+        let device = mfg::MfgDevice {
+            sn: "SN-TEST".into(),
+            model: 99,
+            status: "active".into(),
+            sku: Some("PREMIUM".into()),
+            imei: vec!["111".into(), "222".into(), "333".into()],
+        };
+
+        let json_str = serde_json::to_string(&device).unwrap();
+        let json_back: mfg::MfgDevice = serde_json::from_str(&json_str).unwrap();
+
+        let fb_buf = device.encode_flatbuffer();
+        let fb_back = mfg::MfgDevice::decode_flatbuffer(&fb_buf).unwrap();
+
+        assert_eq!(json_back.sn, fb_back.sn);
+        assert_eq!(json_back.model, fb_back.model);
+        assert_eq!(json_back.status, fb_back.status);
+        assert_eq!(json_back.sku, fb_back.sku);
+        assert_eq!(json_back.imei, fb_back.imei);
+    }
+
+    // =====================================================================
+    // Golden: FlatBuffer list encode/decode
+    // =====================================================================
+
+    #[test]
+    fn golden_flatbuffer_list_roundtrip() {
+        use openerp_types::{IntoFlatBufferList, FromFlatBufferList};
+
+        let items = vec![
+            mfg::MfgModel {
+                code: 1,
+                series_name: "A".into(),
+                display_name: Some("Model A".into()),
+            },
+            mfg::MfgModel {
+                code: 2,
+                series_name: "B".into(),
+                display_name: None,
+            },
+        ];
+
+        let buf = mfg::MfgModel::encode_flatbuffer_list(&items, true);
+        let (decoded, has_more) = mfg::MfgModel::decode_flatbuffer_list(&buf).unwrap();
+
+        assert!(has_more);
+        assert_eq!(decoded.len(), 2);
+        assert_eq!(decoded[0].code, 1);
+        assert_eq!(decoded[0].series_name, "A");
+        assert_eq!(decoded[0].display_name, Some("Model A".into()));
+        assert_eq!(decoded[1].code, 2);
+        assert_eq!(decoded[1].series_name, "B");
+        assert_eq!(decoded[1].display_name, None);
+    }
+
+    #[test]
+    fn golden_flatbuffer_list_empty() {
+        use openerp_types::{IntoFlatBufferList, FromFlatBufferList};
+
+        let items: Vec<mfg::MfgModel> = vec![];
+        let buf = mfg::MfgModel::encode_flatbuffer_list(&items, false);
+        let (decoded, has_more) = mfg::MfgModel::decode_flatbuffer_list(&buf).unwrap();
+
+        assert!(!has_more);
+        assert!(decoded.is_empty());
+    }
+
+    #[test]
+    fn golden_flatbuffer_list_complex_items() {
+        use openerp_types::{IntoFlatBufferList, FromFlatBufferList};
+
+        let items = vec![
+            mfg::MfgDevice {
+                sn: "SN1".into(),
+                model: 1,
+                status: "new".into(),
+                sku: None,
+                imei: vec![],
+            },
+            mfg::MfgDevice {
+                sn: "SN2".into(),
+                model: 2,
+                status: "active".into(),
+                sku: Some("PRO".into()),
+                imei: vec!["111".into(), "222".into()],
+            },
+        ];
+
+        let buf = mfg::MfgDevice::encode_flatbuffer_list(&items, false);
+        let (decoded, has_more) = mfg::MfgDevice::decode_flatbuffer_list(&buf).unwrap();
+
+        assert!(!has_more);
+        assert_eq!(decoded.len(), 2);
+
+        assert_eq!(decoded[0].sn, "SN1");
+        assert!(decoded[0].sku.is_none());
+        assert!(decoded[0].imei.is_empty());
+
+        assert_eq!(decoded[1].sn, "SN2");
+        assert_eq!(decoded[1].sku, Some("PRO".into()));
+        assert_eq!(decoded[1].imei, vec!["111", "222"]);
+    }
+
+    // =====================================================================
+    // Golden: FBS schema generation
+    // =====================================================================
+
+    #[test]
+    fn golden_fbs_schema_exists() {
+        // Schema constants are generated for each resource.
+        assert!(mfg::__FBS_SCHEMA_MFGMODEL.contains("table MfgModel"));
+        assert!(mfg::__FBS_SCHEMA_MFGMODEL.contains("series_name: string"));
+        assert!(mfg::__FBS_SCHEMA_MFGMODEL.contains("code: uint"));
+        assert!(mfg::__FBS_SCHEMA_MFGMODEL.contains("display_name: string"));
+        assert!(mfg::__FBS_SCHEMA_MFGMODEL.contains("table MfgModelList"));
+
+        assert!(mfg::__FBS_SCHEMA_MFGDEVICE.contains("table MfgDevice"));
+        assert!(mfg::__FBS_SCHEMA_MFGDEVICE.contains("imei: [string]"));
+    }
+
+    // =====================================================================
+    // Golden: Client .format() compiles
+    // =====================================================================
+
+    #[test]
+    fn golden_client_format_builder() {
+        fn _check() {
+            let _c = mfg::MfgClient::new(
+                "http://localhost:8080",
+                std::sync::Arc::new(openerp_client::NoAuth),
+            )
+            .format(openerp_types::Format::FlatBuffers);
+        }
+    }
+
+    // =====================================================================
+    // Golden: Multiple facets have independent FlatBuffer impls
+    // =====================================================================
+
+    #[test]
+    fn golden_flatbuffer_cross_facet_isolation() {
+        use openerp_types::{IntoFlatBuffer, FromFlatBuffer};
+
+        let article = app_km::AppArticle {
+            id: "a1".into(),
+            title: "Hello".into(),
+            summary: Some("World".into()),
+            published: true,
+            tags: vec!["rust".into()],
+        };
+
+        let buf = article.encode_flatbuffer();
+        let decoded = app_km::AppArticle::decode_flatbuffer(&buf).unwrap();
+        assert_eq!(decoded.id, "a1");
+        assert_eq!(decoded.title, "Hello");
+        assert_eq!(decoded.summary, Some("World".into()));
+        assert_eq!(decoded.published, true);
+        assert_eq!(decoded.tags, vec!["rust"]);
+    }
 }
