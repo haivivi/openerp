@@ -1,6 +1,8 @@
 use openerp_macro::model;
 use openerp_types::*;
 
+use super::status::TaskStatus;
+
 /// An async task instance.
 #[model(module = "task")]
 pub struct Task {
@@ -9,7 +11,7 @@ pub struct Task {
     pub total: i64,
     pub success: i64,
     pub failed: i64,
-    pub status: String,
+    pub status: TaskStatus,
     pub message: Option<String>,
     pub error: Option<String>,
     pub claimed_by: Option<String>,

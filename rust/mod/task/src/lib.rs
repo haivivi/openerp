@@ -31,6 +31,7 @@ pub fn facet_routers(_kv: Arc<dyn openerp_kv::KVStore>) -> Vec<openerp_store::Fa
 }
 
 pub fn schema_def() -> openerp_store::ModuleDef {
+    use openerp_store::EnumDef;
     openerp_store::ModuleDef {
         id: "task",
         label: "Tasks",
@@ -44,7 +45,9 @@ pub fn schema_def() -> openerp_store::ModuleDef {
                 .with_action("task", "cancel"),
             ResourceDef::from_ir("task", TaskType::__dsl_ir()).with_desc("Task type definitions"),
         ],
-        enums: vec![],
+        enums: vec![
+            EnumDef { name: "TaskStatus", variants: TaskStatus::variants() },
+        ],
         hierarchy: hierarchy_def::hierarchy(),
     }
 }
@@ -74,7 +77,7 @@ mod tests {
             id: openerp_types::Id::default(),
             task_type: "export".into(),
             total: 100, success: 0, failed: 0,
-            status: String::new(), // before_create sets "PENDING"
+            status: TaskStatus::default(),
             message: None, error: None,
             claimed_by: None,
             last_active_at: None, created_by: Some("admin".into()),
@@ -90,7 +93,7 @@ mod tests {
 
         let created = ops.save_new(task).unwrap();
         assert!(!created.id.is_empty());
-        assert_eq!(created.status, "pending");
+        assert_eq!(created.status, TaskStatus::Pending);
         assert!(!created.created_at.is_empty());
 
         let fetched = ops.get_or_err(created.id.as_str()).unwrap();
@@ -166,7 +169,7 @@ mod tests {
         // Create a task.
         let task_json = serde_json::json!({
             "taskType": "export", "total": 10,
-            "status": "pending", "timeoutSecs": 60,
+            "status": "PENDING", "timeoutSecs": 60,
             "maxRetries": 0, "displayName": "Lifecycle Test",
         });
         let req = Request::builder()
@@ -189,7 +192,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let claimed: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(claimed["status"], "running");
+        assert_eq!(claimed["status"], "RUNNING");
 
         // Progress.
         let prog_json = serde_json::json!({"success": 5, "message": "50%"});
@@ -209,7 +212,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let completed: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(completed["status"], "completed");
+        assert_eq!(completed["status"], "COMPLETED");
 
         // Verify final state.
         let req = Request::builder()
@@ -217,7 +220,7 @@ mod tests {
         let resp = router.clone().oneshot(req).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let final_task: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(final_task["status"], "completed");
+        assert_eq!(final_task["status"], "COMPLETED");
         assert_eq!(final_task["success"], 5);
     }
 
@@ -239,7 +242,7 @@ mod tests {
         // Create task with max_retries=2.
         let task_json = serde_json::json!({
             "taskType": "risky", "total": 1,
-            "status": "pending", "timeoutSecs": 60,
+            "status": "PENDING", "timeoutSecs": 60,
             "maxRetries": 2, "displayName": "Retry Test",
         });
         let req = Request::builder()
@@ -267,7 +270,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let failed: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(failed["status"], "pending", "should be back to pending for retry");
+        assert_eq!(failed["status"], "PENDING", "should be back to pending for retry");
 
         // Verify retry_count incremented.
         let req = Request::builder()
@@ -296,7 +299,7 @@ mod tests {
         // Create task with max_retries=1.
         let task_json = serde_json::json!({
             "taskType": "fragile", "total": 1,
-            "status": "pending", "timeoutSecs": 60,
+            "status": "PENDING", "timeoutSecs": 60,
             "maxRetries": 1, "displayName": "Exhaust Test",
         });
         let req = Request::builder()
@@ -323,7 +326,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let r: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(r["status"], "pending", "First fail: should retry");
+        assert_eq!(r["status"], "PENDING", "First fail: should retry");
 
         // Claim again + fail → retry_count=2 > max_retries=1, stays failed.
         let req = Request::builder()
@@ -340,7 +343,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let r: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(r["status"], "failed", "Second fail: retries exhausted, should stay failed");
+        assert_eq!(r["status"], "FAILED", "Second fail: retries exhausted, should stay failed");
 
         // Verify final state.
         let req = Request::builder()
@@ -348,7 +351,7 @@ mod tests {
         let resp = router.clone().oneshot(req).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let t: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(t["status"], "failed");
+        assert_eq!(t["status"], "FAILED");
         // retry_count=1: one successful retry happened (first fail), second fail exhausted retries.
         assert_eq!(t["retryCount"], 1);
         assert!(t["endedAt"].as_str().is_some(), "endedAt should be set on final failure");
@@ -372,7 +375,7 @@ mod tests {
         // Create task.
         let task_json = serde_json::json!({
             "taskType": "cancel-me", "total": 1,
-            "status": "pending", "timeoutSecs": 60,
+            "status": "PENDING", "timeoutSecs": 60,
             "displayName": "Cancel Test",
         });
         let req = Request::builder()
@@ -393,7 +396,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let cancelled: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(cancelled["status"], "cancelled");
+        assert_eq!(cancelled["status"], "CANCELLED");
 
         // Can't cancel again.
         let req = Request::builder()

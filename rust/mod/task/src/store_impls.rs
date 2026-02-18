@@ -15,7 +15,7 @@ impl KvStore for Task {
         let now = chrono::Utc::now().to_rfc3339();
         if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
         self.updated_at = DateTime::new(&now);
-        if self.status.is_empty() { self.status = "pending".into(); }
+        // status defaults to Pending via DslEnum Default
     }
     fn before_update(&mut self) {
         self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
