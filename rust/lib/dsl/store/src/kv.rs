@@ -121,29 +121,18 @@ impl<T: KvStore> KvOps<T> {
     }
 
     /// Create a new record. Calls before_create hook, checks for duplicates.
-    /// Sets version to 1.
     pub fn save_new(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_create();
 
         let id = record.key_value();
         let key = Self::make_key(&id);
 
-        // Check duplicate.
         if self.kv.get(&key).map_err(Self::kv_err)?.is_some() {
             return Err(ServiceError::Conflict(format!(
                 "{} '{}' already exists",
                 T::KEY.name, id
             )));
         }
-
-        // Set initial revision.
-        let mut json_val = serde_json::to_value(&record)
-            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
-        if let Some(obj) = json_val.as_object_mut() {
-            obj.insert("rev".into(), serde_json::json!(1));
-        }
-        let record: T = serde_json::from_value(json_val)
-            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
 
         let bytes = serde_json::to_vec(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
@@ -152,18 +141,18 @@ impl<T: KvStore> KvOps<T> {
         Ok(record)
     }
 
-    /// Update an existing record with optimistic locking.
+    /// Update an existing record with optimistic locking on `updatedAt`.
     ///
-    /// Compares the incoming record's `version` with the stored version.
-    /// If they don't match, returns `ServiceError::Conflict` (409).
-    /// On success, increments version by 1 and saves.
+    /// Compares the incoming record's `updatedAt` with the stored value.
+    /// If they don't match, another writer has modified the record and
+    /// we return `ServiceError::Conflict` (409).
+    /// On success, `before_update()` has already set a fresh `updatedAt`.
     pub fn save(&self, mut record: T) -> Result<T, ServiceError> {
-        record.before_update();
-
         let id = record.key_value();
         let key = Self::make_key(&id);
 
-        // Read existing for version check.
+        // Read existing for optimistic locking check BEFORE calling
+        // before_update (which overwrites updatedAt with "now").
         let existing_bytes = self.kv.get(&key).map_err(Self::kv_err)?;
         if let Some(existing_bytes) = &existing_bytes {
             let existing: serde_json::Value = serde_json::from_slice(existing_bytes)
@@ -171,26 +160,19 @@ impl<T: KvStore> KvOps<T> {
             let incoming = serde_json::to_value(&record)
                 .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
 
-            let existing_rev = existing.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
-            let incoming_rev = incoming.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
+            let existing_ts = existing.get("updatedAt").and_then(|v| v.as_str()).unwrap_or("");
+            let incoming_ts = incoming.get("updatedAt").and_then(|v| v.as_str()).unwrap_or("");
 
-            if incoming_rev != existing_rev {
+            if incoming_ts != existing_ts {
                 return Err(ServiceError::Conflict(format!(
-                    "rev mismatch: expected {}, got {}",
-                    existing_rev, incoming_rev
+                    "updatedAt mismatch: stored {}, got {}",
+                    existing_ts, incoming_ts
                 )));
             }
         }
 
-        // Bump revision.
-        let mut json_val = serde_json::to_value(&record)
-            .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
-        if let Some(obj) = json_val.as_object_mut() {
-            let rev = obj.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
-            obj.insert("rev".into(), serde_json::json!(rev + 1));
-        }
-        let record: T = serde_json::from_value(json_val)
-            .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
+        // Now apply before_update which sets fresh updatedAt.
+        record.before_update();
 
         let bytes = serde_json::to_vec(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
@@ -201,31 +183,33 @@ impl<T: KvStore> KvOps<T> {
 
     /// Partially update a record using RFC 7386 JSON Merge Patch.
     ///
-    /// Reads the existing record, applies the patch, checks version,
-    /// bumps rev, and saves. The patch JSON should include `rev` from
-    /// the GET response for optimistic locking.
+    /// Reads the existing record, applies the patch, and saves.
+    /// Include `updatedAt` from the GET response in the patch for
+    /// optimistic locking — the server returns 409 if it doesn't match.
     pub fn patch(&self, id: &str, patch: &serde_json::Value) -> Result<T, ServiceError> {
         let existing = self.get_or_err(id)?;
         let mut base = serde_json::to_value(&existing)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
 
-        // Check rev from patch if provided.
-        if let Some(patch_rev) = patch.get("rev").and_then(|v| v.as_u64()) {
-            let base_rev = base.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
-            if patch_rev != base_rev {
+        // Check updatedAt from patch if provided.
+        if let Some(patch_ts) = patch.get("updatedAt").and_then(|v| v.as_str()) {
+            let base_ts = base.get("updatedAt").and_then(|v| v.as_str()).unwrap_or("");
+            if patch_ts != base_ts {
                 return Err(ServiceError::Conflict(format!(
-                    "rev mismatch: expected {}, got {}",
-                    base_rev, patch_rev
+                    "updatedAt mismatch: stored {}, got {}",
+                    base_ts, patch_ts
                 )));
             }
         }
 
         openerp_core::merge_patch(&mut base, patch);
 
-        // Bump rev.
+        // Set fresh updatedAt after merge.
         if let Some(obj) = base.as_object_mut() {
-            let rev = obj.get("rev").and_then(|v| v.as_u64()).unwrap_or(0);
-            obj.insert("rev".into(), serde_json::json!(rev + 1));
+            obj.insert(
+                "updatedAt".into(),
+                serde_json::json!(chrono::Utc::now().to_rfc3339()),
+            );
         }
 
         let record: T = serde_json::from_value(base)
@@ -254,14 +238,14 @@ mod tests {
     use super::*;
     use serde::{Deserialize, Serialize};
 
-    // A minimal test model (hand-built, no macro).
     #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+    #[serde(rename_all = "camelCase")]
     struct Thing {
         id: String,
         name: String,
         count: u32,
         #[serde(default)]
-        rev: u64,
+        updated_at: String,
     }
 
     impl KvStore for Thing {
@@ -279,6 +263,14 @@ mod tests {
             if self.id.is_empty() {
                 self.id = "auto-id".to_string();
             }
+            let now = chrono::Utc::now().to_rfc3339();
+            if self.updated_at.is_empty() {
+                self.updated_at = now;
+            }
+        }
+
+        fn before_update(&mut self) {
+            self.updated_at = chrono::Utc::now().to_rfc3339();
         }
     }
 
@@ -289,36 +281,29 @@ mod tests {
         (KvOps::new(kv), dir)
     }
 
+    fn new_thing(id: &str, name: &str, count: u32) -> Thing {
+        Thing { id: id.into(), name: name.into(), count, updated_at: String::new() }
+    }
+
     #[test]
     fn crud_lifecycle() {
         let (ops, _dir) = make_ops();
 
-        // Create with auto-fill.
-        let thing = Thing {
-            id: String::new(),
-            name: "Widget".into(),
-            count: 42,
-            rev: 0,
-        };
-        let created = ops.save_new(thing).unwrap();
-        assert_eq!(created.id, "auto-id"); // before_create hook fired
+        let created = ops.save_new(new_thing("", "Widget", 42)).unwrap();
+        assert_eq!(created.id, "auto-id");
 
-        // Get.
         let fetched = ops.get_or_err("auto-id").unwrap();
         assert_eq!(fetched.name, "Widget");
         assert_eq!(fetched.count, 42);
 
-        // List.
         let all = ops.list().unwrap();
         assert_eq!(all.len(), 1);
 
-        // Update.
         let mut updated = fetched;
         updated.name = "Gadget".into();
         let updated = ops.save(updated).unwrap();
         assert_eq!(updated.name, "Gadget");
 
-        // Delete.
         ops.delete("auto-id").unwrap();
         assert!(ops.get("auto-id").unwrap().is_none());
     }
@@ -326,12 +311,8 @@ mod tests {
     #[test]
     fn duplicate_key_rejected() {
         let (ops, _dir) = make_ops();
-
-        let t1 = Thing { id: "x".into(), name: "A".into(), count: 1, rev: 0 };
-        ops.save_new(t1).unwrap();
-
-        let t2 = Thing { id: "x".into(), name: "B".into(), count: 2, rev: 0 };
-        let err = ops.save_new(t2).unwrap_err();
+        ops.save_new(new_thing("x", "A", 1)).unwrap();
+        let err = ops.save_new(new_thing("x", "B", 2)).unwrap_err();
         assert!(err.to_string().contains("already exists"));
     }
 
@@ -354,32 +335,26 @@ mod tests {
         let redb = openerp_kv::RedbStore::open(&dir.path().join("ro.redb")).unwrap();
         let overlay = openerp_kv::OverlayKV::new(redb);
 
-        // Insert a key into the read-only file layer.
-        let data = serde_json::to_vec(&Thing { id: "ro1".into(), name: "ReadOnly".into(), count: 1, rev: 0 }).unwrap();
+        let data = serde_json::to_vec(&new_thing("ro1", "ReadOnly", 1)).unwrap();
         overlay.insert_file_entry("test:thing:ro1".into(), data);
 
         let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(overlay);
         let ops = KvOps::<Thing>::new(kv);
 
-        // Can read.
         let fetched = ops.get("ro1").unwrap();
-        assert!(fetched.is_some(), "Should be able to read file-layer key");
+        assert!(fetched.is_some());
         assert_eq!(fetched.unwrap().name, "ReadOnly");
 
-        // Can't update.
-        let mut t = Thing { id: "ro1".into(), name: "Changed".into(), count: 2, rev: 0 };
+        let t = new_thing("ro1", "Changed", 2);
         let err = ops.save(t.clone()).unwrap_err();
         assert!(err.to_string().contains("read-only") || err.to_string().contains("ReadOnly"),
             "Save to readonly key should fail, got: {}", err);
 
-        // Can't delete.
         let err = ops.delete("ro1").unwrap_err();
         assert!(err.to_string().contains("read-only") || err.to_string().contains("ReadOnly"),
             "Delete of readonly key should fail, got: {}", err);
 
-        // Can't save_new (duplicate + readonly).
-        t.id = "ro1".into();
-        let err = ops.save_new(t).unwrap_err();
+        let err = ops.save_new(new_thing("ro1", "Dup", 0)).unwrap_err();
         assert!(err.to_string().contains("already exists"),
             "save_new of existing readonly key should fail with duplicate, got: {}", err);
     }
@@ -395,31 +370,25 @@ mod tests {
     fn list_paginated_basic() {
         let (ops, _dir) = make_ops();
 
-        // Insert 5 items.
-        for i in 0..5 {
-            let t = Thing { id: format!("p{}", i), name: format!("Item {}", i), count: i, rev: 0 };
-            ops.save_new(t).unwrap();
+        for i in 0..5u32 {
+            ops.save_new(new_thing(&format!("p{}", i), &format!("Item {}", i), i)).unwrap();
         }
 
-        // First page: limit=2, offset=0.
         let params = openerp_core::ListParams { limit: 2, offset: 0, ..Default::default() };
         let result = ops.list_paginated(&params).unwrap();
         assert_eq!(result.items.len(), 2);
         assert!(result.has_more);
 
-        // Second page: limit=2, offset=2.
         let params = openerp_core::ListParams { limit: 2, offset: 2, ..Default::default() };
         let result = ops.list_paginated(&params).unwrap();
         assert_eq!(result.items.len(), 2);
         assert!(result.has_more);
 
-        // Third page: limit=2, offset=4.
         let params = openerp_core::ListParams { limit: 2, offset: 4, ..Default::default() };
         let result = ops.list_paginated(&params).unwrap();
         assert_eq!(result.items.len(), 1);
         assert!(!result.has_more);
 
-        // Beyond range.
         let params = openerp_core::ListParams { limit: 10, offset: 100, ..Default::default() };
         let result = ops.list_paginated(&params).unwrap();
         assert_eq!(result.items.len(), 0);
@@ -431,9 +400,8 @@ mod tests {
         let (ops, _dir) = make_ops();
         assert_eq!(ops.count().unwrap(), 0);
 
-        for i in 0..3 {
-            let t = Thing { id: format!("c{}", i), name: "N".into(), count: i, rev: 0 };
-            ops.save_new(t).unwrap();
+        for i in 0..3u32 {
+            ops.save_new(new_thing(&format!("c{}", i), "N", i)).unwrap();
         }
         assert_eq!(ops.count().unwrap(), 3);
 
@@ -442,112 +410,101 @@ mod tests {
     }
 
     #[test]
-    fn version_set_on_create() {
+    fn updated_at_set_on_create() {
         let (ops, _dir) = make_ops();
-        let t = Thing { id: "v1".into(), name: "A".into(), count: 1, rev: 0 };
-        let created = ops.save_new(t).unwrap();
-        assert_eq!(created.rev, 1, "rev should be 1 after create");
+        let created = ops.save_new(new_thing("v1", "A", 1)).unwrap();
+        assert!(!created.updated_at.is_empty(), "updatedAt should be set after create");
 
         let fetched = ops.get_or_err("v1").unwrap();
-        assert_eq!(fetched.rev, 1, "re-read should also show rev 1");
+        assert_eq!(fetched.updated_at, created.updated_at);
     }
 
     #[test]
-    fn version_bumped_on_update() {
+    fn updated_at_changes_on_update() {
         let (ops, _dir) = make_ops();
-        let t = Thing { id: "v2".into(), name: "A".into(), count: 1, rev: 0 };
-        ops.save_new(t).unwrap();
+        ops.save_new(new_thing("v2", "A", 1)).unwrap();
 
-        let mut fetched = ops.get_or_err("v2").unwrap();
-        assert_eq!(fetched.rev, 1);
-        fetched.name = "B".into();
-        let updated = ops.save(fetched).unwrap();
-        assert_eq!(updated.rev, 2, "rev should be 2 after one update");
+        let fetched = ops.get_or_err("v2").unwrap();
+        let old_ts = fetched.updated_at.clone();
+
+        std::thread::sleep(std::time::Duration::from_millis(10));
+
+        let mut w = fetched;
+        w.name = "B".into();
+        let updated = ops.save(w).unwrap();
+        assert_ne!(updated.updated_at, old_ts, "updatedAt should change on update");
 
         let re_read = ops.get_or_err("v2").unwrap();
-        assert_eq!(re_read.rev, 2);
+        assert_eq!(re_read.updated_at, updated.updated_at);
         assert_eq!(re_read.name, "B");
     }
 
     #[test]
-    fn version_conflict_returns_409() {
+    fn optimistic_lock_conflict_returns_409() {
         let (ops, _dir) = make_ops();
-        let t = Thing { id: "v3".into(), name: "A".into(), count: 1, rev: 0 };
-        ops.save_new(t).unwrap();
+        ops.save_new(new_thing("v3", "A", 1)).unwrap();
 
-        // Simulate two concurrent reads (both see version=1).
         let read1 = ops.get_or_err("v3").unwrap();
         let read2 = ops.get_or_err("v3").unwrap();
-        assert_eq!(read1.rev, 1);
-        assert_eq!(read2.rev, 1);
+        assert_eq!(read1.updated_at, read2.updated_at);
 
-        // First write succeeds (version 1 -> 2).
+        // First write succeeds — updatedAt matches stored.
         let mut w1 = read1;
         w1.name = "Updated by w1".into();
-        let saved = ops.save(w1).unwrap();
-        assert_eq!(saved.rev, 2);
+        ops.save(w1).unwrap();
 
-        // Second write should fail (it has version 1, but DB now has version 2).
+        // Second write fails — its updatedAt is stale.
         let mut w2 = read2;
         w2.name = "Updated by w2".into();
         let err = ops.save(w2).unwrap_err();
-        assert!(err.to_string().contains("rev mismatch"),
-            "Expected rev conflict, got: {}", err);
+        assert!(err.to_string().contains("updatedAt mismatch"),
+            "Expected updatedAt conflict, got: {}", err);
 
-        // Verify the data wasn't overwritten.
         let final_read = ops.get_or_err("v3").unwrap();
         assert_eq!(final_read.name, "Updated by w1");
-        assert_eq!(final_read.rev, 2);
     }
 
     #[test]
     fn patch_partial_update() {
         let (ops, _dir) = make_ops();
-        let t = Thing { id: "p1".into(), name: "Original".into(), count: 10, rev: 0 };
-        let created = ops.save_new(t).unwrap();
-        assert_eq!(created.rev, 1);
+        let created = ops.save_new(new_thing("p1", "Original", 10)).unwrap();
+        let ts = &created.updated_at;
 
-        // Patch: only change name, include rev for locking.
-        let patch = serde_json::json!({ "name": "Patched", "rev": 1 });
+        let patch = serde_json::json!({ "name": "Patched", "updatedAt": ts });
         let patched = ops.patch("p1", &patch).unwrap();
         assert_eq!(patched.name, "Patched");
         assert_eq!(patched.count, 10, "count should be unchanged");
-        assert_eq!(patched.rev, 2, "rev should be bumped");
+        assert_ne!(patched.updated_at, *ts, "updatedAt should be refreshed");
 
-        // Verify via re-read.
         let re_read = ops.get_or_err("p1").unwrap();
         assert_eq!(re_read.name, "Patched");
         assert_eq!(re_read.count, 10);
     }
 
     #[test]
-    fn patch_without_rev_no_conflict() {
+    fn patch_without_updated_at_no_conflict() {
         let (ops, _dir) = make_ops();
-        let t = Thing { id: "p2".into(), name: "A".into(), count: 1, rev: 0 };
-        ops.save_new(t).unwrap();
+        ops.save_new(new_thing("p2", "A", 1)).unwrap();
 
-        // Patch without rev field — no version check, still bumps rev.
         let patch = serde_json::json!({ "name": "B" });
         let patched = ops.patch("p2", &patch).unwrap();
         assert_eq!(patched.name, "B");
-        assert_eq!(patched.rev, 2);
     }
 
     #[test]
-    fn patch_stale_rev_returns_409() {
+    fn patch_stale_updated_at_returns_409() {
         let (ops, _dir) = make_ops();
-        let t = Thing { id: "p3".into(), name: "A".into(), count: 1, rev: 0 };
-        ops.save_new(t).unwrap();
+        let created = ops.save_new(new_thing("p3", "A", 1)).unwrap();
+        let old_ts = &created.updated_at;
 
-        // First patch succeeds.
-        let patch1 = serde_json::json!({ "name": "B", "rev": 1 });
+        let patch1 = serde_json::json!({ "name": "B", "updatedAt": old_ts });
         ops.patch("p3", &patch1).unwrap();
 
-        // Second patch with stale rev=1 should fail.
-        let patch2 = serde_json::json!({ "name": "C", "rev": 1 });
+        // Second patch with stale updatedAt should fail.
+        let patch2 = serde_json::json!({ "name": "C", "updatedAt": old_ts });
         let err = ops.patch("p3", &patch2).unwrap_err();
-        assert!(err.to_string().contains("rev mismatch"),
-            "Expected rev conflict, got: {}", err);
+        assert!(err.to_string().contains("updatedAt mismatch"),
+            "Expected updatedAt conflict, got: {}", err);
     }
 
     #[test]
