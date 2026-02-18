@@ -379,8 +379,9 @@ mod tests {
 
         // PUT to /items/rec-1 but body has id=rec-2.
         // Framework uses body's key_value() for storage, URL id only for existence check.
-        let mut edit = r1.clone();
-        edit["id"] = serde_json::json!("rec-2"); // mismatch!
+        // Must use rec-2's updatedAt for optimistic locking to pass.
+        let (_, r2) = call(&router, "GET", "/items/rec-2", None).await;
+        let mut edit = r2.clone();
         edit["displayName"] = serde_json::json!("Overwritten");
         let (s, _) = call(&router, "PUT", "/items/rec-1", Some(edit)).await;
         assert_eq!(s, StatusCode::OK);
@@ -441,7 +442,6 @@ mod tests {
             id: Id::default(), value: "will be deleted".into(),
             display_name: None, description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         };
         let created = ops.save_new(t).unwrap();
         ops.delete(created.id.as_str()).unwrap();
@@ -725,7 +725,6 @@ mod tests {
             display_name: Some("Dynamic".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         }).unwrap();
 
         // User with "dynamic" role can list but not create.

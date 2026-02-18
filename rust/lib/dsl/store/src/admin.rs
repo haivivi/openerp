@@ -31,7 +31,7 @@ struct AdminState<T: KvStore> {
 ///   POST   /{resources}         — create
 ///   GET    /{resources}/@count  — count (optional)
 ///   GET    /{resources}/{id}    — get by key
-///   PUT    /{resources}/{id}    — full update (with rev check)
+///   PUT    /{resources}/{id}    — full update (with updatedAt check)
 ///   PATCH  /{resources}/{id}    — partial update (RFC 7386 merge patch)
 ///   DELETE /{resources}/{id}    — delete
 ///

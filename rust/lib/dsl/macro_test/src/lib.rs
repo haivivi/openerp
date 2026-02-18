@@ -30,25 +30,21 @@ mod tests {
             metadata: None,
             created_at: DateTime::new("2024-01-01T00:00:00Z"),
             updated_at: DateTime::new("2024-01-01T00:00:00Z"),
-            rev: 0,
         };
         let json = serde_json::to_string(&user).unwrap();
         assert!(json.contains("\"passwordHash\""));
         assert!(json.contains("\"createdAt\""));
         assert!(json.contains("\"displayName\""));
-        assert!(json.contains("\"rev\""));
         assert!(json.contains("\"alice@test.com\""));
     }
 
     #[test]
     fn common_fields_auto_injected() {
-        // These Field consts exist even though not in the struct definition.
         let _: Field = User::display_name;
         let _: Field = User::description;
         let _: Field = User::metadata;
         let _: Field = User::created_at;
         let _: Field = User::updated_at;
-        let _: Field = User::rev;
     }
 
     #[test]
@@ -69,7 +65,6 @@ mod tests {
         assert_eq!(User::password_hash.widget, "hidden");
         assert_eq!(User::display_name.widget, "text");
         assert_eq!(User::created_at.widget, "datetime");
-        assert_eq!(User::rev.widget, "readonly");
     }
 
     #[test]
@@ -89,7 +84,6 @@ mod tests {
         assert!(names.contains(&"metadata"), "IR has metadata: {:?}", names);
         assert!(names.contains(&"created_at"), "IR has created_at: {:?}", names);
         assert!(names.contains(&"updated_at"), "IR has updated_at: {:?}", names);
-        assert!(names.contains(&"rev"), "IR has rev: {:?}", names);
     }
 
     // ── Model with explicit #[ui(widget)] ──
@@ -220,7 +214,6 @@ mod enum_tests {
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
-            rev: 0,
         };
         let json = serde_json::to_value(&item).unwrap();
         assert_eq!(json["status"], "ACTIVE");

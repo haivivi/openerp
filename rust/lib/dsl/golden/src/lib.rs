@@ -131,10 +131,8 @@ mod tests {
         assert!(names.contains(&"created_at"), "missing created_at in {:?}", names);
         assert!(names.contains(&"updated_at"), "missing updated_at in {:?}", names);
 
-        assert!(names.contains(&"rev"), "missing rev in {:?}", names);
-
-        // Total: 6 user + 6 common = 12.
-        assert_eq!(fields.len(), 12, "expected 12 fields, got: {:?}", names);
+        // Total: 6 user + 5 common (no rev) = 11.
+        assert_eq!(fields.len(), 11, "expected 11 fields, got: {:?}", names);
     }
 
     #[test]
@@ -330,7 +328,6 @@ mod tests {
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
-            rev: 0,
         };
         let created = ops.save_new(w).unwrap();
         assert_eq!(created.id.as_str(), "auto-id");
@@ -373,7 +370,6 @@ mod tests {
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
-            rev: 0,
         };
         let json = serde_json::to_value(&w).unwrap();
         // camelCase keys.
@@ -418,8 +414,8 @@ mod tests {
         assert_eq!(ir["resource"], "server");
 
         let fields = ir["fields"].as_array().unwrap();
-        // 9 user + 6 common = 15.
-        assert_eq!(fields.len(), 15, "Server should have 15 fields");
+        // 9 user + 5 common = 14.
+        assert_eq!(fields.len(), 14, "Server should have 14 fields");
 
         // Verify type names in IR.
         let url_f = fields.iter().find(|f| f["name"] == "url").unwrap();
@@ -989,7 +985,6 @@ mod tests {
         let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
         let router = admin_kv_router(KvOps::<Item>::new(kv), auth, "test", "items", "item");
 
-        // Create item → rev=1.
         let req = Request::builder()
             .method("POST").uri("/items")
             .header("content-type", "application/json")
@@ -999,13 +994,13 @@ mod tests {
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let id = created["id"].as_str().unwrap();
-        assert_eq!(created["rev"], 1);
+        assert!(created["updatedAt"].is_string(), "updatedAt should be set on create");
 
-        // Simulate two concurrent GETs.
+        // Simulate two concurrent GETs (both see same updatedAt).
         let client_a = created.clone();
         let client_b = created.clone();
 
-        // Client A PUTs first → succeeds, rev becomes 2.
+        // Client A PUTs first → succeeds, updatedAt changes.
         let mut update_a = client_a.clone();
         update_a["quantity"] = serde_json::json!(20);
         let req = Request::builder()
@@ -1016,10 +1011,10 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK, "Client A should succeed");
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let updated_a: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(updated_a["rev"], 2);
+        assert_ne!(updated_a["updatedAt"], created["updatedAt"], "updatedAt should change");
         assert_eq!(updated_a["quantity"], 20);
 
-        // Client B PUTs with stale rev=1 → 409 Conflict.
+        // Client B PUTs with stale updatedAt → 409 Conflict.
         let mut update_b = client_b.clone();
         update_b["status"] = serde_json::json!("approved");
         let req = Request::builder()
@@ -1036,7 +1031,6 @@ mod tests {
         let final_state: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(final_state["quantity"], 20, "Client A's update persists");
         assert_eq!(final_state["status"], "new", "Client B's update was rejected");
-        assert_eq!(final_state["rev"], 2);
     }
 
     // =====================================================================
@@ -1067,10 +1061,10 @@ mod tests {
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let created: serde_json::Value = serde_json::from_slice(&body).unwrap();
         let id = created["id"].as_str().unwrap();
-        assert_eq!(created["rev"], 1);
+        let created_ts = created["updatedAt"].as_str().unwrap().to_string();
 
-        // PATCH: only change status, include rev for locking.
-        let patch = serde_json::json!({"status": "approved", "rev": 1});
+        // PATCH: only change status, include updatedAt for locking.
+        let patch = serde_json::json!({"status": "approved", "updatedAt": created_ts});
         let req = Request::builder()
             .method("PATCH").uri(format!("/items/{}", id))
             .header("content-type", "application/json")
@@ -1082,10 +1076,10 @@ mod tests {
         assert_eq!(patched["status"], "approved", "status should be updated");
         assert_eq!(patched["quantity"], 10, "quantity should be unchanged");
         assert_eq!(patched["widgetId"], "w1", "widgetId should be unchanged");
-        assert_eq!(patched["rev"], 2, "rev should be bumped");
+        assert_ne!(patched["updatedAt"].as_str().unwrap(), created_ts, "updatedAt should change");
 
-        // PATCH with stale rev → 409.
-        let stale_patch = serde_json::json!({"status": "rejected", "rev": 1});
+        // PATCH with stale updatedAt → 409.
+        let stale_patch = serde_json::json!({"status": "rejected", "updatedAt": created_ts});
         let req = Request::builder()
             .method("PATCH").uri(format!("/items/{}", id))
             .header("content-type", "application/json")
@@ -1093,19 +1087,18 @@ mod tests {
         let resp = router.clone().oneshot(req).await.unwrap();
         assert_eq!(resp.status(), StatusCode::CONFLICT, "Stale PATCH should get 409");
 
-        // PATCH without rev → no conflict check, just updates.
-        let no_rev_patch = serde_json::json!({"quantity": 99});
+        // PATCH without updatedAt → no conflict check, just updates.
+        let no_ts_patch = serde_json::json!({"quantity": 99});
         let req = Request::builder()
             .method("PATCH").uri(format!("/items/{}", id))
             .header("content-type", "application/json")
-            .body(Body::from(serde_json::to_string(&no_rev_patch).unwrap())).unwrap();
+            .body(Body::from(serde_json::to_string(&no_ts_patch).unwrap())).unwrap();
         let resp = router.clone().oneshot(req).await.unwrap();
-        assert_eq!(resp.status(), StatusCode::OK, "PATCH without rev should succeed");
+        assert_eq!(resp.status(), StatusCode::OK, "PATCH without updatedAt should succeed");
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let patched2: serde_json::Value = serde_json::from_slice(&body).unwrap();
         assert_eq!(patched2["quantity"], 99);
         assert_eq!(patched2["status"], "approved", "status still from first patch");
-        assert_eq!(patched2["rev"], 3, "rev bumped again");
 
         // PATCH on nonexistent → 404.
         let req = Request::builder()
