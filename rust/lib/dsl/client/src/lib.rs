@@ -432,11 +432,11 @@ impl<T: DslModel> ResourceClient<T> {
 
     /// Partially update a record by ID (RFC 7386 JSON Merge Patch).
     ///
-    /// Only sends the fields in `patch`. Include `rev` for optimistic
+    /// Only sends the fields in `patch`. Include `updatedAt` for optimistic
     /// locking — the server returns 409 Conflict if it doesn't match.
     ///
     /// ```ignore
-    /// let patch = serde_json::json!({"displayName": "New Name", "rev": 1});
+    /// let patch = serde_json::json!({"displayName": "New Name", "updatedAt": "2026-01-01T00:00:00Z"});
     /// let updated = client.patch("abc123", &patch).await?;
     /// ```
     pub async fn patch(&self, id: &str, patch: &serde_json::Value) -> Result<T, ApiError> {
@@ -815,7 +815,7 @@ mod tests {
 
     #[test]
     fn conflict_error_code_helper() {
-        let body = r#"{"code":"CONFLICT","message":"rev mismatch: expected 2, got 1"}"#;
+        let body = r#"{"code":"CONFLICT","message":"updatedAt mismatch: stored 2026-01-01T00:00:00Z, got 2025-12-31T00:00:00Z"}"#;
         let err = ApiError::from_response_body(409, body);
         assert!(err.is_conflict());
         assert!(!err.is_not_found());
