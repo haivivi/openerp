@@ -143,7 +143,6 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
             display_name: Some(display.to_string()),
             description: Some(format!("@{}", username)),
             metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
-            created_at: DateTime::default(),
         }).unwrap();
     }
 
@@ -174,7 +173,6 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
             display_name: None,
             description: None,
             metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
-            created_at: DateTime::default(),
         };
         let created = tweets_ops.save_new(tweet).unwrap();
         tweet_ids.push(created.id.to_string());
@@ -208,7 +206,6 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
             display_name: None,
             description: None,
             metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
-            created_at: DateTime::default(),
         }).unwrap();
         // Increment parent reply count.
         if let Ok(Some(mut parent)) = tweets_ops.get(parent_id) {
@@ -242,7 +239,6 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
             display_name: None,
             description: None,
             metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
-            created_at: DateTime::default(),
         });
         // Increment tweet like count.
         if let Ok(Some(mut tweet)) = tweets_ops.get(tweet_id) {
@@ -266,7 +262,6 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
             display_name: None,
             description: None,
             metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
-            created_at: DateTime::default(),
         });
         // Update counts.
         if let Ok(Some(mut user)) = users_ops.get(follower) {
