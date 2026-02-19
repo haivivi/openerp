@@ -1,6 +1,8 @@
 use openerp_macro::model;
 use openerp_types::*;
 
+use super::status::LicenseStatus;
+
 /// A license entry (MIIT, WiFi, etc.).
 #[model(module = "pms")]
 pub struct License {
@@ -10,6 +12,6 @@ pub struct License {
     pub source: String,
     pub sn: Option<String>,
     pub import_id: Option<Id>,
-    pub status: String,
+    pub status: LicenseStatus,
     // display_name, description, metadata, created_at, updated_at → auto
 }

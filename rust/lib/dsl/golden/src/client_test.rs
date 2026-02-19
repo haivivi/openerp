@@ -40,13 +40,9 @@ mod tests {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
             self.email = Email::new(&self.email.as_str().to_lowercase());
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
         }
         fn before_update(&mut self) {
             self.email = Email::new(&self.email.as_str().to_lowercase());
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -68,12 +64,6 @@ mod tests {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
             if self.status.is_empty() { self.status = "draft".into(); }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -289,7 +279,6 @@ mod tests {
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
-            rev: 0,
         };
         let created = client.create(&emp).await.unwrap();
         assert!(!created.id.is_empty(), "server should auto-generate id");
@@ -348,7 +337,6 @@ mod tests {
             salary: None, display_name: Some("Iso".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         };
         emp_client.create(&emp).await.unwrap();
 
@@ -359,7 +347,6 @@ mod tests {
             display_name: Some("Client Test".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         };
         proj_client.create(&proj).await.unwrap();
 
@@ -394,7 +381,6 @@ mod tests {
                 display_name: Some(name.to_string()),
                 description: None, metadata: None,
                 created_at: DateTime::default(), updated_at: DateTime::default(),
-                rev: 0,
             };
             let created = client.create(&emp).await.unwrap();
             ids.push(created.id.to_string());
@@ -434,7 +420,6 @@ mod tests {
             description: Some("All fields survive edit".into()),
             metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         };
         let created = client.create(&proj).await.unwrap();
         let id = created.id.to_string();
@@ -481,7 +466,6 @@ mod tests {
             salary: None, display_name: Some("Shared".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         };
         emp_client.create(&emp).await.unwrap();
 
@@ -491,7 +475,6 @@ mod tests {
             display_name: Some("Shared".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         };
         proj_client.create(&proj).await.unwrap();
 
@@ -564,7 +547,6 @@ mod tests {
             id: Id::new("ghost-emp"), email: Email::new("g@g.com"), active: true,
             salary: None, display_name: None, description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         };
         let err = client.update("ghost-emp", &emp).await.unwrap_err();
 
@@ -591,7 +573,6 @@ mod tests {
             salary: None, display_name: Some("First".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         };
         let created = client.create(&emp).await.unwrap();
         let id = created.id.to_string();
@@ -602,7 +583,6 @@ mod tests {
             salary: None, display_name: Some("Dup".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         };
         let err = client.create(&dup).await.unwrap_err();
 
@@ -751,7 +731,6 @@ mod tests {
             id: Id::default(), email: Email::new("x@x.com"), active: false,
             salary: None, display_name: None, description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         };
         assert!(client.create(&emp).await.is_err(), "create");
         assert!(client.update("x", &emp).await.is_err(), "update");

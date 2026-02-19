@@ -22,7 +22,7 @@ fn project(f: &Firmware) -> MfgFirmware {
         model: f.model,
         semver: f.semver.to_string(),
         build: f.build,
-        status: f.status.clone(),
+        status: f.status.to_string(),
         display_name: f.display_name.clone(),
     }
 }

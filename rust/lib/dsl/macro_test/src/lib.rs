@@ -30,25 +30,21 @@ mod tests {
             metadata: None,
             created_at: DateTime::new("2024-01-01T00:00:00Z"),
             updated_at: DateTime::new("2024-01-01T00:00:00Z"),
-            rev: 0,
         };
         let json = serde_json::to_string(&user).unwrap();
         assert!(json.contains("\"passwordHash\""));
         assert!(json.contains("\"createdAt\""));
         assert!(json.contains("\"displayName\""));
-        assert!(json.contains("\"rev\""));
         assert!(json.contains("\"alice@test.com\""));
     }
 
     #[test]
     fn common_fields_auto_injected() {
-        // These Field consts exist even though not in the struct definition.
         let _: Field = User::display_name;
         let _: Field = User::description;
         let _: Field = User::metadata;
         let _: Field = User::created_at;
         let _: Field = User::updated_at;
-        let _: Field = User::rev;
     }
 
     #[test]
@@ -69,7 +65,6 @@ mod tests {
         assert_eq!(User::password_hash.widget, "hidden");
         assert_eq!(User::display_name.widget, "text");
         assert_eq!(User::created_at.widget, "datetime");
-        assert_eq!(User::rev.widget, "readonly");
     }
 
     #[test]
@@ -89,7 +84,6 @@ mod tests {
         assert!(names.contains(&"metadata"), "IR has metadata: {:?}", names);
         assert!(names.contains(&"created_at"), "IR has created_at: {:?}", names);
         assert!(names.contains(&"updated_at"), "IR has updated_at: {:?}", names);
-        assert!(names.contains(&"rev"), "IR has rev: {:?}", names);
     }
 
     // ── Model with explicit #[ui(widget)] ──
@@ -104,6 +98,128 @@ mod tests {
     #[test]
     fn explicit_ui_widget() {
         assert_eq!(Role::permissions.widget, "permission_picker");
+    }
+}
+
+// ── DslEnum macro tests ───────────────────────────────────────────
+
+#[cfg(test)]
+mod enum_tests {
+    use openerp_macro::dsl_enum;
+    use openerp_types::DslEnum;
+
+    #[dsl_enum(module = "test")]
+    pub enum Priority {
+        Low,
+        Medium,
+        High,
+        Critical,
+    }
+
+    #[test]
+    fn enum_serde_screaming_snake() {
+        let json = serde_json::to_string(&Priority::High).unwrap();
+        assert_eq!(json, "\"HIGH\"");
+        let back: Priority = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, Priority::High);
+    }
+
+    #[test]
+    fn enum_serde_in_progress_style() {
+        #[dsl_enum(module = "test")]
+        pub enum Status {
+            Draft,
+            InProgress,
+            Completed,
+        }
+        let json = serde_json::to_string(&Status::InProgress).unwrap();
+        assert_eq!(json, "\"IN_PROGRESS\"");
+        let back: Status = serde_json::from_str(&json).unwrap();
+        assert_eq!(back, Status::InProgress);
+    }
+
+    #[test]
+    fn enum_display_and_from_str() {
+        assert_eq!(Priority::Low.to_string(), "LOW");
+        assert_eq!(Priority::Critical.to_string(), "CRITICAL");
+
+        let parsed: Priority = "high".parse().unwrap();
+        assert_eq!(parsed, Priority::High);
+        let parsed: Priority = "HIGH".parse().unwrap();
+        assert_eq!(parsed, Priority::High);
+        let parsed: Priority = "High".parse().unwrap();
+        assert_eq!(parsed, Priority::High);
+    }
+
+    #[test]
+    fn enum_from_str_error() {
+        let err = "nonexistent".parse::<Priority>().unwrap_err();
+        assert!(err.contains("unknown Priority variant"));
+    }
+
+    #[test]
+    fn enum_default_is_first_variant() {
+        assert_eq!(Priority::default(), Priority::Low);
+    }
+
+    #[test]
+    fn enum_variants() {
+        assert_eq!(Priority::variants(), &["LOW", "MEDIUM", "HIGH", "CRITICAL"]);
+    }
+
+    #[test]
+    fn enum_dsl_trait() {
+        assert_eq!(Priority::module(), "test");
+        assert_eq!(Priority::enum_name(), "Priority");
+        assert_eq!(<Priority as DslEnum>::variants(), &["LOW", "MEDIUM", "HIGH", "CRITICAL"]);
+    }
+
+    #[test]
+    fn enum_dsl_ir() {
+        let ir = Priority::__dsl_ir();
+        assert_eq!(ir["type"], "enum");
+        assert_eq!(ir["name"], "Priority");
+        assert_eq!(ir["module"], "test");
+        let variants = ir["variants"].as_array().unwrap();
+        assert_eq!(variants.len(), 4);
+        assert_eq!(variants[0], "LOW");
+        assert_eq!(variants[3], "CRITICAL");
+    }
+
+    #[test]
+    fn enum_in_model() {
+        use openerp_macro::model;
+        use openerp_types::*;
+
+        #[dsl_enum(module = "test")]
+        pub enum ItemStatus {
+            Draft,
+            Active,
+            Archived,
+        }
+
+        #[model(module = "test")]
+        pub struct TestItem {
+            pub id: Id,
+            pub status: ItemStatus,
+        }
+
+        assert_eq!(TestItem::status.widget, "select");
+
+        let item = TestItem {
+            id: Id::new("t1"),
+            status: ItemStatus::Active,
+            display_name: None,
+            description: None,
+            metadata: None,
+            created_at: DateTime::default(),
+            updated_at: DateTime::default(),
+        };
+        let json = serde_json::to_value(&item).unwrap();
+        assert_eq!(json["status"], "ACTIVE");
+
+        let back: TestItem = serde_json::from_value(json).unwrap();
+        assert_eq!(back.status, ItemStatus::Active);
     }
 }
 

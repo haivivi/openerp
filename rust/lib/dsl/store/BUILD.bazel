@@ -13,6 +13,7 @@ rust_library(
         "//rust/lib/sql",
         "//rust/lib/search",
         "@crates//:axum",
+        "@crates//:chrono",
         "@crates//:flatbuffers",
         "@crates//:serde",
         "@crates//:serde_json",
@@ -23,6 +24,7 @@ rust_test(
     name = "store_test",
     crate = ":store",
     deps = [
+        "@crates//:chrono",
         "@crates//:tempfile",
     ],
 )

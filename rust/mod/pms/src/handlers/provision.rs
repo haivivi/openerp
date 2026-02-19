@@ -9,7 +9,7 @@ use openerp_core::ServiceError;
 use openerp_store::KvOps;
 use openerp_types::*;
 
-use crate::model::{Batch, Device};
+use crate::model::{Batch, BatchStatus, Device, DeviceStatus};
 use crate::mfg::{ProvisionRequest, ProvisionResponse};
 
 pub struct ProvisionState {
@@ -57,7 +57,7 @@ async fn provision(
             sn: sn.clone(),
             secret: Secret::new(&secret_val),
             model: batch.model,
-            status: "provisioned".into(),
+            status: DeviceStatus::Provisioned,
             sku: None,
             imei: vec![],
             licenses: vec![],
@@ -66,7 +66,6 @@ async fn provision(
             metadata: None,
             created_at: DateTime::default(),
             updated_at: DateTime::default(),
-            rev: 0,
         };
 
         state.device_ops.save_new(device)?;
@@ -74,11 +73,10 @@ async fn provision(
         batch.provisioned_count += 1;
     }
 
-    // Update batch status.
     if batch.provisioned_count >= batch.quantity {
-        batch.status = "completed".into();
+        batch.status = BatchStatus::Completed;
     } else {
-        batch.status = "in_progress".into();
+        batch.status = BatchStatus::InProgress;
     }
     state.batch_ops.save(batch)?;
 

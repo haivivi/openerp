@@ -47,6 +47,7 @@ pub fn facet_routers(kv: Arc<dyn openerp_kv::KVStore>) -> Vec<openerp_store::Fac
 }
 
 pub fn schema_def() -> openerp_store::ModuleDef {
+    use openerp_store::EnumDef;
     openerp_store::ModuleDef {
         id: "pms",
         label: "Product Management",
@@ -62,6 +63,12 @@ pub fn schema_def() -> openerp_store::ModuleDef {
             ResourceDef::from_ir("pms", LicenseImport::__dsl_ir()).with_desc("License import batches")
                 .with_action("pms", "import"),
             ResourceDef::from_ir("pms", Segment::__dsl_ir()).with_desc("SN encoding segments"),
+        ],
+        enums: vec![
+            EnumDef { name: "BatchStatus", variants: BatchStatus::variants() },
+            EnumDef { name: "DeviceStatus", variants: DeviceStatus::variants() },
+            EnumDef { name: "FirmwareStatus", variants: FirmwareStatus::variants() },
+            EnumDef { name: "LicenseStatus", variants: LicenseStatus::variants() },
         ],
         hierarchy: hierarchy_def::hierarchy(),
     }
@@ -96,7 +103,6 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(m).unwrap();
@@ -121,7 +127,7 @@ mod tests {
             sn: "SN001".into(),
             secret: openerp_types::Secret::new("sec123"),
             model: 42,
-            status: "provisioned".into(),
+            status: DeviceStatus::Provisioned,
             sku: Some("SKU-A".into()),
             imei: vec!["860000001".into()],
             licenses: vec![],
@@ -129,7 +135,6 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(d).unwrap();
@@ -152,12 +157,11 @@ mod tests {
         let b = Batch {
             id: openerp_types::Id::default(),
             model: 42, quantity: 100, provisioned_count: 0,
-            status: "pending".into(),
+            status: BatchStatus::Draft,
             display_name: Some("Batch A".into()),
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(b).unwrap();
@@ -177,13 +181,12 @@ mod tests {
             model: 42,
             semver: openerp_types::SemVer::new("1.2.3"),
             build: 456,
-            status: "uploaded".into(),
+            status: FirmwareStatus::Uploaded,
             release_notes: Some("Bug fixes".into()),
             display_name: Some("v1.2.3".into()),
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(f).unwrap();
@@ -206,12 +209,11 @@ mod tests {
             source: "manual".into(),
             sn: Some("SN001".into()),
             import_id: None,
-            status: "active".into(),
+            status: LicenseStatus::Active,
             display_name: Some("MIIT License".into()),
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(l).unwrap();
@@ -236,7 +238,6 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(li).unwrap();
@@ -258,7 +259,6 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(s).unwrap();
@@ -297,7 +297,7 @@ mod tests {
         // Create a batch.
         let batch_json = serde_json::json!({
             "model": 42, "quantity": 3, "provisionedCount": 0,
-            "status": "pending", "displayName": "Test Batch",
+            "status": "DRAFT", "displayName": "Test Batch",
         });
         let req = Request::builder()
             .method("POST").uri("/batches")
@@ -335,7 +335,7 @@ mod tests {
         let resp = router.clone().oneshot(req).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let updated_batch: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(updated_batch["status"], "completed");
+        assert_eq!(updated_batch["status"], "COMPLETED");
         assert_eq!(updated_batch["provisionedCount"], 3);
     }
 
@@ -357,7 +357,7 @@ mod tests {
         // Create batch with quantity=5.
         let batch_json = serde_json::json!({
             "model": 77, "quantity": 5, "provisionedCount": 0,
-            "status": "pending", "displayName": "Partial Batch",
+            "status": "DRAFT", "displayName": "Partial Batch",
         });
         let req = Request::builder()
             .method("POST").uri("/batches")
@@ -386,7 +386,7 @@ mod tests {
         let resp = router.clone().oneshot(req).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let b: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(b["status"], "in_progress");
+        assert_eq!(b["status"], "IN_PROGRESS");
         assert_eq!(b["provisionedCount"], 2);
 
         // Provision remaining 3.
@@ -406,7 +406,7 @@ mod tests {
         let resp = router.clone().oneshot(req).await.unwrap();
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let b: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(b["status"], "completed");
+        assert_eq!(b["status"], "COMPLETED");
         assert_eq!(b["provisionedCount"], 5);
     }
 
@@ -427,7 +427,7 @@ mod tests {
 
         // Create a device.
         let dev_json = serde_json::json!({
-            "sn": "ACT-001", "model": 42, "status": "provisioned",
+            "sn": "ACT-001", "model": 42, "status": "PROVISIONED",
             "displayName": "Activate Test",
         });
         let req = Request::builder()
@@ -446,7 +446,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let act: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(act["status"], "active");
+        assert_eq!(act["status"], "ACTIVE");
 
         // Double activate → error.
         let req = Request::builder()
@@ -484,7 +484,7 @@ mod tests {
         assert_eq!(resp.status(), StatusCode::OK);
         let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
         let fw: serde_json::Value = serde_json::from_slice(&body).unwrap();
-        assert_eq!(fw["status"], "uploaded");
+        assert_eq!(fw["status"], "UPLOADED");
         assert_eq!(fw["semver"], "2.0.0");
         assert!(!fw["id"].as_str().unwrap().is_empty());
     }

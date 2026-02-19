@@ -9,6 +9,7 @@
 use proc_macro::TokenStream;
 use syn::parse_macro_input;
 
+mod enum_impl;
 mod facet;
 mod flatbuf;
 mod model;
@@ -36,6 +37,32 @@ mod util;
 pub fn model(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = parse_macro_input!(item as syn::ItemStruct);
     model::expand(attr.into(), item)
+        .unwrap_or_else(|e| e.to_compile_error().into())
+        .into()
+}
+
+/// Define a DSL enum — a first-class status/category type.
+///
+/// ```ignore
+/// #[dsl_enum(module = "pms")]
+/// pub enum BatchStatus {
+///     Draft,
+///     InProgress,
+///     Completed,
+///     Cancelled,
+/// }
+/// ```
+///
+/// Generates:
+/// - `#[derive(Serialize, Deserialize)]` with `#[serde(rename_all = "SCREAMING_SNAKE_CASE")]`
+/// - `Display` / `FromStr` (SCREAMING_SNAKE_CASE, case-insensitive parse)
+/// - `Default` (first variant)
+/// - `DslEnum` trait impl with `variants()` for schema/UI
+/// - `__dsl_ir()` returning enum metadata JSON
+#[proc_macro_attribute]
+pub fn dsl_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(item as syn::ItemEnum);
+    enum_impl::expand(attr.into(), item)
         .unwrap_or_else(|e| e.to_compile_error().into())
         .into()
 }

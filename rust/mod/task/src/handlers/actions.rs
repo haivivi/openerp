@@ -12,7 +12,7 @@ use openerp_core::ServiceError;
 use openerp_store::KvOps;
 use openerp_types::DateTime;
 
-use crate::model::Task;
+use crate::model::{Task, TaskStatus};
 
 pub fn routes(kv: Arc<dyn openerp_kv::KVStore>) -> Router {
     let ops = Arc::new(KvOps::<Task>::new(kv));
@@ -60,7 +60,7 @@ fn now() -> DateTime {
 fn task_response(task: &Task) -> TaskResponse {
     TaskResponse {
         id: task.id.to_string(),
-        status: task.status.clone(),
+        status: task.status.to_string(),
     }
 }
 
@@ -74,14 +74,14 @@ async fn claim(
 ) -> Result<Json<TaskResponse>, ServiceError> {
     let mut task = ops.get_or_err(&id)?;
 
-    if task.status != "pending" {
+    if task.status != TaskStatus::Pending {
         return Err(ServiceError::Validation(format!(
-            "cannot claim task in '{}' status, must be 'pending'",
+            "cannot claim task in '{}' status, must be 'PENDING'",
             task.status
         )));
     }
 
-    task.status = "running".into();
+    task.status = TaskStatus::Running;
     task.claimed_by = Some(req.worker_id);
     task.started_at = Some(now());
     task.last_active_at = Some(now());
@@ -98,7 +98,7 @@ async fn progress(
 ) -> Result<Json<TaskResponse>, ServiceError> {
     let mut task = ops.get_or_err(&id)?;
 
-    if task.status != "running" {
+    if task.status != TaskStatus::Running {
         return Err(ServiceError::Validation(format!(
             "cannot report progress on '{}' task",
             task.status
@@ -127,14 +127,14 @@ async fn complete(
 ) -> Result<Json<TaskResponse>, ServiceError> {
     let mut task = ops.get_or_err(&id)?;
 
-    if task.status != "running" {
+    if task.status != TaskStatus::Running {
         return Err(ServiceError::Validation(format!(
             "cannot complete task in '{}' status",
             task.status
         )));
     }
 
-    task.status = "completed".into();
+    task.status = TaskStatus::Completed;
     task.ended_at = Some(now());
     task.last_active_at = Some(now());
     ops.save(task.clone())?;
@@ -150,22 +150,21 @@ async fn fail(
 ) -> Result<Json<TaskResponse>, ServiceError> {
     let mut task = ops.get_or_err(&id)?;
 
-    if task.status != "running" {
+    if task.status != TaskStatus::Running {
         return Err(ServiceError::Validation(format!(
             "cannot fail task in '{}' status",
             task.status
         )));
     }
 
-    task.status = "failed".into();
+    task.status = TaskStatus::Failed;
     task.error = Some(req.error);
     task.ended_at = Some(now());
     task.last_active_at = Some(now());
 
-    // Check retry.
     if task.retry_count < task.max_retries {
         task.retry_count += 1;
-        task.status = "pending".into();
+        task.status = TaskStatus::Pending;
         task.ended_at = None;
         task.claimed_by = None;
     }
@@ -182,17 +181,17 @@ async fn cancel(
 ) -> Result<Json<TaskResponse>, ServiceError> {
     let mut task = ops.get_or_err(&id)?;
 
-    match task.status.as_str() {
-        "pending" | "running" => {}
-        other => {
+    match task.status {
+        TaskStatus::Pending | TaskStatus::Running => {}
+        _ => {
             return Err(ServiceError::Validation(format!(
                 "cannot cancel task in '{}' status",
-                other
+                task.status
             )));
         }
     }
 
-    task.status = "cancelled".into();
+    task.status = TaskStatus::Cancelled;
     task.ended_at = Some(now());
     task.last_active_at = Some(now());
     ops.save(task.clone())?;

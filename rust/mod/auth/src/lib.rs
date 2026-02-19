@@ -83,6 +83,7 @@ pub fn schema_def() -> openerp_store::ModuleDef {
             ResourceDef::from_ir("auth", Provider::__dsl_ir())
                 .with_desc("OAuth provider configuration"),
         ],
+        enums: vec![],
         hierarchy: hierarchy_def::hierarchy(),
     }
 }
@@ -113,7 +114,6 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(user).unwrap();
@@ -143,7 +143,6 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(role).unwrap();
@@ -241,7 +240,6 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
         ops.save_new(user).unwrap();
 
@@ -367,7 +365,6 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
         role_ops.save_new(role).unwrap();
 
@@ -416,7 +413,6 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(group).unwrap();
@@ -459,7 +455,6 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(policy).unwrap();
@@ -478,7 +473,6 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
         let dup_created = ops.save_new(dup);
         assert!(dup_created.is_err(), "Duplicate policy should fail");
@@ -508,7 +502,6 @@ mod tests {
             display_name: None, description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(session).unwrap();
@@ -550,7 +543,6 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
 
         let created = ops.save_new(provider).unwrap();
@@ -582,7 +574,6 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         }).unwrap();
         policy_ops.save_new(Policy {
             id: openerp_types::Id::default(),
@@ -591,7 +582,6 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         }).unwrap();
         // Another user's policy — should not appear.
         policy_ops.save_new(Policy {
@@ -601,7 +591,6 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         }).unwrap();
 
         let roles = store_impls::find_roles_for_user(&kv, "user1").unwrap();
@@ -640,7 +629,6 @@ mod tests {
             display_name: None, description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         }).unwrap();
         // Expired policy.
         policy_ops.save_new(Policy {
@@ -650,7 +638,6 @@ mod tests {
             display_name: None, description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         }).unwrap();
 
         let roles = store_impls::find_roles_for_user(&kv, "user1").unwrap();
@@ -674,7 +661,6 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         }).unwrap();
         // Non-role policy (what != "role").
         policy_ops.save_new(Policy {
@@ -684,7 +670,6 @@ mod tests {
             metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         }).unwrap();
 
         let roles = store_impls::find_roles_for_user(&kv, "user1").unwrap();
@@ -708,7 +693,6 @@ mod tests {
             display_name: None, description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         }).unwrap();
         role_ops.save_new(Role {
             id: openerp_types::Id::new("writer"),
@@ -716,7 +700,6 @@ mod tests {
             display_name: None, description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         }).unwrap();
 
         let checker = handlers::policy_check::AuthChecker::new(kv, "test-secret", "auth:root");
@@ -888,7 +871,6 @@ mod tests {
             description: None, metadata: None,
             created_at: openerp_types::DateTime::default(),
             updated_at: openerp_types::DateTime::default(),
-            rev: 0,
         };
         KvOps::<Role>::new(kv.clone()).save_new(role).unwrap();
 

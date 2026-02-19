@@ -38,12 +38,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -69,12 +63,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -95,12 +83,6 @@ mod tests {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
             if self.status.is_empty() { self.status = "open".into(); }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -379,8 +361,9 @@ mod tests {
 
         // PUT to /items/rec-1 but body has id=rec-2.
         // Framework uses body's key_value() for storage, URL id only for existence check.
-        let mut edit = r1.clone();
-        edit["id"] = serde_json::json!("rec-2"); // mismatch!
+        // Must use rec-2's updatedAt for optimistic locking to pass.
+        let (_, r2) = call(&router, "GET", "/items/rec-2", None).await;
+        let mut edit = r2.clone();
         edit["displayName"] = serde_json::json!("Overwritten");
         let (s, _) = call(&router, "PUT", "/items/rec-1", Some(edit)).await;
         assert_eq!(s, StatusCode::OK);
@@ -418,9 +401,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
         }
         fn after_delete(&self) {
             DELETE_COUNTER.fetch_add(1, Ordering::SeqCst);
@@ -441,7 +421,6 @@ mod tests {
             id: Id::default(), value: "will be deleted".into(),
             display_name: None, description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         };
         let created = ops.save_new(t).unwrap();
         ops.delete(created.id.as_str()).unwrap();
@@ -503,6 +482,7 @@ mod tests {
                 resources: vec![
                     ResourceDef::from_ir("edge", MinimalRecord::__dsl_ir()),
                 ],
+                enums: vec![],
                 hierarchy: vec![HierarchyNode::leaf("minimal_record", "Records", "file", "")],
             }],
         );
@@ -544,6 +524,7 @@ mod tests {
                     label: "Empty Module",
                     icon: "box",
                     resources: vec![],
+                    enums: vec![],
                     hierarchy: vec![],
                 },
                 ModuleDef {
@@ -551,6 +532,7 @@ mod tests {
                     label: "Full",
                     icon: "cube",
                     resources: vec![ResourceDef::from_ir("full", MinimalRecord::__dsl_ir())],
+                    enums: vec![],
                     hierarchy: vec![HierarchyNode::leaf("minimal_record", "Records", "file", "")],
                 },
             ],
@@ -678,11 +660,6 @@ mod tests {
         const KEY: Field = Self::id;
         fn kv_prefix() -> &'static str { "edge:localrole:" }
         fn key_value(&self) -> String { self.id.to_string() }
-        fn before_create(&mut self) {
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
     }
 
     struct LocalAuth { kv: Arc<dyn openerp_kv::KVStore> }
@@ -722,7 +699,6 @@ mod tests {
             display_name: Some("Dynamic".into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         }).unwrap();
 
         // User with "dynamic" role can list but not create.

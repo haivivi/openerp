@@ -22,7 +22,7 @@ fn project(b: &Batch) -> MfgBatch {
         model: b.model,
         quantity: b.quantity,
         provisioned_count: b.provisioned_count,
-        status: b.status.clone(),
+        status: b.status.to_string(),
         display_name: b.display_name.clone(),
     }
 }

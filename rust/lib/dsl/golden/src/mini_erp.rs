@@ -82,22 +82,14 @@ mod tests {
         const KEY: Field = Self::id;
         fn kv_prefix() -> &'static str { "hr:employee:" }
         fn key_value(&self) -> String { self.id.to_string() }
-
         fn before_create(&mut self) {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            // Normalize email to lowercase.
             self.email = Email::new(&self.email.as_str().to_lowercase());
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
         }
-
         fn before_update(&mut self) {
-            // Normalize email on update too.
             self.email = Email::new(&self.email.as_str().to_lowercase());
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -105,18 +97,10 @@ mod tests {
         const KEY: Field = Self::id;
         fn kv_prefix() -> &'static str { "hr:department:" }
         fn key_value(&self) -> String { self.id.to_string() }
-
         fn before_create(&mut self) {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -124,35 +108,17 @@ mod tests {
         const KEY: Field = Self::id;
         fn kv_prefix() -> &'static str { "hr:role:" }
         fn key_value(&self) -> String { self.id.to_string() }
-
-        fn before_create(&mut self) {
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
-        }
     }
 
     impl KvStore for Project {
         const KEY: Field = Self::id;
         fn kv_prefix() -> &'static str { "pm:project:" }
         fn key_value(&self) -> String { self.id.to_string() }
-
         fn before_create(&mut self) {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
             if self.status.is_empty() { self.status = "draft".into(); }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -272,18 +238,18 @@ mod tests {
         let emp_ir = Employee::__dsl_ir();
         assert_eq!(emp_ir["module"], "hr");
         assert_eq!(emp_ir["name"], "Employee");
-        // 9 user fields + 6 common = 15
-        assert_eq!(emp_ir["fields"].as_array().unwrap().len(), 15);
+        // 9 user fields + 5 common = 14
+        assert_eq!(emp_ir["fields"].as_array().unwrap().len(), 14);
 
         let dept_ir = Department::__dsl_ir();
         assert_eq!(dept_ir["module"], "hr");
-        // 4 user (id, parent_id, head_employee_id, budget) + 6 common = 10
-        assert_eq!(dept_ir["fields"].as_array().unwrap().len(), 10);
+        // 4 user + 5 common = 9
+        assert_eq!(dept_ir["fields"].as_array().unwrap().len(), 9);
 
         let proj_ir = Project::__dsl_ir();
         assert_eq!(proj_ir["module"], "pm");
-        // 7 user + 6 common = 13
-        assert_eq!(proj_ir["fields"].as_array().unwrap().len(), 13);
+        // 7 user + 5 common = 12
+        assert_eq!(proj_ir["fields"].as_array().unwrap().len(), 12);
     }
 
     // ── 2. Widget inference for all types ──
@@ -318,6 +284,7 @@ mod tests {
                         ResourceDef::from_ir("hr", Department::__dsl_ir()).with_desc("Organizational units"),
                         ResourceDef::from_ir("hr", Role::__dsl_ir()).with_desc("Permission roles"),
                     ],
+                    enums: vec![],
                     hierarchy: vec![
                         HierarchyNode {
                             resource: "employee", label: "Employees", icon: "users",
@@ -340,6 +307,7 @@ mod tests {
                             .with_action("pm", "archive")
                             .with_action("pm", "activate"),
                     ],
+                    enums: vec![],
                     hierarchy: vec![
                         HierarchyNode::leaf("project", "Projects", "folder", "Projects"),
                     ],
@@ -820,13 +788,9 @@ mod tests {
             }
             if self.visibility.is_empty() { self.visibility = "private".into(); }
             if self.version == 0 { self.version = 1; }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
         }
         fn before_update(&mut self) {
             self.version += 1;
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -854,12 +818,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-            let now = chrono::Utc::now().to_rfc3339();
-            if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
-            self.updated_at = DateTime::new(&now);
-        }
-        fn before_update(&mut self) {
-            self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
         }
     }
 
@@ -904,7 +862,6 @@ mod tests {
             display_name: Some(id.into()),
             description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
-            rev: 0,
         }).unwrap();
     }
 
@@ -1228,6 +1185,7 @@ mod tests {
                         ResourceDef::from_ir("hr", Department::__dsl_ir()),
                         ResourceDef::from_ir("hr", Role::__dsl_ir()),
                     ],
+                    enums: vec![],
                     hierarchy: vec![
                         HierarchyNode { resource: "employee", label: "Employees", icon: "users",
                             description: "", children: vec![HierarchyNode::leaf("role", "Roles", "shield", "")] },
@@ -1240,6 +1198,7 @@ mod tests {
                         ResourceDef::from_ir("pm", Project::__dsl_ir())
                             .with_action("pm", "archive").with_action("pm", "publish"),
                     ],
+                    enums: vec![],
                     hierarchy: vec![HierarchyNode::leaf("project", "Projects", "folder", "")],
                 },
                 ModuleDef {
@@ -1248,6 +1207,7 @@ mod tests {
                         ResourceDef::from_ir("km", Document::__dsl_ir())
                             .with_action("km", "publish").with_action("km", "archive"),
                     ],
+                    enums: vec![],
                     hierarchy: vec![HierarchyNode::leaf("document", "Documents", "file-text", "")],
                 },
                 ModuleDef {
@@ -1255,6 +1215,7 @@ mod tests {
                     resources: vec![
                         ResourceDef::from_ir("org", CompanyProfile::__dsl_ir()),
                     ],
+                    enums: vec![],
                     hierarchy: vec![HierarchyNode::leaf("company_profile", "Companies", "building", "")],
                 },
             ],
