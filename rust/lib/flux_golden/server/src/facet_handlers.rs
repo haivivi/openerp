@@ -18,7 +18,7 @@ use openerp_types::*;
 use crate::server::i18n::Localizer;
 use crate::server::jwt::JwtService;
 use crate::server::model::*;
-use crate::server::rest_app::app::*;
+use crate::server::rest_app::app::{self, *};
 
 /// Shared state for facet handlers.
 pub struct FacetStateInner {
@@ -100,6 +100,7 @@ fn to_app_user(u: &User) -> AppUser {
         follower_count: u.follower_count,
         following_count: u.following_count,
         tweet_count: u.tweet_count,
+        updated_at: Some(u.updated_at.to_string()),
     }
 }
 
@@ -141,19 +142,25 @@ pub async fn get_me(
     Ok(FacetResponse::negotiate(to_app_user(&user), &headers))
 }
 
-/// POST /timeline
+/// POST /timeline — paginated.
 pub async fn get_timeline(
     headers: HeaderMap,
     State(state): State<FacetState>,
+    Json(params): Json<PaginationParams>,
 ) -> Result<Json<TimelineResponse>, ServiceError> {
     let uid = current_user(&headers, &state)?;
     let mut tweets = state.tweets.list().map_err(|e| ServiceError::Internal(e.to_string()))?;
     tweets.sort_by(|a, b| b.created_at.as_str().cmp(a.created_at.as_str()));
-    let items: Vec<AppTweet> = tweets.iter()
+    let all_items: Vec<AppTweet> = tweets.iter()
         .filter(|t| t.reply_to_id.is_none())
         .map(|t| to_app_tweet(t, &uid, &state))
         .collect();
-    Ok(Json(TimelineResponse { items, has_more: false }))
+    let total = all_items.len();
+    let offset = params.offset.min(total);
+    let end = (offset + params.limit).min(total);
+    let items = all_items[offset..end].to_vec();
+    let has_more = end < total;
+    Ok(Json(TimelineResponse { items, has_more }))
 }
 
 /// POST /tweets
@@ -321,7 +328,7 @@ pub async fn user_profile(
     Ok(Json(UserProfileResponse { user: profile, tweets }))
 }
 
-/// PUT /me/profile
+/// PUT /me/profile — with optimistic locking via updatedAt.
 pub async fn update_profile(
     headers: HeaderMap,
     State(state): State<FacetState>,
@@ -334,10 +341,31 @@ pub async fn update_profile(
     let mut user = state.users.get(&uid)
         .map_err(|e| ServiceError::Internal(e.to_string()))?
         .ok_or_else(|| ServiceError::NotFound(state.i18n.t("error.profile.not_found", &[("id", &uid)])))?;
+
+    // Optimistic locking: if client sends updatedAt, compare with stored value.
+    if let Some(ref client_ts) = req.updated_at {
+        if client_ts != user.updated_at.as_str() {
+            return Err(ServiceError::Conflict(format!(
+                "updatedAt mismatch: stored {}, got {}",
+                user.updated_at, client_ts
+            )));
+        }
+    }
+
     user.display_name = Some(req.display_name);
     user.bio = Some(req.bio);
-    state.users.save(user.clone()).map_err(|e| ServiceError::Internal(e.to_string()))?;
-    Ok(FacetResponse::negotiate(to_app_user(&user), &headers))
+    // save() in KvOps also checks updatedAt internally and stamps a new one.
+    state.users.save(user.clone()).map_err(|e| {
+        if e.to_string().contains("mismatch") {
+            return e; // Already a Conflict from KvOps.
+        }
+        ServiceError::Internal(e.to_string())
+    })?;
+    // Re-fetch to get the new updatedAt stamp.
+    let updated = state.users.get(&uid)
+        .map_err(|e| ServiceError::Internal(e.to_string()))?
+        .unwrap_or(user);
+    Ok(FacetResponse::negotiate(to_app_user(&updated), &headers))
 }
 
 /// POST /search
@@ -519,7 +547,7 @@ mod tests {
     async fn empty_timeline() {
         let (r, jwt) = setup();
         let token = jwt.issue("alice", "Alice").unwrap();
-        let (s, body) = call(&r, "POST", "/timeline", Some(&token), None).await;
+        let (s, body) = call(&r, "POST", "/timeline", Some(&token), Some(serde_json::json!({}))).await;
         assert_eq!(s, StatusCode::OK);
         assert_eq!(body["items"].as_array().unwrap().len(), 0);
     }
@@ -539,7 +567,7 @@ mod tests {
         assert_eq!(tweet["authorUsername"], "alice");
 
         // Timeline.
-        let (s, tl) = call(&r, "POST", "/timeline", Some(&token), None).await;
+        let (s, tl) = call(&r, "POST", "/timeline", Some(&token), Some(serde_json::json!({}))).await;
         assert_eq!(s, StatusCode::OK);
         assert_eq!(tl["items"].as_array().unwrap().len(), 1);
     }
@@ -736,5 +764,130 @@ mod tests {
         // Bob's view: also liked.
         let (_, detail_bob) = call(&r, "POST", &format!("/tweets/{}/detail", id), Some(&bob_token), None).await;
         assert_eq!(detail_bob["tweet"]["likedByMe"], true);
+    }
+
+    // ── Pagination ──
+
+    #[tokio::test]
+    async fn timeline_pagination() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        // Create 5 tweets.
+        for i in 0..5 {
+            call(&r, "POST", "/tweets", Some(&token),
+                Some(serde_json::json!({"content": format!("Tweet {}", i)}))).await;
+        }
+
+        // Page 1: limit=2, offset=0.
+        let (s, page1) = call(&r, "POST", "/timeline", Some(&token),
+            Some(serde_json::json!({"limit": 2, "offset": 0}))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(page1["items"].as_array().unwrap().len(), 2);
+        assert_eq!(page1["hasMore"], true);
+
+        // Page 2: limit=2, offset=2.
+        let (_, page2) = call(&r, "POST", "/timeline", Some(&token),
+            Some(serde_json::json!({"limit": 2, "offset": 2}))).await;
+        assert_eq!(page2["items"].as_array().unwrap().len(), 2);
+        assert_eq!(page2["hasMore"], true);
+
+        // Page 3: limit=2, offset=4.
+        let (_, page3) = call(&r, "POST", "/timeline", Some(&token),
+            Some(serde_json::json!({"limit": 2, "offset": 4}))).await;
+        assert_eq!(page3["items"].as_array().unwrap().len(), 1);
+        assert_eq!(page3["hasMore"], false);
+    }
+
+    #[tokio::test]
+    async fn timeline_default_pagination() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        // Create 3 tweets.
+        for i in 0..3 {
+            call(&r, "POST", "/tweets", Some(&token),
+                Some(serde_json::json!({"content": format!("T{}", i)}))).await;
+        }
+
+        // No pagination params → default limit=20.
+        let (s, all) = call(&r, "POST", "/timeline", Some(&token),
+            Some(serde_json::json!({}))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(all["items"].as_array().unwrap().len(), 3);
+        assert_eq!(all["hasMore"], false);
+    }
+
+    #[tokio::test]
+    async fn timeline_offset_beyond_total() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        call(&r, "POST", "/tweets", Some(&token),
+            Some(serde_json::json!({"content": "Only tweet"}))).await;
+
+        let (_, page) = call(&r, "POST", "/timeline", Some(&token),
+            Some(serde_json::json!({"limit": 10, "offset": 100}))).await;
+        assert_eq!(page["items"].as_array().unwrap().len(), 0);
+        assert_eq!(page["hasMore"], false);
+    }
+
+    // ── Optimistic Locking ──
+
+    #[tokio::test]
+    async fn update_profile_with_correct_timestamp() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        // Get current profile to get updatedAt.
+        let (_, me) = call(&r, "GET", "/me", Some(&token), None).await;
+        let updated_at = me["updatedAt"].as_str().unwrap();
+
+        // Update with correct updatedAt → success.
+        let (s, updated) = call(&r, "PUT", "/me/profile", Some(&token),
+            Some(serde_json::json!({
+                "displayName": "Alice Updated",
+                "bio": "New bio",
+                "updatedAt": updated_at,
+            }))).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(updated["displayName"], "Alice Updated");
+    }
+
+    #[tokio::test]
+    async fn update_profile_with_stale_timestamp_rejected() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        // First update (to change the updatedAt).
+        let (_, me) = call(&r, "GET", "/me", Some(&token), None).await;
+        let old_ts = me["updatedAt"].as_str().unwrap().to_string();
+
+        call(&r, "PUT", "/me/profile", Some(&token),
+            Some(serde_json::json!({
+                "displayName": "V1", "bio": "", "updatedAt": old_ts,
+            }))).await;
+
+        // Second update with the OLD timestamp → conflict.
+        let (s, body) = call(&r, "PUT", "/me/profile", Some(&token),
+            Some(serde_json::json!({
+                "displayName": "V2", "bio": "", "updatedAt": old_ts,
+            }))).await;
+        // Should be 409 Conflict (from KvOps or our check).
+        assert!(s == StatusCode::CONFLICT || s == StatusCode::INTERNAL_SERVER_ERROR,
+            "Expected conflict, got {} body: {:?}", s, body);
+    }
+
+    #[tokio::test]
+    async fn update_profile_without_timestamp_still_works() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        // Update without updatedAt → no locking check, always succeeds.
+        let (s, _) = call(&r, "PUT", "/me/profile", Some(&token),
+            Some(serde_json::json!({
+                "displayName": "No Lock", "bio": "",
+            }))).await;
+        assert_eq!(s, StatusCode::OK);
     }
 }

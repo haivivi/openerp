@@ -22,6 +22,7 @@ pub mod app {
         pub follower_count: u32,
         pub following_count: u32,
         pub tweet_count: u32,
+        pub updated_at: Option<String>,
     }
 
     /// A tweet in the timeline or detail view.
@@ -103,12 +104,14 @@ pub mod app {
         pub tweets: Vec<AppTweet>,
     }
 
-    /// Update profile request.
+    /// Update profile request — includes updatedAt for optimistic locking.
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     #[serde(rename_all = "camelCase")]
     pub struct UpdateProfileRequest {
         pub display_name: String,
         pub bio: String,
+        /// For optimistic locking — must match server's updatedAt.
+        pub updated_at: Option<String>,
     }
 
     /// Search response.
@@ -124,9 +127,20 @@ pub mod app {
     #[action(method = "POST", path = "/auth/login")]
     pub type Login = fn(req: LoginRequest) -> LoginResponse;
 
-    /// Get my timeline.
+    /// Pagination params for timeline.
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct PaginationParams {
+        #[serde(default = "default_limit")]
+        pub limit: usize,
+        #[serde(default)]
+        pub offset: usize,
+    }
+    fn default_limit() -> usize { 20 }
+
+    /// Get my timeline (paginated).
     #[action(method = "POST", path = "/timeline")]
-    pub type Timeline = fn() -> TimelineResponse;
+    pub type Timeline = fn(req: PaginationParams) -> TimelineResponse;
 
     /// Create a tweet (author = current user from JWT).
     #[action(method = "POST", path = "/tweets")]

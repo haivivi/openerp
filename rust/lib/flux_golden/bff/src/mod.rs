@@ -124,7 +124,7 @@ impl TwitterBff {
                 });
                 store.set(AppRoute::PATH, AppRoute("/home".into()));
                 // Load timeline (now authenticated — token is set).
-                if let Ok(tl) = self.client.timeline().await {
+                if let Ok(tl) = self.client.timeline(&app::PaginationParams { limit: 50, offset: 0 }).await {
                     store.set(TimelineFeed::PATH, TimelineFeed {
                         items: tl.items.iter().map(to_feed_item).collect(),
                         loading: false, has_more: tl.has_more, error: None,
@@ -155,7 +155,7 @@ impl TwitterBff {
         store.set(TimelineFeed::PATH, TimelineFeed {
             items: vec![], loading: true, has_more: false, error: None,
         });
-        if let Ok(tl) = self.client.timeline().await {
+        if let Ok(tl) = self.client.timeline(&app::PaginationParams { limit: 50, offset: 0 }).await {
             store.set(TimelineFeed::PATH, TimelineFeed {
                 items: tl.items.iter().map(to_feed_item).collect(),
                 loading: false, has_more: tl.has_more, error: None,
@@ -192,7 +192,7 @@ impl TwitterBff {
         match self.client.create_tweet(&create_req).await {
             Ok(_) => {
                 store.set(ComposeState::PATH, ComposeState::empty());
-                if let Ok(tl) = self.client.timeline().await {
+                if let Ok(tl) = self.client.timeline(&app::PaginationParams { limit: 50, offset: 0 }).await {
                     store.set(TimelineFeed::PATH, TimelineFeed {
                         items: tl.items.iter().map(to_feed_item).collect(),
                         loading: false, has_more: tl.has_more, error: None,
@@ -211,7 +211,7 @@ impl TwitterBff {
     #[handle(LikeTweetReq)]
     pub async fn handle_like(&self, req: &LikeTweetReq, store: &StateStore) {
         let _ = self.client.like_tweet(&req.tweet_id).await;
-        if let Ok(tl) = self.client.timeline().await {
+        if let Ok(tl) = self.client.timeline(&app::PaginationParams { limit: 50, offset: 0 }).await {
             store.set(TimelineFeed::PATH, TimelineFeed {
                 items: tl.items.iter().map(to_feed_item).collect(),
                 loading: false, has_more: tl.has_more, error: None,
@@ -222,7 +222,7 @@ impl TwitterBff {
     #[handle(UnlikeTweetReq)]
     pub async fn handle_unlike(&self, req: &UnlikeTweetReq, store: &StateStore) {
         let _ = self.client.unlike_tweet(&req.tweet_id).await;
-        if let Ok(tl) = self.client.timeline().await {
+        if let Ok(tl) = self.client.timeline(&app::PaginationParams { limit: 50, offset: 0 }).await {
             store.set(TimelineFeed::PATH, TimelineFeed {
                 items: tl.items.iter().map(to_feed_item).collect(),
                 loading: false, has_more: tl.has_more, error: None,
@@ -363,6 +363,7 @@ impl TwitterBff {
         let update_req = app::UpdateProfileRequest {
             display_name: req.display_name.clone(),
             bio: req.bio.clone(),
+            updated_at: None, // BFF doesn't do optimistic locking (for simplicity).
         };
         match self.client.update_profile(&update_req).await {
             Ok(user) => {
