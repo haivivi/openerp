@@ -73,6 +73,7 @@ pub fn schema_def() -> ModuleDef {
                 .with_desc("Follow relationships"),
         ],
         hierarchy: hierarchy(),
+        enums: vec![],
     }
 }
 

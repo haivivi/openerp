@@ -267,8 +267,7 @@ fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
             avatar: Some(Avatar::new(&format!("https://api.dicebear.com/7.x/initials/svg?seed={}", username))),
             follower_count: 0, following_count: 0, tweet_count: 0,
             display_name: Some(display.into()),
-            description: None, metadata: None,
-            created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
+            description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
         }).unwrap();
     }
 
@@ -281,8 +280,7 @@ fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
             id: Id::default(), author_id: Id::new(author),
             content: content.into(),
             like_count: 0, reply_count: 0, reply_to_id: None,
-            display_name: None, description: None, metadata: None,
-            created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
+            display_name: None, description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
         }).unwrap();
         if let Ok(Some(mut u)) = users_ops.get(author) {
             u.tweet_count += 1;

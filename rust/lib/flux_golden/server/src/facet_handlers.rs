@@ -175,8 +175,7 @@ pub async fn create_tweet(
         content: req.content,
         like_count: 0, reply_count: 0,
         reply_to_id: req.reply_to_id.map(|s| Id::new(&s)),
-        display_name: None, description: None, metadata: None,
-        created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
+        display_name: None, description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
     };
     let created = state.tweets.save_new(tweet).map_err(|e| ServiceError::Internal(e.to_string()))?;
     if let Ok(Some(mut user)) = state.users.get(&uid) {
@@ -223,8 +222,7 @@ pub async fn like_tweet(
         id: Id::default(),
         user_id: Id::new(&uid),
         tweet_id: Id::new(&id),
-        display_name: None, description: None, metadata: None,
-        created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
+        display_name: None, description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
     };
     let _ = state.likes.save_new(like); // Idempotent.
     let mut tweet = state.tweets.get(&id)
@@ -265,8 +263,7 @@ pub async fn follow_user(
         id: Id::default(),
         follower_id: Id::new(&uid),
         followee_id: Id::new(&id),
-        display_name: None, description: None, metadata: None,
-        created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
+        display_name: None, description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
     };
     if state.follows.save_new(follow).is_ok() {
         if let Ok(Some(mut me)) = state.users.get(&uid) {
@@ -403,16 +400,14 @@ mod tests {
             bio: Some("Rust dev".into()), avatar: None,
             follower_count: 0, following_count: 0, tweet_count: 0,
             display_name: Some("Alice".into()),
-            description: None, metadata: None,
-            created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
+            description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
         }).unwrap();
         users.save_new(User {
             id: Id::default(), username: "bob".into(),
             bio: None, avatar: None,
             follower_count: 0, following_count: 0, tweet_count: 0,
             display_name: Some("Bob".into()),
-            description: None, metadata: None,
-            created_at: DateTime::default(), updated_at: DateTime::default(), rev: 0,
+            description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
         }).unwrap();
 
         let state = Arc::new(FacetStateInner {
