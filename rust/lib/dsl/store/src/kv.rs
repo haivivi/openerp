@@ -169,7 +169,6 @@ impl<T: KvStore> KvOps<T> {
     /// If they don't match, returns `ServiceError::Conflict` (409).
     /// The store layer sets a fresh `updatedAt` — models don't need to.
     pub fn save(&self, mut record: T) -> Result<T, ServiceError> {
-        Self::check_names(&record)?;
         let id = record.key_value();
         let key = Self::make_key(&id);
 
@@ -192,6 +191,7 @@ impl<T: KvStore> KvOps<T> {
         }
 
         record.before_update();
+        Self::check_names(&record)?;
 
         let mut json_val = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
