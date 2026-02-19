@@ -511,6 +511,188 @@ mod tests {
         assert_eq!(err["code"], "VALIDATION_FAILED");
     }
 
+    // ── 8b. PUT update with invalid Name → 400 ──
+
+    #[tokio::test]
+    async fn admin_router_put_rejects_invalid_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("put_rj.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(
+            KvOps::<TestDevice>::new(kv), auth, "pms", "devices", "device",
+        );
+
+        // Create with valid owner first.
+        let (s, dev) = api_call(&router, "POST", "/devices",
+            Some(serde_json::json!({
+                "sn": "SN300",
+                "modelCode": 42,
+                "owner": "auth/users/alice",
+                "displayName": "Device 300",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+
+        // PUT: change owner to invalid prefix → 400.
+        let mut edit = dev.clone();
+        edit["owner"] = serde_json::json!("pms/batches/b1");
+        let (s, err) = api_call(&router, "PUT", "/devices/SN300", Some(edit)).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "PUT with invalid name should return 400");
+        assert_eq!(err["code"], "VALIDATION_FAILED");
+
+        // Verify original value is preserved.
+        let (s, fetched) = api_call(&router, "GET", "/devices/SN300", None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(fetched["owner"], "auth/users/alice", "original owner should be preserved");
+    }
+
+    // ── 8c. PATCH with invalid Name → 400 ──
+
+    #[tokio::test]
+    async fn admin_router_patch_rejects_invalid_name() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("patch_rj.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(
+            KvOps::<TestDevice>::new(kv), auth, "pms", "devices", "device",
+        );
+
+        // Create valid device.
+        let (s, _) = api_call(&router, "POST", "/devices",
+            Some(serde_json::json!({
+                "sn": "SN400",
+                "modelCode": 42,
+                "owner": "auth/users/carol",
+                "displayName": "Device 400",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+
+        // PATCH: change owner to invalid prefix → 400.
+        let (s, err) = api_call(&router, "PATCH", "/devices/SN400",
+            Some(serde_json::json!({ "owner": "not-a-valid/name" })),
+        ).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "PATCH with invalid name should return 400");
+        assert_eq!(err["code"], "VALIDATION_FAILED");
+
+        // Verify original value is preserved.
+        let (s, fetched) = api_call(&router, "GET", "/devices/SN400", None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(fetched["owner"], "auth/users/carol", "original owner should survive bad PATCH");
+    }
+
+    // ── 8d. Name<()> rejects no-slash via API ──
+
+    #[tokio::test]
+    async fn admin_router_name_any_rejects_no_slash() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("any_rj.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(
+            KvOps::<AuditEntry>::new(kv), auth, "audit", "entries", "audit_entry",
+        );
+
+        // subject is valid (user name), but target has no slash → 400.
+        let (s, err) = api_call(&router, "POST", "/entries",
+            Some(serde_json::json!({
+                "subject": "auth/users/u1",
+                "target": "no-slash-here",
+                "action": "create",
+                "displayName": "Bad Target",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "Name<()> with no slash should return 400");
+        assert_eq!(err["code"], "VALIDATION_FAILED");
+    }
+
+    // ── 8e. Edge cases: various invalid Name values via API ──
+
+    #[tokio::test]
+    async fn admin_router_name_edge_cases() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("edge.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(
+            KvOps::<TestDevice>::new(kv), auth, "pms", "devices", "device",
+        );
+
+        let bad_owners = vec![
+            ("bare-string", "bare string with no structure"),
+            ("auth/groups/g1", "valid path but wrong resource type"),
+            ("AUTH/USERS/u1", "case-sensitive prefix mismatch"),
+        ];
+
+        for (i, (bad_owner, desc)) in bad_owners.iter().enumerate() {
+            let (s, err) = api_call(&router, "POST", "/devices",
+                Some(serde_json::json!({
+                    "sn": format!("EDGE{}", i),
+                    "modelCode": 42,
+                    "owner": bad_owner,
+                    "displayName": "Edge Case",
+                })),
+            ).await;
+            assert_eq!(s, StatusCode::BAD_REQUEST, "should reject: {}", desc);
+            assert_eq!(err["code"], "VALIDATION_FAILED", "should be VALIDATION_FAILED for: {}", desc);
+        }
+    }
+
+    // ── 8f. Tuple Name field rejects wrong type via API ──
+
+    #[tokio::test]
+    async fn admin_router_tuple_name_rejects_wrong_type() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("tuple_rj.redb")).unwrap(),
+        );
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let router = admin_kv_router(
+            KvOps::<AuditEntry>::new(kv), auth, "audit", "entries", "audit_entry",
+        );
+
+        // subject is Name<(TestUser, TestDevice)> — batch prefix should fail.
+        let (s, err) = api_call(&router, "POST", "/entries",
+            Some(serde_json::json!({
+                "subject": "pms/batches/b1",
+                "target": "auth/users/u1",
+                "action": "create",
+                "displayName": "Wrong Subject Type",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST,
+            "Name<(User, Device)> should reject batch prefix");
+        assert_eq!(err["code"], "VALIDATION_FAILED");
+
+        // Valid: subject is user, target is anything with slash.
+        let (s, _) = api_call(&router, "POST", "/entries",
+            Some(serde_json::json!({
+                "subject": "auth/users/u1",
+                "target": "pms/batches/b1",
+                "action": "create",
+                "displayName": "Good Entry",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::OK, "valid subject and target should succeed");
+
+        // Valid: subject is device.
+        let (s, _) = api_call(&router, "POST", "/entries",
+            Some(serde_json::json!({
+                "subject": "pms/devices/SN001",
+                "target": "whatever/resource/x",
+                "action": "update",
+                "displayName": "Device Subject",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::OK, "device subject should succeed for tuple Name");
+    }
+
     // =====================================================================
     // 9. Schema includes ref info
     // =====================================================================

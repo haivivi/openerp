@@ -232,6 +232,7 @@ impl<T: KvStore> KvOps<T> {
         let mut record: T = serde_json::from_value(base)
             .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
         record.before_update();
+        Self::check_names(&record)?;
 
         let mut json_val = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
