@@ -485,8 +485,26 @@ pub async fn mark_read(
     Ok(Json(to_app_message(&msg, &lang)))
 }
 
+// ── Handler completeness check ──
+// Register all action handlers — compile error if any are missing.
+openerp_macro::impl_handler!(app::Login);
+openerp_macro::impl_handler!(app::Timeline);
+openerp_macro::impl_handler!(app::CreateTweet);
+openerp_macro::impl_handler!(app::TweetDetail);
+openerp_macro::impl_handler!(app::LikeTweet);
+openerp_macro::impl_handler!(app::UnlikeTweet);
+openerp_macro::impl_handler!(app::FollowUser);
+openerp_macro::impl_handler!(app::UnfollowUser);
+openerp_macro::impl_handler!(app::UserProfile);
+openerp_macro::impl_handler!(app::UpdateProfile);
+openerp_macro::impl_handler!(app::Upload);
+openerp_macro::impl_handler!(app::Search);
+openerp_macro::impl_handler!(app::Inbox);
+openerp_macro::impl_handler!(app::MarkRead);
+
 /// Build the facet router.
 pub fn facet_router(state: FacetState) -> axum::Router {
+    app::__assert_handlers::<app::__Handlers>();
     use axum::routing::{get, post, put, delete};
     axum::Router::new()
         .route("/auth/login", post(login))
