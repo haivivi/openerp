@@ -129,6 +129,10 @@ pub fn expand(attr: TokenStream, item: ItemMod) -> syn::Result<TokenStream> {
         facet_name
     );
 
+    // ── Handler check traits + action_router ──
+
+    let handler_check = emit_handler_check(&actions);
+
     Ok(quote! {
         #(#mod_attrs)*
         #vis mod #mod_ident {
@@ -184,6 +188,10 @@ pub fn expand(attr: TokenStream, item: ItemMod) -> syn::Result<TokenStream> {
                 #(#resource_methods)*
                 #(#action_methods)*
             }
+
+            // ── Handler check ──
+
+            #(#handler_check)*
         }
     })
 }
@@ -590,6 +598,76 @@ fn build_path_format(facet_name: &str, facet_module: &str, action_path: &str) ->
     }
     result.push_str(rest);
     result
+}
+
+/// Generate handler-check items: one trait per action, `__Handlers` registry,
+/// and `action_router()` that enforces all handlers are implemented.
+///
+/// The `action_router` function is generic over `__H` so that trait bounds
+/// are only checked at the call site, not at the facet definition site.
+/// Callers use: `facet::action_router::<facet::__Handlers>(kv)`.
+///
+/// If the facet has no actions, returns an empty vec.
+fn emit_handler_check(actions: &[ActionInfo]) -> Vec<TokenStream> {
+    if actions.is_empty() {
+        return vec![];
+    }
+
+    let mut items = Vec::new();
+
+    // One trait per action.
+    for a in actions {
+        let trait_name = format_ident!("__{}Handler", a.type_name);
+        let doc = format!(
+            "Handler trait for `{}`. Implement via `openerp_macro::impl_handler!`.",
+            a.type_name
+        );
+        items.push(quote! {
+            #[doc = #doc]
+            pub trait #trait_name {
+                fn route(kv: std::sync::Arc<dyn openerp_kv::KVStore>) -> axum::Router;
+            }
+        });
+    }
+
+    // Registry struct.
+    items.push(quote! {
+        /// Handler registry — implement handler traits via
+        /// [`openerp_macro::impl_handler!`].
+        pub struct __Handlers;
+    });
+
+    // action_router<__H>() — generic so bounds are checked at call site.
+    let trait_names: Vec<_> = actions
+        .iter()
+        .map(|a| format_ident!("__{}Handler", a.type_name))
+        .collect();
+
+    let route_merges: Vec<TokenStream> = trait_names
+        .iter()
+        .map(|tn| {
+            quote! {
+                router = router.merge(<__H as #tn>::route(kv.clone()));
+            }
+        })
+        .collect();
+
+    items.push(quote! {
+        /// Build router with all action handlers.
+        ///
+        /// Compile error if any `#[action]` is missing an `impl_handler!`.
+        ///
+        /// Usage: `action_router::<__Handlers>(kv)`
+        pub fn action_router<__H: #(#trait_names)+*>(
+            kv: std::sync::Arc<dyn openerp_kv::KVStore>,
+        ) -> axum::Router {
+            let mut router = axum::Router::new();
+            #(#route_merges)*
+            router
+        }
+    });
+
+    items
 }
 
 /// Derive fn name from type name: Provision → provision, ActivateDevice → activate_device
