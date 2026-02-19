@@ -114,29 +114,37 @@ pub trait NameTarget {
     fn validate_name(name: &str) -> bool;
 }
 
+fn starts_with_and_has_id(name: &str, prefix: &str) -> bool {
+    name.starts_with(prefix) && name.len() > prefix.len()
+}
+
 impl<T: NameTemplate> NameTarget for T {
     fn validate_name(name: &str) -> bool {
-        name.starts_with(T::name_prefix())
+        starts_with_and_has_id(name, T::name_prefix())
     }
 }
 
 impl<A: NameTemplate, B: NameTemplate> NameTarget for (A, B) {
     fn validate_name(name: &str) -> bool {
-        name.starts_with(A::name_prefix()) || name.starts_with(B::name_prefix())
+        starts_with_and_has_id(name, A::name_prefix())
+            || starts_with_and_has_id(name, B::name_prefix())
     }
 }
 
 impl<A: NameTemplate, B: NameTemplate, C: NameTemplate> NameTarget for (A, B, C) {
     fn validate_name(name: &str) -> bool {
-        name.starts_with(A::name_prefix())
-            || name.starts_with(B::name_prefix())
-            || name.starts_with(C::name_prefix())
+        starts_with_and_has_id(name, A::name_prefix())
+            || starts_with_and_has_id(name, B::name_prefix())
+            || starts_with_and_has_id(name, C::name_prefix())
     }
 }
 
 impl NameTarget for () {
     fn validate_name(name: &str) -> bool {
-        name.contains('/')
+        match name.find('/') {
+            Some(pos) => pos > 0 && pos < name.len() - 1,
+            None => false,
+        }
     }
 }
 
@@ -631,6 +639,15 @@ mod tests {
 
         let invalid: Name<()> = Name::new("no-slash");
         assert!(!invalid.validate());
+
+        let slash_only: Name<()> = Name::new("/");
+        assert!(!slash_only.validate(), "bare slash should fail");
+
+        let leading_slash: Name<()> = Name::new("/trailing");
+        assert!(!leading_slash.validate(), "leading slash with nothing before should fail");
+
+        let trailing_slash: Name<()> = Name::new("trailing/");
+        assert!(!trailing_slash.validate(), "trailing slash with nothing after should fail");
     }
 
     #[test]

@@ -194,6 +194,9 @@ mod tests {
 
         let empty: Name<TestUser> = Name::default();
         assert!(!empty.validate(), "empty name should fail");
+
+        let prefix_only: Name<TestUser> = Name::new("auth/users/");
+        assert!(!prefix_only.validate(), "prefix-only with empty resource id should fail");
     }
 
     #[test]
@@ -233,6 +236,15 @@ mod tests {
     fn name_tuple_reject_wrong_prefix() {
         let name: Name<(TestUser, TestDevice)> = Name::new("pms/batches/b1");
         assert!(!name.validate(), "batch prefix should not match (User, Device)");
+    }
+
+    #[test]
+    fn name_tuple_reject_prefix_only() {
+        let user_prefix: Name<(TestUser, TestDevice)> = Name::new("auth/users/");
+        assert!(!user_prefix.validate(), "user prefix-only should fail");
+
+        let device_prefix: Name<(TestUser, TestDevice)> = Name::new("pms/devices/");
+        assert!(!device_prefix.validate(), "device prefix-only should fail");
     }
 
     #[test]
@@ -628,6 +640,7 @@ mod tests {
             ("bare-string", "bare string with no structure"),
             ("auth/groups/g1", "valid path but wrong resource type"),
             ("AUTH/USERS/u1", "case-sensitive prefix mismatch"),
+            ("auth/users/", "prefix-only with empty resource id"),
         ];
 
         for (i, (bad_owner, desc)) in bad_owners.iter().enumerate() {
