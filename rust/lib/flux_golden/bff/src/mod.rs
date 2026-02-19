@@ -392,16 +392,24 @@ impl TwitterBff {
         store.set(InboxState::PATH, InboxState {
             messages: vec![], unread_count: 0, loading: true, error: None,
         });
-        if let Ok(resp) = self.client.inbox().await {
-            let msgs: Vec<InboxMessage> = resp.messages.iter().map(|m| InboxMessage {
-                id: m.id.clone(), kind: m.kind.clone(),
-                title: m.title.clone(), body: m.body.clone(),
-                read: m.read, created_at: m.created_at.clone(),
-            }).collect();
-            let unread = msgs.iter().filter(|m| !m.read).count();
-            store.set(InboxState::PATH, InboxState {
-                messages: msgs, unread_count: unread, loading: false, error: None,
-            });
+        match self.client.inbox().await {
+            Ok(resp) => {
+                let msgs: Vec<InboxMessage> = resp.messages.iter().map(|m| InboxMessage {
+                    id: m.id.clone(), kind: m.kind.clone(),
+                    title: m.title.clone(), body: m.body.clone(),
+                    read: m.read, created_at: m.created_at.clone(),
+                }).collect();
+                let unread = msgs.iter().filter(|m| !m.read).count();
+                store.set(InboxState::PATH, InboxState {
+                    messages: msgs, unread_count: unread, loading: false, error: None,
+                });
+            }
+            Err(e) => {
+                store.set(InboxState::PATH, InboxState {
+                    messages: vec![], unread_count: 0, loading: false,
+                    error: Some(e.to_string()),
+                });
+            }
         }
     }
 
