@@ -4,6 +4,7 @@ use serde::{Deserialize, Serialize};
 /// In-app inbox state — messages for the current user.
 #[state("inbox/state")]
 #[derive(Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InboxState {
     pub messages: Vec<InboxMessage>,
     pub unread_count: usize,
