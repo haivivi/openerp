@@ -34,6 +34,7 @@ pub mod app {
         pub author_display_name: Option<String>,
         pub author_avatar: Option<String>,
         pub content: String,
+        pub image_url: Option<String>,
         pub like_count: u32,
         pub liked_by_me: bool,
         pub reply_count: u32,
@@ -179,6 +180,18 @@ pub mod app {
     pub struct SearchRequest {
         pub query: String,
     }
+
+    /// Upload an image attachment. Returns the URL.
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct UploadResponse {
+        pub url: String,
+        pub size: u64,
+    }
+
+    /// Upload image for a tweet.
+    #[action(method = "POST", path = "/upload")]
+    pub type Upload = fn() -> UploadResponse;
 
     /// Search users and tweets.
     #[action(method = "POST", path = "/search")]

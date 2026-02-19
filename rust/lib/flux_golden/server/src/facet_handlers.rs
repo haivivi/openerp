@@ -28,6 +28,8 @@ pub struct FacetStateInner {
     pub follows: KvOps<Follow>,
     pub jwt: JwtService,
     pub i18n: Box<dyn Localizer>,
+    pub blobs: Arc<dyn openerp_blob::BlobStore>,
+    pub blob_base_url: String,
 }
 
 pub type FacetState = Arc<FacetStateInner>;
@@ -66,6 +68,7 @@ fn to_app_tweet(t: &Tweet, uid: &str, state: &FacetStateInner) -> AppTweet {
         author_display_name: author.as_ref().and_then(|u| u.display_name.clone()),
         author_avatar: author.as_ref().and_then(|u| u.avatar.as_ref().map(|a| a.to_string())),
         content: t.content.clone(),
+        image_url: t.image_url.as_ref().map(|u| u.to_string()),
         like_count: t.like_count,
         liked_by_me: liked,
         reply_count: t.reply_count,
@@ -180,6 +183,7 @@ pub async fn create_tweet(
         id: Id::default(),
         author_id: Id::new(&uid),
         content: req.content,
+        image_url: None,
         like_count: 0, reply_count: 0,
         reply_to_id: req.reply_to_id.map(|s| Id::new(&s)),
         display_name: None, description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
@@ -388,6 +392,33 @@ pub async fn search(
     Ok(Json(SearchResponse { users, tweets }))
 }
 
+/// POST /upload — upload image, returns URL.
+pub async fn upload_image(
+    headers: HeaderMap,
+    State(state): State<FacetState>,
+    body: axum::body::Bytes,
+) -> Result<Json<UploadResponse>, ServiceError> {
+    let uid = current_user(&headers, &state)?;
+
+    if body.is_empty() {
+        return Err(ServiceError::Validation("empty file".into()));
+    }
+    // Max 5MB.
+    if body.len() > 5 * 1024 * 1024 {
+        return Err(ServiceError::Validation("file exceeds 5MB limit".into()));
+    }
+
+    let key = format!("uploads/{}/{}.jpg", uid, uuid::Uuid::new_v4().to_string().replace('-', ""));
+    state.blobs.put(&key, &body)
+        .map_err(|e| ServiceError::Internal(e.to_string()))?;
+
+    let url = format!("{}/blobs/{}", state.blob_base_url, key);
+    Ok(Json(UploadResponse {
+        url,
+        size: body.len() as u64,
+    }))
+}
+
 /// Build the facet router.
 pub fn facet_router(state: FacetState) -> axum::Router {
     use axum::routing::{get, post, put, delete};
@@ -402,6 +433,7 @@ pub fn facet_router(state: FacetState) -> axum::Router {
         .route("/users/{id}/follow", post(follow_user).delete(unfollow_user))
         .route("/users/{id}/profile", post(user_profile))
         .route("/search", post(search))
+        .route("/upload", post(upload_image))
         .with_state(state)
 }
 
@@ -438,6 +470,11 @@ mod tests {
             description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
         }).unwrap();
 
+        let blob_dir = dir.path().join("blobs");
+        std::fs::create_dir_all(&blob_dir).unwrap();
+        let blobs: Arc<dyn openerp_blob::BlobStore> = Arc::new(
+            openerp_blob::FileStore::open(&blob_dir).unwrap(),
+        );
         let state = Arc::new(FacetStateInner {
             users: KvOps::new(kv.clone()),
             tweets: KvOps::new(kv.clone()),
@@ -445,6 +482,8 @@ mod tests {
             follows: KvOps::new(kv.clone()),
             jwt: jwt.clone(),
             i18n: Box::new(crate::server::i18n::DefaultLocalizer),
+            blobs,
+            blob_base_url: "http://test".to_string(),
         });
         let router = facet_router(state);
         // Leak tempdir to keep DB alive.
@@ -876,6 +915,55 @@ mod tests {
         // Should be 409 Conflict (from KvOps or our check).
         assert!(s == StatusCode::CONFLICT || s == StatusCode::INTERNAL_SERVER_ERROR,
             "Expected conflict, got {} body: {:?}", s, body);
+    }
+
+    // ── File Upload ──
+
+    #[tokio::test]
+    async fn upload_image() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        let image_data = vec![0xFFu8, 0xD8, 0xFF, 0xE0]; // fake JPEG header
+        let req = Request::builder()
+            .method("POST")
+            .uri("/upload")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::from(image_data))
+            .unwrap();
+        let resp = r.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::OK);
+        let body = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let json: serde_json::Value = serde_json::from_slice(&body).unwrap();
+        assert!(json["url"].as_str().unwrap().contains("/blobs/uploads/alice/"));
+        assert_eq!(json["size"], 4);
+    }
+
+    #[tokio::test]
+    async fn upload_empty_file_rejected() {
+        let (r, jwt) = setup();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        let req = Request::builder()
+            .method("POST")
+            .uri("/upload")
+            .header("authorization", format!("Bearer {}", token))
+            .body(Body::empty())
+            .unwrap();
+        let resp = r.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::BAD_REQUEST);
+    }
+
+    #[tokio::test]
+    async fn upload_without_auth_rejected() {
+        let (r, _) = setup();
+        let req = Request::builder()
+            .method("POST")
+            .uri("/upload")
+            .body(Body::from(vec![1, 2, 3]))
+            .unwrap();
+        let resp = r.clone().oneshot(req).await.unwrap();
+        assert_eq!(resp.status(), StatusCode::UNAUTHORIZED);
     }
 
     #[tokio::test]

@@ -16,6 +16,7 @@ rust_library(
         "//rust/lib/dsl/client",
         "//rust/lib/dsl/store",
         "//rust/lib/dsl/types",
+        "//rust/lib/blob",
         "//rust/lib/core",
         "//rust/lib/kv",
         "@crates//:axum",

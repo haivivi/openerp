@@ -159,6 +159,12 @@ async fn start_embedded_server() -> (String, TwitterBff) {
     let twitter_admin = flux_golden::server::admin_router(kv.clone(), auth);
 
     // Build facet router (for app).
+    let blob_dir = dir.path().join("blobs");
+    std::fs::create_dir_all(&blob_dir).ok();
+    let blobs: Arc<dyn openerp_blob::BlobStore> = Arc::new(
+        openerp_blob::FileStore::open(&blob_dir).unwrap(),
+    );
+
     let facet_state = Arc::new(flux_golden::server::facet_handlers::FacetStateInner {
         users: openerp_store::KvOps::new(kv.clone()),
         tweets: openerp_store::KvOps::new(kv.clone()),
@@ -166,6 +172,8 @@ async fn start_embedded_server() -> (String, TwitterBff) {
         follows: openerp_store::KvOps::new(kv.clone()),
         jwt: flux_golden::server::jwt::JwtService::golden_test(),
         i18n: Box::new(flux_golden::server::i18n::DefaultLocalizer),
+        blobs,
+        blob_base_url: server_url.clone(),
     });
     let facet_router = flux_golden::server::facet_handlers::facet_router(facet_state);
 
@@ -279,6 +287,7 @@ fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
         tweets_ops.save_new(Tweet {
             id: Id::default(), author_id: Id::new(author),
             content: content.into(),
+            image_url: None,
             like_count: 0, reply_count: 0, reply_to_id: None,
             display_name: None, description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
         }).unwrap();

@@ -7,6 +7,7 @@ pub struct Tweet {
     pub id: Id,
     pub author_id: Id,
     pub content: String,
+    pub image_url: Option<Url>,
     pub like_count: u32,
     pub reply_count: u32,
     pub reply_to_id: Option<Id>,
