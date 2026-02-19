@@ -211,6 +211,7 @@ pub mod app {
 
     /// Inbox response — user's messages.
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
     pub struct InboxResponse {
         pub messages: Vec<AppMessage>,
         pub unread_count: usize,

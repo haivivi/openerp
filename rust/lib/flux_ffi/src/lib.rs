@@ -326,6 +326,61 @@ fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
         }
         std::thread::sleep(std::time::Duration::from_millis(2));
     }
+
+    // Seed messages (站内信) — LocalizedText demo.
+    let msgs_ops = KvOps::<Message>::new(kv.clone());
+
+    let mut t1 = LocalizedText::new();
+    t1.set("en", "Welcome to TwitterFlux!");
+    t1.set("zh-CN", "欢迎来到 TwitterFlux！");
+    t1.set("ja", "TwitterFlux へようこそ！");
+    t1.set("es", "¡Bienvenido a TwitterFlux!");
+    let mut b1 = LocalizedText::new();
+    b1.set("en", "Thanks for joining! Follow some users and post your first tweet.");
+    b1.set("zh-CN", "感谢加入！快去关注用户，发你的第一条推文吧！");
+    b1.set("ja", "ご参加ありがとうございます！ユーザーをフォローして最初のツイートを！");
+    b1.set("es", "¡Gracias por unirte! Sigue a usuarios y publica tu primer tweet.");
+    msgs_ops.save_new(Message {
+        id: Id::default(), kind: "broadcast".into(),
+        sender_id: None, recipient_id: None,
+        title: t1, body: b1, read: false,
+        display_name: None, description: None, metadata: None,
+        created_at: DateTime::default(), updated_at: DateTime::default(),
+    }).unwrap();
+
+    let mut t2 = LocalizedText::new();
+    t2.set("en", "New Feature: Multi-language Support");
+    t2.set("zh-CN", "新功能：多语言支持");
+    t2.set("ja", "新機能：多言語サポート");
+    t2.set("es", "Nueva función: Soporte multilingüe");
+    let mut b2 = LocalizedText::new();
+    b2.set("en", "Switch between English, Chinese, Japanese and Spanish in Settings.");
+    b2.set("zh-CN", "在设置中切换英文、中文、日文和西班牙文。");
+    b2.set("ja", "設定から英語・中国語・日本語・スペイン語を切り替えられます。");
+    b2.set("es", "Cambia entre inglés, chino, japonés y español en Configuración.");
+    msgs_ops.save_new(Message {
+        id: Id::default(), kind: "system".into(),
+        sender_id: None, recipient_id: None,
+        title: t2, body: b2, read: false,
+        display_name: None, description: None, metadata: None,
+        created_at: DateTime::default(), updated_at: DateTime::default(),
+    }).unwrap();
+
+    let mut t3 = LocalizedText::en("Your account has been verified");
+    t3.set("zh-CN", "你的账号已通过认证");
+    t3.set("ja", "アカウントが認証されました");
+    t3.set("es", "Tu cuenta ha sido verificada");
+    let mut b3 = LocalizedText::en("Congratulations! You now have access to the API dashboard.");
+    b3.set("zh-CN", "恭喜！你现在可以访问 API 管理面板了。");
+    b3.set("ja", "おめでとうございます！APIダッシュボードにアクセスできます。");
+    b3.set("es", "¡Felicitaciones! Ahora tienes acceso al panel de API.");
+    msgs_ops.save_new(Message {
+        id: Id::default(), kind: "personal".into(),
+        sender_id: None, recipient_id: Some(Id::new("alice")),
+        title: t3, body: b3, read: false,
+        display_name: None, description: None, metadata: None,
+        created_at: DateTime::default(), updated_at: DateTime::default(),
+    }).unwrap();
 }
 
 // ============================================================================

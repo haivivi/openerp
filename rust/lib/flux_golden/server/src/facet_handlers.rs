@@ -1040,11 +1040,193 @@ mod tests {
         let (r, jwt) = setup();
         let token = jwt.issue("alice", "Alice").unwrap();
 
-        // Update without updatedAt → no locking check, always succeeds.
         let (s, _) = call(&r, "PUT", "/me/profile", Some(&token),
             Some(serde_json::json!({
                 "displayName": "No Lock", "bio": "",
             }))).await;
         assert_eq!(s, StatusCode::OK);
+    }
+
+    // ── Inbox ──
+
+    fn seed_messages(kv: &Arc<dyn openerp_kv::KVStore>) {
+        use openerp_types::LocalizedText;
+        let ops = KvOps::<crate::server::model::Message>::new(kv.clone());
+
+        let mut t1 = LocalizedText::en("Welcome!");
+        t1.set("zh-CN", "欢迎！");
+        t1.set("ja", "ようこそ！");
+        t1.set("es", "¡Bienvenido!");
+        let mut b1 = LocalizedText::en("Welcome to the app.");
+        b1.set("zh-CN", "欢迎使用本应用。");
+        ops.save_new(crate::server::model::Message {
+            id: Id::default(), kind: "broadcast".into(),
+            sender_id: None, recipient_id: None,
+            title: t1, body: b1, read: false,
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        }).unwrap();
+
+        let mut t2 = LocalizedText::en("Verified");
+        t2.set("zh-CN", "已认证");
+        let b2 = LocalizedText::en("Your account is verified.");
+        ops.save_new(crate::server::model::Message {
+            id: Id::default(), kind: "personal".into(),
+            sender_id: None, recipient_id: Some(Id::new("alice")),
+            title: t2, body: b2, read: false,
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        }).unwrap();
+    }
+
+    fn setup_with_messages() -> (axum::Router, JwtService, Arc<dyn openerp_kv::KVStore>) {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("test.redb")).unwrap(),
+        );
+        let jwt = JwtService::golden_test();
+        KvOps::<User>::new(kv.clone()).save_new(User {
+            id: Id::default(), username: "alice".into(),
+            bio: None, avatar: None,
+            follower_count: 0, following_count: 0, tweet_count: 0,
+            display_name: Some("Alice".into()),
+            description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
+        }).unwrap();
+        seed_messages(&kv);
+
+        let blob_dir = dir.path().join("blobs");
+        std::fs::create_dir_all(&blob_dir).unwrap();
+        let blobs: Arc<dyn openerp_blob::BlobStore> = Arc::new(
+            openerp_blob::FileStore::open(&blob_dir).unwrap(),
+        );
+        let state = Arc::new(FacetStateInner {
+            users: KvOps::new(kv.clone()),
+            tweets: KvOps::new(kv.clone()),
+            likes: KvOps::new(kv.clone()),
+            follows: KvOps::new(kv.clone()),
+            messages: KvOps::new(kv.clone()),
+            jwt: jwt.clone(),
+            i18n: Box::new(crate::server::i18n::DefaultLocalizer),
+            blobs,
+            blob_base_url: "http://test".to_string(),
+        });
+        let router = facet_router(state);
+        std::mem::forget(dir);
+        (router, jwt, kv)
+    }
+
+    async fn call_with_lang(
+        router: &axum::Router,
+        method: &str,
+        uri: &str,
+        token: Option<&str>,
+        lang: &str,
+        body: Option<serde_json::Value>,
+    ) -> (StatusCode, serde_json::Value) {
+        let mut builder = Request::builder()
+            .method(method)
+            .uri(uri)
+            .header("accept-language", lang);
+        if let Some(t) = token {
+            builder = builder.header("authorization", format!("Bearer {}", t));
+        }
+        if body.is_some() {
+            builder = builder.header("content-type", "application/json");
+        }
+        let body = match body {
+            Some(v) => Body::from(serde_json::to_string(&v).unwrap()),
+            None => Body::empty(),
+        };
+        let req = builder.body(body).unwrap();
+        let resp = router.clone().oneshot(req).await.unwrap();
+        let status = resp.status();
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+        let json = if bytes.is_empty() {
+            serde_json::json!(null)
+        } else {
+            serde_json::from_slice(&bytes).unwrap_or(serde_json::json!(null))
+        };
+        (status, json)
+    }
+
+    #[tokio::test]
+    async fn inbox_returns_messages_in_english() {
+        let (r, jwt, _) = setup_with_messages();
+        let token = jwt.issue("alice", "Alice").unwrap();
+        let (s, body) = call_with_lang(&r, "POST", "/inbox", Some(&token), "en", None).await;
+        assert_eq!(s, StatusCode::OK);
+        let msgs = body["messages"].as_array().unwrap();
+        assert_eq!(msgs.len(), 2);
+        let titles: Vec<&str> = msgs.iter().map(|m| m["title"].as_str().unwrap()).collect();
+        assert!(titles.contains(&"Welcome!"), "expected Welcome!, got {:?}", titles);
+        assert!(titles.contains(&"Verified"), "expected Verified, got {:?}", titles);
+        assert_eq!(body["unreadCount"].as_u64().unwrap(), 2);
+    }
+
+    #[tokio::test]
+    async fn inbox_returns_messages_in_chinese() {
+        let (r, jwt, _) = setup_with_messages();
+        let token = jwt.issue("alice", "Alice").unwrap();
+        let (s, body) = call_with_lang(&r, "POST", "/inbox", Some(&token), "zh-CN", None).await;
+        assert_eq!(s, StatusCode::OK);
+        let msgs = body["messages"].as_array().unwrap();
+        let titles: Vec<&str> = msgs.iter().map(|m| m["title"].as_str().unwrap()).collect();
+        assert!(titles.contains(&"欢迎！"), "got {:?}", titles);
+        assert!(titles.contains(&"已认证"), "got {:?}", titles);
+        let broadcast = msgs.iter().find(|m| m["kind"] == "broadcast").unwrap();
+        assert_eq!(broadcast["body"].as_str().unwrap(), "欢迎使用本应用。");
+    }
+
+    #[tokio::test]
+    async fn inbox_japanese_fallback_to_english() {
+        let (r, jwt, _) = setup_with_messages();
+        let token = jwt.issue("alice", "Alice").unwrap();
+        let (s, body) = call_with_lang(&r, "POST", "/inbox", Some(&token), "ja", None).await;
+        assert_eq!(s, StatusCode::OK);
+        let msgs = body["messages"].as_array().unwrap();
+        let broadcast = msgs.iter().find(|m| m["kind"] == "broadcast").unwrap();
+        assert_eq!(broadcast["title"].as_str().unwrap(), "ようこそ！");
+        let personal = msgs.iter().find(|m| m["kind"] == "personal").unwrap();
+        // No ja translation → falls back to en.
+        assert_eq!(personal["title"].as_str().unwrap(), "Verified");
+    }
+
+    #[tokio::test]
+    async fn inbox_bob_only_sees_broadcast() {
+        let (r, jwt, _) = setup_with_messages();
+        let token = jwt.issue("bob", "Bob").unwrap();
+        let (s, body) = call_with_lang(&r, "POST", "/inbox", Some(&token), "en", None).await;
+        assert_eq!(s, StatusCode::OK);
+        let msgs = body["messages"].as_array().unwrap();
+        // bob gets only broadcast (personal is for alice).
+        assert_eq!(msgs.len(), 1);
+        assert_eq!(msgs[0]["title"].as_str().unwrap(), "Welcome!");
+    }
+
+    #[tokio::test]
+    async fn mark_read_updates_message() {
+        let (r, jwt, _) = setup_with_messages();
+        let token = jwt.issue("alice", "Alice").unwrap();
+
+        let (_, body) = call_with_lang(&r, "POST", "/inbox", Some(&token), "en", None).await;
+        let msgs = body["messages"].as_array().unwrap();
+        let broadcast = msgs.iter().find(|m| m["kind"] == "broadcast").unwrap();
+        let msg_id = broadcast["id"].as_str().unwrap().to_string();
+        assert_eq!(broadcast["read"].as_bool().unwrap(), false);
+
+        let uri = format!("/messages/{}/read", msg_id);
+        let (s, msg) = call_with_lang(&r, "POST", &uri, Some(&token), "en", None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(msg["read"].as_bool().unwrap(), true);
+
+        let (_, body2) = call_with_lang(&r, "POST", "/inbox", Some(&token), "en", None).await;
+        assert_eq!(body2["unreadCount"].as_u64().unwrap(), 1);
+    }
+
+    #[tokio::test]
+    async fn inbox_without_auth_rejected() {
+        let (r, _, _) = setup_with_messages();
+        let (s, _) = call_with_lang(&r, "POST", "/inbox", None, "en", None).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
     }
 }
