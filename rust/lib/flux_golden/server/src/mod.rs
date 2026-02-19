@@ -52,6 +52,10 @@ pub fn admin_router(
         KvOps::<Follow>::new(kv.clone()), auth.clone(),
         "twitter", "follows", "follow",
     ));
+    router = router.merge(admin_kv_router(
+        KvOps::<Message>::new(kv.clone()), auth.clone(),
+        "twitter", "messages", "message",
+    ));
 
     router
 }
@@ -71,6 +75,8 @@ pub fn schema_def() -> ModuleDef {
                 .with_desc("Like records"),
             ResourceDef::from_ir("twitter", Follow::__dsl_ir())
                 .with_desc("Follow relationships"),
+            ResourceDef::from_ir("twitter", Message::__dsl_ir())
+                .with_desc("In-app messages (站内信)"),
         ],
         hierarchy: hierarchy(),
         enums: vec![],
@@ -98,5 +104,6 @@ fn hierarchy() -> Vec<HierarchyNode> {
                 HierarchyNode::leaf("like", "Likes", "heart", "Like records"),
             ],
         },
+        HierarchyNode::leaf("message", "Messages", "mail", "In-app messages"),
     ]
 }

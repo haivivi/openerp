@@ -387,6 +387,41 @@ impl TwitterBff {
         }
     }
 
+    #[handle(InboxLoadReq)]
+    pub async fn handle_inbox_load(&self, _req: &InboxLoadReq, store: &StateStore) {
+        store.set(InboxState::PATH, InboxState {
+            messages: vec![], unread_count: 0, loading: true, error: None,
+        });
+        if let Ok(resp) = self.client.inbox().await {
+            let msgs: Vec<InboxMessage> = resp.messages.iter().map(|m| InboxMessage {
+                id: m.id.clone(), kind: m.kind.clone(),
+                title: m.title.clone(), body: m.body.clone(),
+                read: m.read, created_at: m.created_at.clone(),
+            }).collect();
+            let unread = msgs.iter().filter(|m| !m.read).count();
+            store.set(InboxState::PATH, InboxState {
+                messages: msgs, unread_count: unread, loading: false, error: None,
+            });
+        }
+    }
+
+    #[handle(InboxMarkReadReq)]
+    pub async fn handle_inbox_mark_read(&self, req: &InboxMarkReadReq, store: &StateStore) {
+        let _ = self.client.mark_read(&req.message_id).await;
+        // Reload inbox.
+        if let Ok(resp) = self.client.inbox().await {
+            let msgs: Vec<InboxMessage> = resp.messages.iter().map(|m| InboxMessage {
+                id: m.id.clone(), kind: m.kind.clone(),
+                title: m.title.clone(), body: m.body.clone(),
+                read: m.read, created_at: m.created_at.clone(),
+            }).collect();
+            let unread = msgs.iter().filter(|m| !m.read).count();
+            store.set(InboxState::PATH, InboxState {
+                messages: msgs, unread_count: unread, loading: false, error: None,
+            });
+        }
+    }
+
     #[handle(ChangePasswordReq)]
     pub async fn handle_change_password(&self, req: &ChangePasswordReq, store: &StateStore) {
         if req.new_password.len() < 6 {

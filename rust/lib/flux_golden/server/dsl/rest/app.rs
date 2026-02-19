@@ -56,6 +56,18 @@ pub mod app {
         pub followed_by_me: bool,
     }
 
+    /// An in-app message (站内信).
+    /// The title/body are pre-resolved to the user's language by the handler.
+    #[resource(path = "/messages", pk = "id")]
+    pub struct AppMessage {
+        pub id: String,
+        pub kind: String,
+        pub title: String,
+        pub body: String,
+        pub read: bool,
+        pub created_at: String,
+    }
+
     // ── Request/Response types ────────────────────────────────────
 
     /// Login request.
@@ -196,4 +208,20 @@ pub mod app {
     /// Search users and tweets.
     #[action(method = "POST", path = "/search")]
     pub type Search = fn(req: SearchRequest) -> SearchResponse;
+
+    /// Inbox response — user's messages.
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct InboxResponse {
+        pub messages: Vec<AppMessage>,
+        pub unread_count: usize,
+    }
+
+    /// Get inbox (messages for current user).
+    /// Language code in header `Accept-Language` selects LocalizedText field.
+    #[action(method = "POST", path = "/inbox")]
+    pub type Inbox = fn() -> InboxResponse;
+
+    /// Mark a message as read.
+    #[action(method = "POST", path = "/messages/{id}/read")]
+    pub type MarkRead = fn(id: String) -> AppMessage;
 }

@@ -274,6 +274,69 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
         }
     }
 
-    info!("Seeded: {} users, {} tweets (+ {} replies), {} likes, {} follows",
+    // ── Messages (站内信) ── demonstrate LocalizedText
+    let messages_ops = KvOps::<Message>::new(kv.clone());
+
+    let mut welcome_title = LocalizedText::new();
+    welcome_title.set("en", "Welcome to TwitterFlux!");
+    welcome_title.set("zh-CN", "欢迎来到 TwitterFlux！");
+    welcome_title.set("ja", "TwitterFlux へようこそ！");
+    welcome_title.set("es", "¡Bienvenido a TwitterFlux!");
+
+    let mut welcome_body = LocalizedText::new();
+    welcome_body.set("en", "Thanks for joining our community. Start by following some users and posting your first tweet!");
+    welcome_body.set("zh-CN", "感谢加入我们的社区。快去关注一些用户，发你的第一条推文吧！");
+    welcome_body.set("ja", "コミュニティへの参加ありがとうございます。ユーザーをフォローして、最初のツイートを投稿しましょう！");
+    welcome_body.set("es", "Gracias por unirte a nuestra comunidad. ¡Empieza siguiendo a algunos usuarios y publicando tu primer tweet!");
+
+    // Broadcast to all users
+    let _ = messages_ops.save_new(Message {
+        id: Id::default(), kind: "broadcast".into(),
+        sender_id: None, recipient_id: None,
+        title: welcome_title, body: welcome_body, read: false,
+        display_name: None, description: None, metadata: None,
+        created_at: DateTime::default(), updated_at: DateTime::default(),
+    });
+
+    let mut update_title = LocalizedText::new();
+    update_title.set("en", "New Feature: Multi-language Support");
+    update_title.set("zh-CN", "新功能：多语言支持");
+    update_title.set("ja", "新機能：多言語サポート");
+    update_title.set("es", "Nueva función: Soporte multilingüe");
+
+    let mut update_body = LocalizedText::new();
+    update_body.set("en", "You can now switch between English, Chinese, Japanese, and Spanish in Settings. Your messages will be displayed in your preferred language.");
+    update_body.set("zh-CN", "现在你可以在设置中切换英文、中文、日文和西班牙文。站内信会以你选择的语言显示。");
+    update_body.set("ja", "設定から英語、中国語、日本語、スペイン語を切り替えられるようになりました。メッセージは選択した言語で表示されます。");
+    update_body.set("es", "Ahora puedes cambiar entre inglés, chino, japonés y español en Configuración. Los mensajes se mostrarán en tu idioma preferido.");
+
+    let _ = messages_ops.save_new(Message {
+        id: Id::default(), kind: "system".into(),
+        sender_id: None, recipient_id: None,
+        title: update_title, body: update_body, read: false,
+        display_name: None, description: None, metadata: None,
+        created_at: DateTime::default(), updated_at: DateTime::default(),
+    });
+
+    // Personal message to alice
+    let mut personal_title = LocalizedText::en("Your account has been verified");
+    personal_title.set("zh-CN", "你的账号已通过认证");
+    personal_title.set("ja", "アカウントが認証されました");
+    personal_title.set("es", "Tu cuenta ha sido verificada");
+
+    let mut personal_body = LocalizedText::en("Congratulations! Your developer account has been verified. You now have access to the API dashboard.");
+    personal_body.set("zh-CN", "恭喜！你的开发者账号已通过认证。现在你可以访问 API 管理面板了。");
+    personal_body.set("ja", "おめでとうございます！開発者アカウントが認証されました。APIダッシュボードにアクセスできるようになりました。");
+    personal_body.set("es", "¡Felicitaciones! Tu cuenta de desarrollador ha sido verificada. Ahora tienes acceso al panel de API.");
+
+    let _ = messages_ops.save_new(Message {
+        id: Id::default(), kind: "personal".into(),
+        sender_id: None, recipient_id: Some(Id::new("alice")),
+        title: personal_title, body: personal_body, read: false,
+        display_name: None, description: None, metadata: None,
+        created_at: DateTime::default(), updated_at: DateTime::default(),
+    });
+
+    info!("Seeded: {} users, {} tweets (+ {} replies), {} likes, {} follows, 3 messages",
         users.len(), tweets_data.len(), replies.len(), likes.len(), follow_pairs.len());
 }

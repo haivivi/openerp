@@ -105,6 +105,18 @@ impl UiStrings {
         m.insert("ui/search/tweets_section", ["Tweets", "推文", "ツイート", "Tweets"]);
         m.insert("ui/search/no_results", ["No results", "没有结果", "結果なし", "Sin resultados"]);
 
+        // Language
+        m.insert("ui/me/language", ["Language", "语言", "言語", "Idioma"]);
+        m.insert("ui/lang/current", ["English", "中文", "日本語", "Español"]);
+        m.insert("ui/lang/code", ["en", "zh-CN", "ja", "es"]);
+
+        // Inbox
+        m.insert("ui/tab/inbox", ["Inbox", "站内信", "受信箱", "Bandeja"]);
+        m.insert("ui/inbox/title", ["Inbox", "站内信", "受信箱", "Bandeja de entrada"]);
+        m.insert("ui/inbox/empty", ["No messages", "没有消息", "メッセージはありません", "Sin mensajes"]);
+        m.insert("ui/inbox/mark_read", ["Mark as read", "标记已读", "既読にする", "Marcar como leído"]);
+        m.insert("ui/inbox/unread", ["Unread", "未读", "未読", "No leído"]);
+
         // Common
         m.insert("ui/common/loading", ["Loading...", "加载中...", "読み込み中...", "Cargando..."]);
         m.insert("ui/common/error", ["Something went wrong", "出了点问题", "エラーが発生しました", "Algo salió mal"]);

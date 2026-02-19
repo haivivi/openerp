@@ -70,6 +70,14 @@ struct MeView: View {
                 NavigationLink(destination: ChangePasswordView()) {
                     Label(store.t("ui/me/change_password"), systemImage: "lock")
                 }
+                NavigationLink(destination: LanguagePickerView()) {
+                    HStack {
+                        Label(store.t("ui/me/language"), systemImage: "globe")
+                        Spacer()
+                        Text(store.t("ui/lang/current"))
+                            .foregroundColor(.secondary)
+                    }
+                }
             }
 
             Section(store.t("ui/me/developer")) {
@@ -218,5 +226,41 @@ struct ChangePasswordView: View {
             "oldPassword": oldPassword,
             "newPassword": newPassword,
         ])
+    }
+}
+
+// MARK: - Language Picker
+
+struct LanguagePickerView: View {
+    @EnvironmentObject var store: FluxStore
+
+    private let languages: [(code: String, flag: String, name: String)] = [
+        ("en", "🇺🇸", "English"),
+        ("zh-CN", "🇨🇳", "中文"),
+        ("ja", "🇯🇵", "日本語"),
+        ("es", "🇪🇸", "Español"),
+    ]
+
+    var body: some View {
+        List {
+            ForEach(languages, id: \.code) { lang in
+                Button {
+                    store.setLocale(lang.code)
+                } label: {
+                    HStack {
+                        Text(lang.flag)
+                            .font(.title2)
+                        Text(lang.name)
+                            .foregroundColor(.primary)
+                        Spacer()
+                        if store.t("ui/lang/code") == lang.code {
+                            Image(systemName: "checkmark")
+                                .foregroundColor(.blue)
+                        }
+                    }
+                }
+            }
+        }
+        .navigationTitle(store.t("ui/me/language"))
     }
 }

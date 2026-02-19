@@ -104,6 +104,24 @@ struct PasswordState: Codable {
     let error: String?
 }
 
+// MARK: - inbox/state
+
+struct InboxState: Codable {
+    let messages: [InboxMessage]
+    let unreadCount: Int
+    let loading: Bool
+    let error: String?
+}
+
+struct InboxMessage: Codable, Identifiable {
+    let id: String
+    let kind: String
+    let title: String
+    let body: String
+    let read: Bool
+    let createdAt: String
+}
+
 // MARK: - app/route
 
 struct AppRoute: Codable {

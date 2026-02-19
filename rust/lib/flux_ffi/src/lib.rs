@@ -212,6 +212,7 @@ async fn start_embedded_server() -> (String, TwitterBff) {
         tweets: openerp_store::KvOps::new(kv.clone()),
         likes: openerp_store::KvOps::new(kv.clone()),
         follows: openerp_store::KvOps::new(kv.clone()),
+        messages: openerp_store::KvOps::new(kv.clone()),
         jwt: flux_golden::server::jwt::JwtService::golden_test(),
         i18n: Box::new(flux_golden::server::i18n::DefaultLocalizer),
         blobs,
@@ -368,6 +369,10 @@ fn serialize_state(path: &str, value: &StateValue) -> Option<Vec<u8>> {
         return value.downcast_ref::<TweetDetail>()
             .and_then(|v| serde_json::to_vec(v).ok());
     }
+    if path == InboxState::PATH {
+        return value.downcast_ref::<InboxState>()
+            .and_then(|v| serde_json::to_vec(v).ok());
+    }
     None
 }
 
@@ -455,6 +460,14 @@ fn deserialize_request(path: &str, json: &str) -> Option<Arc<dyn Any + Send + Sy
                 Arc::new(ChangePasswordReq {
                     old_password: v["oldPassword"].as_str().unwrap_or("").to_string(),
                     new_password: v["newPassword"].as_str().unwrap_or("").to_string(),
+                }) as Arc<dyn Any + Send + Sync>
+            })
+        }
+        "inbox/load" => Some(Arc::new(InboxLoadReq)),
+        "inbox/mark-read" => {
+            serde_json::from_str::<serde_json::Value>(json).ok().map(|v| {
+                Arc::new(InboxMarkReadReq {
+                    message_id: v["messageId"].as_str().unwrap_or("").to_string(),
                 }) as Arc<dyn Any + Send + Sync>
             })
         }

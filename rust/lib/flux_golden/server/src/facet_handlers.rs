@@ -26,6 +26,7 @@ pub struct FacetStateInner {
     pub tweets: KvOps<Tweet>,
     pub likes: KvOps<Like>,
     pub follows: KvOps<Follow>,
+    pub messages: KvOps<crate::server::model::Message>,
     pub jwt: JwtService,
     pub i18n: Box<dyn Localizer>,
     pub blobs: Arc<dyn openerp_blob::BlobStore>,
@@ -419,6 +420,71 @@ pub async fn upload_image(
     }))
 }
 
+// ── Inbox (站内信) ──
+
+fn lang_from_headers(headers: &HeaderMap) -> String {
+    headers.get("accept-language")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("en")
+        .split(',')
+        .next()
+        .unwrap_or("en")
+        .trim()
+        .to_string()
+}
+
+fn to_app_message(m: &crate::server::model::Message, lang: &str) -> AppMessage {
+    AppMessage {
+        id: m.id.to_string(),
+        kind: m.kind.clone(),
+        title: m.title.get(lang).to_string(),
+        body: m.body.get(lang).to_string(),
+        read: m.read,
+        created_at: m.created_at.to_string(),
+    }
+}
+
+/// POST /inbox — get messages for current user.
+pub async fn get_inbox(
+    headers: HeaderMap,
+    State(state): State<FacetState>,
+) -> Result<Json<InboxResponse>, ServiceError> {
+    let uid = current_user(&headers, &state)?;
+    let lang = lang_from_headers(&headers);
+    let all = state.messages.list()
+        .map_err(|e| ServiceError::Internal(e.to_string()))?;
+
+    let msgs: Vec<AppMessage> = all.iter()
+        .filter(|m| {
+            m.recipient_id.as_ref().map(|r| r.as_str()) == Some(&uid)
+                || m.recipient_id.is_none() // broadcast
+        })
+        .map(|m| to_app_message(m, &lang))
+        .collect();
+
+    let unread = msgs.iter().filter(|m| !m.read).count();
+    Ok(Json(InboxResponse { messages: msgs, unread_count: unread }))
+}
+
+/// POST /messages/{id}/read — mark message as read.
+pub async fn mark_read(
+    headers: HeaderMap,
+    State(state): State<FacetState>,
+    Path(id): Path<String>,
+) -> Result<Json<AppMessage>, ServiceError> {
+    let uid = current_user(&headers, &state)?;
+    let lang = lang_from_headers(&headers);
+    let mut msg = state.messages.get(&id)
+        .map_err(|e| ServiceError::Internal(e.to_string()))?
+        .ok_or_else(|| ServiceError::NotFound("Message not found".into()))?;
+
+    msg.read = true;
+    state.messages.save(msg.clone())
+        .map_err(|e| ServiceError::Internal(e.to_string()))?;
+
+    Ok(Json(to_app_message(&msg, &lang)))
+}
+
 /// Build the facet router.
 pub fn facet_router(state: FacetState) -> axum::Router {
     use axum::routing::{get, post, put, delete};
@@ -434,6 +500,8 @@ pub fn facet_router(state: FacetState) -> axum::Router {
         .route("/users/{id}/profile", post(user_profile))
         .route("/search", post(search))
         .route("/upload", post(upload_image))
+        .route("/inbox", post(get_inbox))
+        .route("/messages/{id}/read", post(mark_read))
         .with_state(state)
 }
 
@@ -480,6 +548,7 @@ mod tests {
             tweets: KvOps::new(kv.clone()),
             likes: KvOps::new(kv.clone()),
             follows: KvOps::new(kv.clone()),
+            messages: KvOps::new(kv.clone()),
             jwt: jwt.clone(),
             i18n: Box::new(crate::server::i18n::DefaultLocalizer),
             blobs,

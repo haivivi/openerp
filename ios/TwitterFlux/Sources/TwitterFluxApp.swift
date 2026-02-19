@@ -69,13 +69,22 @@ struct MainTabView: View {
             .tag(1)
 
             NavigationStack {
+                InboxView()
+            }
+            .tabItem {
+                Image(systemName: "tray.fill")
+                Text(store.t("ui/tab/inbox"))
+            }
+            .tag(2)
+
+            NavigationStack {
                 MeView()
             }
             .tabItem {
                 Image(systemName: "person.fill")
                 Text(store.t("ui/tab/me"))
             }
-            .tag(2)
+            .tag(3)
         }
     }
 }

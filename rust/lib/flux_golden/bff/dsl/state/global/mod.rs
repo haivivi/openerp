@@ -7,6 +7,7 @@
 pub mod app;
 pub mod auth;
 pub mod compose;
+pub mod inbox;
 pub mod profile;
 pub mod search;
 pub mod settings;
@@ -16,6 +17,7 @@ pub mod tweet_detail;
 pub use app::AppRoute;
 pub use auth::{AuthPhase, AuthState, UserProfile};
 pub use compose::ComposeState;
+pub use inbox::{InboxMessage, InboxState};
 pub use profile::ProfilePage;
 pub use search::SearchState;
 pub use settings::{PasswordState, SettingsState};

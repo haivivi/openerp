@@ -68,6 +68,27 @@ impl KvStore for Like {
     }
 }
 
+// ── Message ──
+
+impl KvStore for Message {
+    const KEY: Field = Self::id;
+    fn kv_prefix() -> &'static str { "twitter:message:" }
+    fn key_value(&self) -> String { self.id.to_string() }
+
+    fn before_create(&mut self) {
+        if self.id.is_empty() {
+            self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
+        }
+        let now = chrono::Utc::now().to_rfc3339();
+        if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
+        self.updated_at = DateTime::new(&now);
+    }
+
+    fn before_update(&mut self) {
+        self.updated_at = DateTime::new(&chrono::Utc::now().to_rfc3339());
+    }
+}
+
 // ── Follow ──
 
 impl KvStore for Follow {

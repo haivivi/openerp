@@ -7,8 +7,10 @@ pub mod user;
 pub mod tweet;
 pub mod like;
 pub mod follow;
+pub mod message;
 
 pub use user::User;
 pub use tweet::Tweet;
 pub use like::Like;
 pub use follow::Follow;
+pub use message::Message;
