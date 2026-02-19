@@ -1242,4 +1242,169 @@ mod tests {
         let buf2 = mfg::MfgModel::encode_flatbuffer_list(&items, true);
         assert_eq!(buf1, buf2, "same input should produce same output");
     }
+
+    // =====================================================================
+    // Golden: Handler check — compile-time completeness
+    // =====================================================================
+
+    // Facet with two actions for handler-check testing.
+    #[facet(name = "hc", module = "test")]
+    pub mod handler_check {
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        pub struct RunRequest {
+            pub data: String,
+        }
+
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        pub struct RunResponse {
+            pub ok: bool,
+        }
+
+        #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+        pub struct ResetResponse {
+            pub cleared: u32,
+        }
+
+        #[action(method = "POST", path = "/items/{id}/@run")]
+        pub type Run = fn(id: String, req: RunRequest) -> RunResponse;
+
+        #[action(method = "POST", path = "/items/{id}/@reset")]
+        pub type Reset = fn(id: String) -> ResetResponse;
+    }
+
+    // Register handler implementations via impl_handler!.
+    openerp_macro::impl_handler!(handler_check::Run);
+    openerp_macro::impl_handler!(handler_check::Reset);
+
+    #[test]
+    fn golden_handler_traits_exist() {
+        fn _assert_trait<T: handler_check::__RunHandler>() {}
+        fn _assert_trait2<T: handler_check::__ResetHandler>() {}
+    }
+
+    #[test]
+    fn golden_handler_registry_exists() {
+        let _ = std::mem::size_of::<handler_check::__Handlers>();
+    }
+
+    #[test]
+    fn golden_assert_handlers_compiles() {
+        // __assert_handlers::<__Handlers>() compiles because both
+        // impl_handler! calls above satisfy the marker trait bounds.
+        handler_check::__assert_handlers::<handler_check::__Handlers>();
+    }
+
+    #[test]
+    fn golden_no_handler_check_for_action_free_facet() {
+        // public_org has no actions — no __Handlers or __assert_handlers generated.
+        let ir = public_org::__facet_ir();
+        assert_eq!(ir["actions"].as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn golden_handler_check_coexists_with_client() {
+        // Handler check and client are independent features on the same facet.
+        handler_check::__assert_handlers::<handler_check::__Handlers>();
+        fn _check_client() {
+            let _c = handler_check::HcClient::new(
+                "http://localhost:8080",
+                std::sync::Arc::new(openerp_client::NoAuth),
+            );
+        }
+    }
+
+    // =====================================================================
+    // Golden: Handler check — error detection (negative cases)
+    // =====================================================================
+
+    // Runtime trait-implementation check via autoref specialization.
+    // Inherent method (T: Trait) has priority over autoref fallback.
+    macro_rules! does_impl {
+        ($ty:ty : $trait:path) => {{
+            struct __Probe<T>(std::marker::PhantomData<T>);
+
+            impl<T: $trait> __Probe<T> {
+                fn __check(&self) -> bool { true }
+            }
+
+            trait __Fallback { fn __check(&self) -> bool; }
+            impl<T> __Fallback for &__Probe<T> {
+                fn __check(&self) -> bool { false }
+            }
+
+            (&__Probe::<$ty>(std::marker::PhantomData)).__check()
+        }};
+    }
+
+    // Facet with 3 actions — only 1 handler registered.
+    #[facet(name = "partial", module = "test")]
+    pub mod partial {
+        #[action(method = "POST", path = "/items/@alpha")]
+        pub type Alpha = fn();
+
+        #[action(method = "POST", path = "/items/@beta")]
+        pub type Beta = fn();
+
+        #[action(method = "POST", path = "/items/@gamma")]
+        pub type Gamma = fn();
+    }
+
+    // Register ONLY Alpha. Beta and Gamma are deliberately missing.
+    openerp_macro::impl_handler!(partial::Alpha);
+
+    #[test]
+    fn golden_missing_handler_detected() {
+        assert!(
+            does_impl!(partial::__Handlers : partial::__AlphaHandler),
+            "Alpha was registered via impl_handler!"
+        );
+        assert!(
+            !does_impl!(partial::__Handlers : partial::__BetaHandler),
+            "Beta was NOT registered — should be detected as missing"
+        );
+        assert!(
+            !does_impl!(partial::__Handlers : partial::__GammaHandler),
+            "Gamma was NOT registered — should be detected as missing"
+        );
+    }
+
+    // Facet with actions but ZERO handlers registered.
+    #[facet(name = "empty", module = "test")]
+    pub mod no_handlers {
+        #[action(method = "POST", path = "/items/@ping")]
+        pub type Ping = fn();
+    }
+
+    #[test]
+    fn golden_zero_handlers_detected() {
+        assert!(
+            !does_impl!(no_handlers::__Handlers : no_handlers::__PingHandler),
+            "No impl_handler! was called — Ping should be missing"
+        );
+    }
+
+    #[test]
+    fn golden_complete_handlers_all_pass() {
+        // handler_check has both Run and Reset registered.
+        assert!(does_impl!(handler_check::__Handlers : handler_check::__RunHandler));
+        assert!(does_impl!(handler_check::__Handlers : handler_check::__ResetHandler));
+    }
+
+    #[test]
+    fn golden_assert_fails_when_incomplete() {
+        // partial::__assert_handlers::<partial::__Handlers>() would NOT compile
+        // because __BetaHandler and __GammaHandler are not implemented.
+        // We verify this indirectly: __Handlers satisfies Alpha but not Beta/Gamma.
+        let alpha = does_impl!(partial::__Handlers : partial::__AlphaHandler);
+        let beta = does_impl!(partial::__Handlers : partial::__BetaHandler);
+        let gamma = does_impl!(partial::__Handlers : partial::__GammaHandler);
+
+        assert!(alpha);
+        assert!(!beta);
+        assert!(!gamma);
+        // Since beta=false and gamma=false, the bound
+        //   __Handlers: __AlphaHandler + __BetaHandler + __GammaHandler
+        // is NOT satisfied, so __assert_handlers::<__Handlers>() would
+        // fail to compile — exactly the behavior we want.
+    }
 }

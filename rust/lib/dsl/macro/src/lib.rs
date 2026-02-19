@@ -12,6 +12,7 @@ use syn::parse_macro_input;
 mod enum_impl;
 mod facet;
 mod flatbuf;
+mod handler;
 mod model;
 mod util;
 
@@ -89,10 +90,35 @@ pub fn dsl_enum(attr: TokenStream, item: TokenStream) -> TokenStream {
 /// - Typed HTTP client struct (`MfgClient`) with methods for each resource and action
 ///
 /// Handlers are **not** generated — they remain hand-written.
+/// Use [`impl_handler!`] to bind handlers to actions for compile-time completeness checks.
 #[proc_macro_attribute]
 pub fn facet(attr: TokenStream, item: TokenStream) -> TokenStream {
     let item = parse_macro_input!(item as syn::ItemMod);
     facet::expand(attr.into(), item)
+        .unwrap_or_else(|e| e.to_compile_error().into())
+        .into()
+}
+
+/// Mark that a handler exists for an `#[action]` declaration.
+///
+/// Generates a marker trait impl on the facet's `__Handlers` registry.
+/// When the module calls `__assert_handlers::<__Handlers>()`, all actions
+/// must have a corresponding `impl_handler!` — otherwise compilation fails.
+///
+/// ```ignore
+/// // In facet definition:
+/// #[action(method = "POST", path = "/batches/{id}/@provision")]
+/// pub type Provision = fn(id: String, req: ProvisionRequest) -> ProvisionResponse;
+///
+/// // In handler module — register the handler:
+/// openerp_macro::impl_handler!(mfg::Provision);
+///
+/// // In the module's router builder — assert completeness:
+/// mfg::__assert_handlers::<mfg::__Handlers>();
+/// ```
+#[proc_macro]
+pub fn impl_handler(input: TokenStream) -> TokenStream {
+    handler::expand(input.into())
         .unwrap_or_else(|e| e.to_compile_error().into())
         .into()
 }

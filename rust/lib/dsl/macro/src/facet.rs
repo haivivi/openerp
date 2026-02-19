@@ -129,6 +129,10 @@ pub fn expand(attr: TokenStream, item: ItemMod) -> syn::Result<TokenStream> {
         facet_name
     );
 
+    // ── Handler check traits + action_router ──
+
+    let handler_check = emit_handler_check(&actions);
+
     Ok(quote! {
         #(#mod_attrs)*
         #vis mod #mod_ident {
@@ -184,6 +188,10 @@ pub fn expand(attr: TokenStream, item: ItemMod) -> syn::Result<TokenStream> {
                 #(#resource_methods)*
                 #(#action_methods)*
             }
+
+            // ── Handler check ──
+
+            #(#handler_check)*
         }
     })
 }
@@ -590,6 +598,59 @@ fn build_path_format(facet_name: &str, facet_module: &str, action_path: &str) ->
     }
     result.push_str(rest);
     result
+}
+
+/// Generate handler-check items: one marker trait per action, `__Handlers`
+/// registry, and `__assert_handlers()` that enforces all handlers are
+/// registered via `impl_handler!`.
+///
+/// Marker traits have no methods — they don't depend on axum or openerp_kv.
+/// This keeps the facet definition usable in client-only crates.
+///
+/// If the facet has no actions, returns an empty vec.
+fn emit_handler_check(actions: &[ActionInfo]) -> Vec<TokenStream> {
+    if actions.is_empty() {
+        return vec![];
+    }
+
+    let mut items = Vec::new();
+
+    // One marker trait per action.
+    for a in actions {
+        let trait_name = format_ident!("__{}Handler", a.type_name);
+        let doc = format!(
+            "Marker trait for `{}`. Implement via `openerp_macro::impl_handler!`.",
+            a.type_name
+        );
+        items.push(quote! {
+            #[doc = #doc]
+            pub trait #trait_name {}
+        });
+    }
+
+    // Registry struct.
+    items.push(quote! {
+        /// Handler registry — implement handler traits via
+        /// [`openerp_macro::impl_handler!`].
+        pub struct __Handlers;
+    });
+
+    // Assertion function — generic so bounds are checked at call site only.
+    let trait_names: Vec<_> = actions
+        .iter()
+        .map(|a| format_ident!("__{}Handler", a.type_name))
+        .collect();
+
+    items.push(quote! {
+        /// Compile-time completeness check for action handlers.
+        ///
+        /// Call `__assert_handlers::<__Handlers>()` in your module's router
+        /// builder. If any `#[action]` is missing an `impl_handler!`, this
+        /// fails to compile.
+        pub fn __assert_handlers<__H: #(#trait_names)+*>() {}
+    });
+
+    items
 }
 
 /// Derive fn name from type name: Provision → provision, ActivateDevice → activate_device
