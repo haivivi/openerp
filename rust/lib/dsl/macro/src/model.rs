@@ -105,13 +105,33 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
         });
 
         // IR entry for schema JSON.
-        field_ir_entries.push(quote! {
-            serde_json::json!({
-                "name": #fname_str,
-                "ty": #ty_str,
-                "widget": #widget_str
-            })
-        });
+        // If the field type is Name<T>, extract the target type(s) for the "ref" property.
+        let name_ref_targets = extract_name_ref_targets(&field.ty);
+        if let Some(ref targets) = name_ref_targets {
+            let targets_json: Vec<_> = targets.iter().map(|t| {
+                let snake = to_snake_case(t);
+                quote! { serde_json::json!({ "type": #t, "resource": #snake }) }
+            }).collect();
+            field_ir_entries.push(quote! {
+                {
+                    let mut __entry = serde_json::json!({
+                        "name": #fname_str,
+                        "ty": #ty_str,
+                        "widget": #widget_str
+                    });
+                    __entry["ref"] = serde_json::json!([ #(#targets_json),* ]);
+                    __entry
+                }
+            });
+        } else {
+            field_ir_entries.push(quote! {
+                serde_json::json!({
+                    "name": #fname_str,
+                    "ty": #ty_str,
+                    "widget": #widget_str
+                })
+            });
+        }
     }
 
     // Generate Field consts + IR for injected common fields.
@@ -271,6 +291,58 @@ fn parse_name_template(template: &str) -> syn::Result<(String, String)> {
     let prefix = &template[..open];
     let key_field = &template[open + 1..close];
     Ok((prefix.to_string(), key_field.to_string()))
+}
+
+/// Extract the target type names from a `Name<T>` field type.
+///
+/// Returns `Some(vec!["User"])` for `Name<User>`,
+/// `Some(vec!["User", "Device"])` for `Name<(User, Device)>`,
+/// `Some(vec![])` for `Name<()>` (any resource),
+/// `None` if the field type is not `Name<...>`.
+///
+/// Also handles `Option<Name<T>>`.
+fn extract_name_ref_targets(ty: &syn::Type) -> Option<Vec<String>> {
+    if let syn::Type::Path(tp) = ty {
+        if let Some(seg) = tp.path.segments.last() {
+            let name = seg.ident.to_string();
+            if name == "Option" {
+                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        return extract_name_ref_targets(inner);
+                    }
+                }
+            }
+            if name == "Name" {
+                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        return Some(extract_tuple_type_names(inner));
+                    }
+                }
+                return Some(vec![]);
+            }
+        }
+    }
+    None
+}
+
+/// Extract type names from a type, handling tuples.
+/// `User` → `["User"]`, `(User, Device)` → `["User", "Device"]`, `()` → `[]`.
+fn extract_tuple_type_names(ty: &syn::Type) -> Vec<String> {
+    if let syn::Type::Tuple(tuple) = ty {
+        return tuple.elems.iter().filter_map(|t| {
+            if let syn::Type::Path(tp) = t {
+                tp.path.segments.last().map(|s| s.ident.to_string())
+            } else {
+                None
+            }
+        }).collect();
+    }
+    if let syn::Type::Path(tp) = ty {
+        if let Some(seg) = tp.path.segments.last() {
+            return vec![seg.ident.to_string()];
+        }
+    }
+    vec![]
 }
 
 /// Get the full type as a string (e.g. "Option<Email>").
