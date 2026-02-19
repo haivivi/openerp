@@ -1,36 +1,32 @@
-//! `impl_handler!` macro — binds a route function to an `#[action]` handler trait.
+//! `impl_handler!` macro — marks that a handler exists for an `#[action]`.
+//!
+//! Generates a marker trait impl on the facet's `__Handlers` registry.
+//! When the module calls `__assert_handlers::<__Handlers>()`, all actions
+//! must have a corresponding `impl_handler!` — otherwise compilation fails.
 //!
 //! Usage:
 //! ```ignore
-//! openerp_macro::impl_handler!(mfg::Provision, handlers::provision::routes);
+//! openerp_macro::impl_handler!(mfg::Provision);
 //! ```
 //!
-//! Expands to a trait impl on the facet's `__Handlers` registry:
+//! Expands to:
 //! ```ignore
-//! impl mfg::__ProvisionHandler for mfg::__Handlers {
-//!     fn route(kv: Arc<dyn KVStore>) -> Router {
-//!         handlers::provision::routes(kv)
-//!     }
-//! }
+//! impl mfg::__ProvisionHandler for mfg::__Handlers {}
 //! ```
 
 use proc_macro2::TokenStream;
 use quote::{format_ident, quote};
-use syn::{Path, Token};
+use syn::Path;
 use syn::parse::{Parse, ParseStream};
 
 struct Input {
     action_path: Path,
-    _comma: Token![,],
-    handler_fn: Path,
 }
 
 impl Parse for Input {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         Ok(Self {
             action_path: input.parse()?,
-            _comma: input.parse()?,
-            handler_fn: input.parse()?,
         })
     }
 }
@@ -51,15 +47,10 @@ pub fn expand(input: TokenStream) -> syn::Result<TokenStream> {
 
     let leading = &input.action_path.leading_colon;
     let module_segs: Vec<&syn::PathSegment> = segments[..segments.len() - 1].to_vec();
-    let handler_fn = &input.handler_fn;
 
     Ok(quote! {
         impl #leading #(#module_segs)::* :: #trait_name
             for #leading #(#module_segs)::* :: __Handlers
-        {
-            fn route(kv: std::sync::Arc<dyn openerp_kv::KVStore>) -> axum::Router {
-                #handler_fn(kv)
-            }
-        }
+        {}
     })
 }

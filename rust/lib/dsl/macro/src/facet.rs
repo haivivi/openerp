@@ -600,12 +600,12 @@ fn build_path_format(facet_name: &str, facet_module: &str, action_path: &str) ->
     result
 }
 
-/// Generate handler-check items: one trait per action, `__Handlers` registry,
-/// and `action_router()` that enforces all handlers are implemented.
+/// Generate handler-check items: one marker trait per action, `__Handlers`
+/// registry, and `__assert_handlers()` that enforces all handlers are
+/// registered via `impl_handler!`.
 ///
-/// The `action_router` function is generic over `__H` so that trait bounds
-/// are only checked at the call site, not at the facet definition site.
-/// Callers use: `facet::action_router::<facet::__Handlers>(kv)`.
+/// Marker traits have no methods — they don't depend on axum or openerp_kv.
+/// This keeps the facet definition usable in client-only crates.
 ///
 /// If the facet has no actions, returns an empty vec.
 fn emit_handler_check(actions: &[ActionInfo]) -> Vec<TokenStream> {
@@ -615,18 +615,16 @@ fn emit_handler_check(actions: &[ActionInfo]) -> Vec<TokenStream> {
 
     let mut items = Vec::new();
 
-    // One trait per action.
+    // One marker trait per action.
     for a in actions {
         let trait_name = format_ident!("__{}Handler", a.type_name);
         let doc = format!(
-            "Handler trait for `{}`. Implement via `openerp_macro::impl_handler!`.",
+            "Marker trait for `{}`. Implement via `openerp_macro::impl_handler!`.",
             a.type_name
         );
         items.push(quote! {
             #[doc = #doc]
-            pub trait #trait_name {
-                fn route(kv: std::sync::Arc<dyn openerp_kv::KVStore>) -> axum::Router;
-            }
+            pub trait #trait_name {}
         });
     }
 
@@ -637,34 +635,19 @@ fn emit_handler_check(actions: &[ActionInfo]) -> Vec<TokenStream> {
         pub struct __Handlers;
     });
 
-    // action_router<__H>() — generic so bounds are checked at call site.
+    // Assertion function — generic so bounds are checked at call site only.
     let trait_names: Vec<_> = actions
         .iter()
         .map(|a| format_ident!("__{}Handler", a.type_name))
         .collect();
 
-    let route_merges: Vec<TokenStream> = trait_names
-        .iter()
-        .map(|tn| {
-            quote! {
-                router = router.merge(<__H as #tn>::route(kv.clone()));
-            }
-        })
-        .collect();
-
     items.push(quote! {
-        /// Build router with all action handlers.
+        /// Compile-time completeness check for action handlers.
         ///
-        /// Compile error if any `#[action]` is missing an `impl_handler!`.
-        ///
-        /// Usage: `action_router::<__Handlers>(kv)`
-        pub fn action_router<__H: #(#trait_names)+*>(
-            kv: std::sync::Arc<dyn openerp_kv::KVStore>,
-        ) -> axum::Router {
-            let mut router = axum::Router::new();
-            #(#route_merges)*
-            router
-        }
+        /// Call `__assert_handlers::<__Handlers>()` in your module's router
+        /// builder. If any `#[action]` is missing an `impl_handler!`, this
+        /// fails to compile.
+        pub fn __assert_handlers<__H: #(#trait_names)+*>() {}
     });
 
     items

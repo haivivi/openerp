@@ -99,21 +99,22 @@ pub fn facet(attr: TokenStream, item: TokenStream) -> TokenStream {
         .into()
 }
 
-/// Bind a handler route function to an `#[action]` declaration.
+/// Mark that a handler exists for an `#[action]` declaration.
 ///
-/// Generates a trait impl on the facet's `__Handlers` registry.
-/// When the module calls `action_router()`, all actions must have a
-/// corresponding `impl_handler!` — otherwise compilation fails.
+/// Generates a marker trait impl on the facet's `__Handlers` registry.
+/// When the module calls `__assert_handlers::<__Handlers>()`, all actions
+/// must have a corresponding `impl_handler!` — otherwise compilation fails.
 ///
 /// ```ignore
 /// // In facet definition:
 /// #[action(method = "POST", path = "/batches/{id}/@provision")]
 /// pub type Provision = fn(id: String, req: ProvisionRequest) -> ProvisionResponse;
 ///
-/// // In handler module:
-/// openerp_macro::impl_handler!(mfg::Provision, provision::routes);
+/// // In handler module — register the handler:
+/// openerp_macro::impl_handler!(mfg::Provision);
 ///
-/// fn routes(kv: Arc<dyn KVStore>) -> Router { /* ... */ }
+/// // In the module's router builder — assert completeness:
+/// mfg::__assert_handlers::<mfg::__Handlers>();
 /// ```
 #[proc_macro]
 pub fn impl_handler(input: TokenStream) -> TokenStream {
