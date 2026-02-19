@@ -141,7 +141,7 @@ impl<A: NameTemplate, B: NameTemplate, C: NameTemplate> NameTarget for (A, B, C)
 
 impl NameTarget for () {
     fn validate_name(name: &str) -> bool {
-        match name.find('/') {
+        match name.rfind('/') {
             Some(pos) => pos > 0 && pos < name.len() - 1,
             None => false,
         }
@@ -648,6 +648,9 @@ mod tests {
 
         let trailing_slash: Name<()> = Name::new("trailing/");
         assert!(!trailing_slash.validate(), "trailing slash with nothing after should fail");
+
+        let multi_trailing: Name<()> = Name::new("auth/users/");
+        assert!(!multi_trailing.validate(), "multi-segment with empty last segment should fail");
     }
 
     #[test]
