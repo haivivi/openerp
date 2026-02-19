@@ -514,6 +514,100 @@ string_newtype!(
     SemVer
 );
 
+// ── Localized text ──
+
+/// A multi-language text field. Stores translations keyed by language code.
+///
+/// Fallback chain: requested locale → "en" → first available → "".
+///
+/// Usage in `#[model]`:
+/// ```ignore
+/// pub struct BroadcastMessage {
+///     pub title: LocalizedText,
+///     pub content: LocalizedText,
+/// }
+/// ```
+///
+/// JSON representation:
+/// ```json
+/// { "en": "Hello", "zh-CN": "你好", "ja": "こんにちは", "es": "Hola" }
+/// ```
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct LocalizedText(pub std::collections::HashMap<String, String>);
+
+impl LocalizedText {
+    pub fn new() -> Self {
+        Self(std::collections::HashMap::new())
+    }
+
+    /// Create from a single English string.
+    pub fn en(text: impl Into<String>) -> Self {
+        let mut m = std::collections::HashMap::new();
+        m.insert("en".into(), text.into());
+        Self(m)
+    }
+
+    /// Get text for `locale` with fallback: locale → "en" → first → "".
+    pub fn get(&self, locale: &str) -> &str {
+        if let Some(s) = self.0.get(locale) {
+            return s;
+        }
+        // Fallback: try base language (e.g. "zh-CN" → "zh").
+        if let Some(dash) = locale.find('-') {
+            if let Some(s) = self.0.get(&locale[..dash]) {
+                return s;
+            }
+        }
+        // Fallback to English.
+        if let Some(s) = self.0.get("en") {
+            return s;
+        }
+        // Last resort: first available value.
+        self.0.values().next().map(|s| s.as_str()).unwrap_or("")
+    }
+
+    /// Set text for a language.
+    pub fn set(&mut self, locale: impl Into<String>, text: impl Into<String>) {
+        self.0.insert(locale.into(), text.into());
+    }
+
+    /// All available language codes.
+    pub fn langs(&self) -> Vec<&str> {
+        self.0.keys().map(|s| s.as_str()).collect()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.0.is_empty() || self.0.values().all(|v| v.is_empty())
+    }
+}
+
+impl Default for LocalizedText {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl From<&str> for LocalizedText {
+    /// Convenience: plain string → English-only LocalizedText.
+    fn from(s: &str) -> Self {
+        Self::en(s)
+    }
+}
+
+impl From<String> for LocalizedText {
+    fn from(s: String) -> Self {
+        Self::en(s)
+    }
+}
+
+impl fmt::Display for LocalizedText {
+    /// Display defaults to English.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.get("en"))
+    }
+}
+
 // ── Pluralization ──
 
 /// Simple English pluralization for URL paths.
@@ -660,6 +754,71 @@ mod tests {
 
         let n2: Name<()> = Name::new("pms/devices/SN001");
         assert_eq!(n2.resource_type(), "pms/devices");
+    }
+
+    #[test]
+    fn localized_text_fallback_chain() {
+        let mut t = LocalizedText::new();
+        t.set("en", "Hello");
+        t.set("zh-CN", "你好");
+        t.set("ja", "こんにちは");
+
+        assert_eq!(t.get("en"), "Hello");
+        assert_eq!(t.get("zh-CN"), "你好");
+        assert_eq!(t.get("ja"), "こんにちは");
+        // Missing locale → fallback to en.
+        assert_eq!(t.get("es"), "Hello");
+        assert_eq!(t.get("fr"), "Hello");
+    }
+
+    #[test]
+    fn localized_text_base_language_fallback() {
+        let mut t = LocalizedText::new();
+        t.set("en", "Hello");
+        t.set("zh", "你好");
+        // "zh-TW" not set → falls back to "zh".
+        assert_eq!(t.get("zh-TW"), "你好");
+        assert_eq!(t.get("zh-CN"), "你好");
+    }
+
+    #[test]
+    fn localized_text_no_english_fallback() {
+        let mut t = LocalizedText::new();
+        t.set("ja", "こんにちは");
+        // No "en" → returns first available.
+        let result = t.get("fr");
+        assert_eq!(result, "こんにちは");
+    }
+
+    #[test]
+    fn localized_text_empty() {
+        let t = LocalizedText::new();
+        assert_eq!(t.get("en"), "");
+        assert!(t.is_empty());
+    }
+
+    #[test]
+    fn localized_text_from_str() {
+        let t = LocalizedText::from("Hello world");
+        assert_eq!(t.get("en"), "Hello world");
+        assert_eq!(t.get("ja"), "Hello world"); // fallback
+    }
+
+    #[test]
+    fn localized_text_serde() {
+        let mut t = LocalizedText::new();
+        t.set("en", "Hello");
+        t.set("zh-CN", "你好");
+        let json = serde_json::to_string(&t).unwrap();
+        let back: LocalizedText = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.get("en"), "Hello");
+        assert_eq!(back.get("zh-CN"), "你好");
+    }
+
+    #[test]
+    fn localized_text_display() {
+        let t = LocalizedText::en("System maintenance");
+        assert_eq!(format!("{}", t), "System maintenance");
     }
 
     #[test]
