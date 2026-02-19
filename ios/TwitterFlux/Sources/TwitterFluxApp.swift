@@ -50,33 +50,30 @@ struct MainTabView: View {
 
     var body: some View {
         TabView(selection: $selectedTab) {
-            // Home tab
             NavigationStack {
                 HomeView()
             }
             .tabItem {
                 Image(systemName: "house.fill")
-                Text("Home")
+                Text(store.t("ui/tab/home"))
             }
             .tag(0)
 
-            // Search tab
             NavigationStack {
                 SearchView()
             }
             .tabItem {
                 Image(systemName: "magnifyingglass")
-                Text("Search")
+                Text(store.t("ui/tab/search"))
             }
             .tag(1)
 
-            // Me tab
             NavigationStack {
                 MeView()
             }
             .tabItem {
                 Image(systemName: "person.fill")
-                Text("Me")
+                Text(store.t("ui/tab/me"))
             }
             .tag(2)
         }

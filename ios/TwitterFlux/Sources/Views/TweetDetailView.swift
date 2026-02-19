@@ -17,19 +17,16 @@ struct TweetDetailView: View {
                 VStack(spacing: 0) {
                     ScrollView {
                         VStack(alignment: .leading, spacing: 0) {
-                            // Main tweet
                             mainTweet(d.tweet)
 
                             Divider()
 
-                            // Reply compose
                             replyCompose
 
                             Divider()
 
-                            // Replies
                             if d.replies.isEmpty {
-                                Text("No replies yet")
+                                Text(store.t("ui/tweet/no_replies"))
                                     .foregroundColor(.secondary)
                                     .padding()
                             } else {
@@ -46,10 +43,10 @@ struct TweetDetailView: View {
                     }
                 }
             } else {
-                ProgressView("Loading...")
+                ProgressView(store.t("ui/common/loading"))
             }
         }
-        .navigationTitle("Tweet")
+        .navigationTitle(store.t("ui/profile/tweets"))
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
@@ -61,7 +58,6 @@ struct TweetDetailView: View {
     @ViewBuilder
     private func mainTweet(_ tweet: FeedItem) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Author
             NavigationLink(destination: ProfileView(userId: tweet.author.id)) {
                 HStack(spacing: 10) {
                     Circle()
@@ -84,11 +80,9 @@ struct TweetDetailView: View {
             }
             .buttonStyle(.plain)
 
-            // Content
             Text(tweet.content)
                 .font(.title3)
 
-            // Stats
             HStack(spacing: 16) {
                 Button(action: {
                     if tweet.likedByMe {
@@ -96,7 +90,6 @@ struct TweetDetailView: View {
                     } else {
                         store.emit("tweet/like", json: ["tweetId": tweet.tweetId])
                     }
-                    // Reload detail.
                     store.emit("tweet/load", json: ["tweetId": tweetId])
                 }) {
                     Label("\(tweet.likeCount)", systemImage: tweet.likedByMe ? "heart.fill" : "heart")
@@ -109,7 +102,6 @@ struct TweetDetailView: View {
             }
             .font(.subheadline)
 
-            // Timestamp
             Text(formatDate(tweet.createdAt))
                 .font(.caption)
                 .foregroundColor(.secondary)
@@ -119,17 +111,16 @@ struct TweetDetailView: View {
 
     private var replyCompose: some View {
         HStack(spacing: 8) {
-            TextField("Write a reply...", text: $replyText)
+            TextField(store.t("ui/compose/reply_placeholder"), text: $replyText)
                 .textFieldStyle(.roundedBorder)
 
-            Button("Reply") {
+            Button(store.t("ui/tweet/reply")) {
                 guard !replyText.trimmingCharacters(in: .whitespaces).isEmpty else { return }
                 store.emit("tweet/create", json: [
                     "content": replyText,
                     "replyToId": tweetId,
                 ])
                 replyText = ""
-                // Reload to show new reply.
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                     store.emit("tweet/load", json: ["tweetId": tweetId])
                 }
@@ -141,7 +132,6 @@ struct TweetDetailView: View {
     }
 
     private func formatDate(_ dateStr: String) -> String {
-        // Simple display — just show the date part.
         if let idx = dateStr.firstIndex(of: "T") {
             return String(dateStr[..<idx])
         }

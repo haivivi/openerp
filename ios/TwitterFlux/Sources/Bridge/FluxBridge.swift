@@ -24,6 +24,12 @@ private func _flux_emit(_ handle: OpaquePointer?, _ path: UnsafePointer<CChar>?,
 @_silgen_name("flux_server_url")
 private func _flux_server_url(_ handle: OpaquePointer?) -> UnsafePointer<CChar>?
 
+@_silgen_name("flux_i18n_get")
+private func _flux_i18n_get(_ handle: OpaquePointer?, _ url: UnsafePointer<CChar>?) -> _FluxBytes
+
+@_silgen_name("flux_i18n_set_locale")
+private func _flux_i18n_set_locale(_ handle: OpaquePointer?, _ locale: UnsafePointer<CChar>?)
+
 private struct _FluxBytes {
     let ptr: UnsafePointer<UInt8>?
     let len: Int
@@ -59,6 +65,23 @@ final class FluxStore: ObservableObject {
 
     deinit {
         _flux_free(handle)
+    }
+
+    // MARK: - I18n
+
+    /// Get a translated string synchronously.
+    func t(_ url: String) -> String {
+        let bytes = url.withCString { _flux_i18n_get(handle, $0) }
+        defer { _flux_bytes_free(bytes) }
+        guard bytes.len > 0, let ptr = bytes.ptr else { return url }
+        return String(bytes: UnsafeBufferPointer(start: ptr, count: bytes.len), encoding: .utf8) ?? url
+    }
+
+    /// Set the i18n locale (e.g. "zh-CN", "en", "ja", "es").
+    func setLocale(_ locale: String) {
+        locale.withCString { _flux_i18n_set_locale(handle, $0) }
+        objectWillChange.send()
+        revision &+= 1
     }
 
     // MARK: - State

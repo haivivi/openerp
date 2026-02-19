@@ -4,6 +4,7 @@
 //! Handlers call the facet API (not admin), then update Flux state.
 
 pub mod global;
+pub mod i18n_strings;
 
 use std::sync::Arc;
 

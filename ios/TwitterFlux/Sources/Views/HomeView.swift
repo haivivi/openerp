@@ -16,9 +16,9 @@ struct HomeView: View {
                         Image(systemName: "bubble.left")
                             .font(.system(size: 48))
                             .foregroundColor(.secondary)
-                        Text("No tweets yet")
+                        Text(store.t("ui/home/empty"))
                             .font(.headline)
-                        Text("Be the first to tweet!")
+                        Text(store.t("ui/home/empty_hint"))
                             .font(.subheadline)
                             .foregroundColor(.secondary)
                     }
@@ -35,10 +35,10 @@ struct HomeView: View {
                     }
                 }
             } else {
-                ProgressView("Loading...")
+                ProgressView(store.t("ui/common/loading"))
             }
         }
-        .navigationTitle("Home")
+        .navigationTitle(store.t("ui/home/title"))
         .toolbar {
             #if os(iOS)
             ToolbarItem(placement: .topBarTrailing) {
@@ -65,7 +65,6 @@ struct TweetRow: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            // Author (tappable → profile)
             NavigationLink(destination: ProfileView(userId: item.author.id)) {
                 HStack(spacing: 8) {
                     Circle()
@@ -91,18 +90,15 @@ struct TweetRow: View {
             }
             .buttonStyle(.plain)
 
-            // Content
             Text(item.content)
                 .font(.body)
 
-            // Reply indicator
             if item.replyToId != nil {
-                Label("Reply", systemImage: "arrowshape.turn.up.left")
+                Label(store.t("ui/tweet/reply"), systemImage: "arrowshape.turn.up.left")
                     .font(.caption2)
                     .foregroundColor(.secondary)
             }
 
-            // Actions
             HStack(spacing: 24) {
                 Button(action: toggleLike) {
                     HStack(spacing: 4) {

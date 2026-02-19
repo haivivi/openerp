@@ -14,7 +14,6 @@ struct LoginView: View {
         VStack(spacing: 24) {
             Spacer()
 
-            // Logo
             Image(systemName: "bubble.left.and.bubble.right.fill")
                 .font(.system(size: 48))
                 .foregroundColor(.blue)
@@ -26,9 +25,8 @@ struct LoginView: View {
                 .font(.subheadline)
                 .foregroundColor(.secondary)
 
-            // Form
             VStack(spacing: 16) {
-                TextField("Username", text: $username)
+                TextField(store.t("ui/login/username"), text: $username)
                     .textFieldStyle(.roundedBorder)
                     #if os(iOS)
                     .autocapitalization(.none)
@@ -40,7 +38,7 @@ struct LoginView: View {
                         ProgressView()
                             .frame(maxWidth: .infinity)
                     } else {
-                        Text("Sign In")
+                        Text(store.t("ui/login/button"))
                             .frame(maxWidth: .infinity)
                     }
                 }
@@ -57,8 +55,7 @@ struct LoginView: View {
 
             Spacer()
 
-            // Demo hint
-            Text("Try: alice, bob, or carol")
+            Text(store.t("ui/login/hint"))
                 .font(.caption)
                 .foregroundColor(.secondary)
                 .padding(.bottom, 16)

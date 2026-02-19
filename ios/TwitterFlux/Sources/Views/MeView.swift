@@ -9,7 +9,6 @@ struct MeView: View {
 
     var body: some View {
         List {
-            // Profile header
             if let user = auth?.user {
                 Section {
                     VStack(spacing: 12) {
@@ -39,21 +38,21 @@ struct MeView: View {
                             VStack {
                                 Text("\(user.followerCount)")
                                     .font(.headline)
-                                Text("Followers")
+                                Text(store.t("ui/profile/followers"))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
                             VStack {
                                 Text("\(user.followingCount)")
                                     .font(.headline)
-                                Text("Following")
+                                Text(store.t("ui/profile/following"))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
                             VStack {
                                 Text("\(user.tweetCount)")
                                     .font(.headline)
-                                Text("Tweets")
+                                Text(store.t("ui/profile/tweets"))
                                     .font(.caption)
                                     .foregroundColor(.secondary)
                             }
@@ -64,21 +63,19 @@ struct MeView: View {
                 }
             }
 
-            // Settings
-            Section("Settings") {
+            Section(store.t("ui/me/settings")) {
                 NavigationLink(destination: EditProfileView()) {
-                    Label("Edit Profile", systemImage: "person.crop.circle")
+                    Label(store.t("ui/me/edit_profile"), systemImage: "person.crop.circle")
                 }
                 NavigationLink(destination: ChangePasswordView()) {
-                    Label("Change Password", systemImage: "lock")
+                    Label(store.t("ui/me/change_password"), systemImage: "lock")
                 }
             }
 
-            // Admin Dashboard
-            Section("Developer") {
+            Section(store.t("ui/me/developer")) {
                 if let url = store.dashboardURL {
                     Link(destination: url) {
-                        Label("Open Admin Dashboard", systemImage: "globe")
+                        Label(store.t("ui/me/admin_dashboard"), systemImage: "globe")
                     }
                 }
                 Text(store.serverURL)
@@ -87,12 +84,11 @@ struct MeView: View {
                     .textSelection(.enabled)
             }
 
-            // Account
             Section {
                 Button(role: .destructive) {
                     store.emit("auth/logout")
                 } label: {
-                    Label("Sign Out", systemImage: "rectangle.portrait.and.arrow.right")
+                    Label(store.t("ui/me/sign_out"), systemImage: "rectangle.portrait.and.arrow.right")
                         .foregroundColor(.red)
                 }
             }
@@ -100,7 +96,7 @@ struct MeView: View {
         #if os(iOS)
         .listStyle(.insetGrouped)
         #endif
-        .navigationTitle("Me")
+        .navigationTitle(store.t("ui/me/title"))
     }
 }
 
@@ -116,10 +112,10 @@ struct EditProfileView: View {
 
     var body: some View {
         Form {
-            Section("Display Name") {
-                TextField("Display name", text: $displayName)
+            Section(store.t("ui/edit/display_name")) {
+                TextField(store.t("ui/edit/display_name"), text: $displayName)
             }
-            Section("Bio") {
+            Section(store.t("ui/edit/bio")) {
                 TextEditor(text: $bio)
                     .frame(minHeight: 80)
             }
@@ -132,7 +128,7 @@ struct EditProfileView: View {
 
             if settings?.saved == true {
                 Section {
-                    Label("Saved!", systemImage: "checkmark.circle.fill")
+                    Label(store.t("ui/edit/saved"), systemImage: "checkmark.circle.fill")
                         .foregroundColor(.green)
                 }
             }
@@ -142,20 +138,19 @@ struct EditProfileView: View {
                     if settings?.busy == true {
                         ProgressView()
                     } else {
-                        Text("Save Changes")
+                        Text(store.t("ui/edit/save"))
                     }
                 }
                 .disabled(displayName.trimmingCharacters(in: .whitespaces).isEmpty
                           || settings?.busy == true)
             }
         }
-        .navigationTitle("Edit Profile")
+        .navigationTitle(store.t("ui/me/edit_profile"))
         .onAppear {
             if !loaded {
                 store.emit("settings/load")
                 loaded = true
             }
-            // Load current values from settings state.
             if let s = settings {
                 displayName = s.displayName
                 bio = s.bio
@@ -186,12 +181,12 @@ struct ChangePasswordView: View {
 
     var body: some View {
         Form {
-            Section("Current Password") {
-                SecureField("Current password", text: $oldPassword)
+            Section(store.t("ui/password/current")) {
+                SecureField(store.t("ui/password/current"), text: $oldPassword)
             }
-            Section("New Password") {
-                SecureField("New password", text: $newPassword)
-                SecureField("Confirm new password", text: $confirmPassword)
+            Section(store.t("ui/password/new")) {
+                SecureField(store.t("ui/password/new"), text: $newPassword)
+                SecureField(store.t("ui/password/confirm"), text: $confirmPassword)
             }
 
             if let error = pwState?.error {
@@ -202,20 +197,20 @@ struct ChangePasswordView: View {
 
             if pwState?.success == true {
                 Section {
-                    Label("Password changed!", systemImage: "checkmark.circle.fill")
+                    Label(store.t("ui/password/changed"), systemImage: "checkmark.circle.fill")
                         .foregroundColor(.green)
                 }
             }
 
             Section {
-                Button("Change Password") {
+                Button(store.t("ui/password/change")) {
                     changePassword()
                 }
                 .disabled(oldPassword.isEmpty || newPassword.isEmpty
                           || newPassword != confirmPassword)
             }
         }
-        .navigationTitle("Change Password")
+        .navigationTitle(store.t("ui/me/change_password"))
     }
 
     private func changePassword() {

@@ -20,6 +20,7 @@ use flux_golden::handlers::TwitterBff;
 pub struct FluxHandle {
     flux: Flux,
     _bff: Arc<TwitterBff>,
+    i18n: openerp_flux::I18nStore,
     rt: tokio::runtime::Runtime,
     /// The server URL (e.g. "http://192.168.1.100:3000").
     server_url: CString,
@@ -56,9 +57,14 @@ pub extern "C" fn flux_create() -> *mut FluxHandle {
     let flux = Flux::new();
     bff.register(&flux);
 
+    // Initialize i18n with all translations.
+    let i18n = openerp_flux::I18nStore::new("en");
+    flux_golden::handlers::i18n_strings::register_all(&i18n);
+
     let handle = Box::new(FluxHandle {
         flux,
         _bff: bff,
+        i18n,
         rt,
         server_url: CString::new(server_url).unwrap(),
     });
@@ -110,6 +116,29 @@ pub extern "C" fn flux_bytes_free(bytes: FluxBytes) {
 }
 
 // ============================================================================
+// I18n — synchronous translation
+// ============================================================================
+
+/// Get a translated string. Synchronous.
+/// `url` is "path" or "path?key=value&key2=value2".
+/// Returns a C string. Caller must free with `flux_bytes_free`.
+#[no_mangle]
+pub extern "C" fn flux_i18n_get(handle: *const FluxHandle, url: *const c_char) -> FluxBytes {
+    let handle = unsafe { &*handle };
+    let url = unsafe { CStr::from_ptr(url) }.to_str().unwrap_or("");
+    let text = handle.i18n.get(url);
+    bytes_to_ffi(text.into_bytes())
+}
+
+/// Set the i18n locale (e.g. "zh-CN", "en", "ja", "es").
+#[no_mangle]
+pub extern "C" fn flux_i18n_set_locale(handle: *const FluxHandle, locale: *const c_char) {
+    let handle = unsafe { &*handle };
+    let locale = unsafe { CStr::from_ptr(locale) }.to_str().unwrap_or("en");
+    handle.i18n.set_locale(locale);
+}
+
+// ============================================================================
 // Requests — emit
 // ============================================================================
 
@@ -144,8 +173,9 @@ async fn start_embedded_server() -> (String, TwitterBff) {
 
     // Create in-memory storage.
     let dir = tempfile::tempdir().expect("failed to create temp dir");
+    let dir_path = dir.path().to_path_buf();
     let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
-        openerp_kv::RedbStore::open(&dir.path().join("flux.redb"))
+        openerp_kv::RedbStore::open(&dir_path.join("flux.redb"))
             .expect("failed to open redb"),
     );
     std::mem::forget(dir);
@@ -158,8 +188,20 @@ async fn start_embedded_server() -> (String, TwitterBff) {
     // Build admin router (for dashboard).
     let twitter_admin = flux_golden::server::admin_router(kv.clone(), auth);
 
+    // Build schema.
+    let schema_json = openerp_store::build_schema("Twitter", vec![
+        flux_golden::server::schema_def(),
+    ]);
+
+    // Detect LAN IP + bind to a random port (need server_url for blob_base_url).
+    let lan_ip = get_lan_ip().unwrap_or_else(|| "127.0.0.1".to_string());
+    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await
+        .expect("failed to bind");
+    let port = listener.local_addr().unwrap().port();
+    let server_url = format!("http://{}:{}", lan_ip, port);
+
     // Build facet router (for app).
-    let blob_dir = dir.path().join("blobs");
+    let blob_dir = dir_path.join("blobs");
     std::fs::create_dir_all(&blob_dir).ok();
     let blobs: Arc<dyn openerp_blob::BlobStore> = Arc::new(
         openerp_blob::FileStore::open(&blob_dir).unwrap(),
@@ -176,20 +218,6 @@ async fn start_embedded_server() -> (String, TwitterBff) {
         blob_base_url: server_url.clone(),
     });
     let facet_router = flux_golden::server::facet_handlers::facet_router(facet_state);
-
-    // Build schema.
-    let schema_json = openerp_store::build_schema("Twitter", vec![
-        flux_golden::server::schema_def(),
-    ]);
-
-    // Detect LAN IP.
-    let lan_ip = get_lan_ip().unwrap_or_else(|| "127.0.0.1".to_string());
-
-    // Bind to a random port.
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:0").await
-        .expect("failed to bind");
-    let port = listener.local_addr().unwrap().port();
-    let server_url = format!("http://{}:{}", lan_ip, port);
 
     tracing::info!("Embedded server: {}", server_url);
     tracing::info!("Dashboard: {}/dashboard", server_url);

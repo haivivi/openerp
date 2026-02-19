@@ -10,11 +10,10 @@ struct SearchView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Search bar
             HStack {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(.secondary)
-                TextField("Search users or tweets...", text: $query)
+                TextField(store.t("ui/search/placeholder"), text: $query)
                     .onSubmit { search() }
                 if !query.isEmpty {
                     Button(action: clear) {
@@ -40,9 +39,8 @@ struct SearchView: View {
                         .padding(.top, 32)
                 } else {
                     List {
-                        // Users section
                         if !results.users.isEmpty {
-                            Section("Users") {
+                            Section(store.t("ui/search/users")) {
                                 ForEach(results.users, id: \.id) { user in
                                     NavigationLink(destination: ProfileView(userId: user.id)) {
                                         HStack(spacing: 10) {
@@ -62,7 +60,7 @@ struct SearchView: View {
                                                     .foregroundColor(.secondary)
                                             }
                                             Spacer()
-                                            Text("\(user.tweetCount) tweets")
+                                            Text(store.t("format/tweet_count?count=\(user.tweetCount)"))
                                                 .font(.caption2)
                                                 .foregroundColor(.secondary)
                                         }
@@ -71,9 +69,8 @@ struct SearchView: View {
                             }
                         }
 
-                        // Tweets section
                         if !results.tweets.isEmpty {
-                            Section("Tweets") {
+                            Section(store.t("ui/search/tweets_section")) {
                                 ForEach(results.tweets) { item in
                                     NavigationLink(destination: TweetDetailView(tweetId: item.tweetId)) {
                                         TweetRow(item: item)
@@ -82,9 +79,8 @@ struct SearchView: View {
                             }
                         }
 
-                        // No results
                         if results.users.isEmpty && results.tweets.isEmpty && !results.query.isEmpty {
-                            Text("No results for \"\(results.query)\"")
+                            Text(store.t("ui/search/no_results"))
                                 .foregroundColor(.secondary)
                                 .frame(maxWidth: .infinity)
                                 .padding(.top, 32)
@@ -99,7 +95,7 @@ struct SearchView: View {
                     Image(systemName: "magnifyingglass")
                         .font(.system(size: 36))
                         .foregroundColor(.secondary)
-                    Text("Search for users or tweets")
+                    Text(store.t("ui/search/placeholder"))
                         .foregroundColor(.secondary)
                 }
                 .padding(.top, 60)
@@ -107,7 +103,7 @@ struct SearchView: View {
 
             Spacer()
         }
-        .navigationTitle("Search")
+        .navigationTitle(store.t("ui/search/title"))
     }
 
     private func search() {

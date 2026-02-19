@@ -14,7 +14,6 @@ struct ComposeView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Text input
                 TextEditor(text: $content)
                     .padding()
                     .onChange(of: content) { _, newValue in
@@ -26,10 +25,8 @@ struct ComposeView: View {
 
                 Divider()
 
-                // Bottom bar
                 HStack {
-                    // Character count
-                    Text("\(charCount)/280")
+                    Text(store.t("format/char_count?current=\(charCount)&max=280"))
                         .font(.caption)
                         .foregroundColor(isOverLimit ? .red : .secondary)
 
@@ -43,16 +40,16 @@ struct ComposeView: View {
                 }
                 .padding()
             }
-            .navigationTitle("Compose")
+            .navigationTitle(store.t("ui/compose/title"))
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") { dismiss() }
+                    Button(store.t("ui/compose/cancel")) { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Post") { postTweet() }
+                    Button(store.t("ui/compose/post")) { postTweet() }
                         .bold()
                         .disabled(content.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                                   || isOverLimit
