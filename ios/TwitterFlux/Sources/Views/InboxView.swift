@@ -21,10 +21,16 @@ struct InboxView: View {
                             .font(.headline)
                     }
                 } else {
-                    List(inbox.messages) { msg in
-                        MessageRow(message: msg)
+                    ScrollView {
+                        LazyVStack(spacing: 0) {
+                            ForEach(inbox.messages) { msg in
+                                MessageRow(message: msg)
+                                    .padding(.horizontal)
+                                    .padding(.vertical, 8)
+                                Divider()
+                            }
+                        }
                     }
-                    .listStyle(.plain)
                     .refreshable {
                         store.emit("inbox/load")
                     }
