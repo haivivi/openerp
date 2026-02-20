@@ -5,8 +5,8 @@ use quote::{format_ident, quote, ToTokens};
 use syn::{Fields, ItemStruct, Lit};
 
 pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
-    // Parse module name from attr: #[model(module = "auth")]
-    let module = parse_module_attr(attr)?;
+    // Parse module name and optional name template from attr.
+    let ModelAttrs { module, name_template } = parse_model_attrs(attr)?;
 
     let struct_name = &item.ident;
     let struct_name_str = struct_name.to_string();
@@ -105,13 +105,33 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
         });
 
         // IR entry for schema JSON.
-        field_ir_entries.push(quote! {
-            serde_json::json!({
-                "name": #fname_str,
-                "ty": #ty_str,
-                "widget": #widget_str
-            })
-        });
+        // If the field type is Name<T>, extract the target type(s) for the "ref" property.
+        let name_ref_targets = extract_name_ref_targets(&field.ty);
+        if let Some(ref targets) = name_ref_targets {
+            let targets_json: Vec<_> = targets.iter().map(|t| {
+                let snake = to_snake_case(t);
+                quote! { serde_json::json!({ "type": #t, "resource": #snake }) }
+            }).collect();
+            field_ir_entries.push(quote! {
+                {
+                    let mut __entry = serde_json::json!({
+                        "name": #fname_str,
+                        "ty": #ty_str,
+                        "widget": #widget_str
+                    });
+                    __entry["ref"] = serde_json::json!([ #(#targets_json),* ]);
+                    __entry
+                }
+            });
+        } else {
+            field_ir_entries.push(quote! {
+                serde_json::json!({
+                    "name": #fname_str,
+                    "ty": #ty_str,
+                    "widget": #widget_str
+                })
+            });
+        }
     }
 
     // Generate Field consts + IR for injected common fields.
@@ -137,6 +157,22 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
 
     let resource_snake = to_snake_case(&struct_name_str);
     let resource_path = pluralize(&resource_snake);
+
+    let name_template_impl = if let Some(ref tmpl) = name_template {
+        let (prefix, key_field) = parse_name_template(tmpl)?;
+        let key_ident = format_ident!("{}", key_field);
+        quote! {
+            impl openerp_types::NameTemplate for #struct_name {
+                fn name_prefix() -> &'static str { #prefix }
+                fn name_template() -> &'static str { #tmpl }
+                fn name_of(&self) -> String {
+                    format!("{}{}", #prefix, self.#key_ident)
+                }
+            }
+        }
+    } else {
+        quote! {}
+    };
 
     Ok(quote! {
         #(#doc_attrs)*
@@ -176,12 +212,17 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
             fn resource() -> &'static str { #resource_snake }
             fn resource_path() -> &'static str { #resource_path }
         }
+
+        #name_template_impl
     })
 }
 
-fn parse_module_attr(attr: TokenStream) -> syn::Result<String> {
-    // Parse: module = "auth"
-    // Use a helper struct since Punctuated<Meta> doesn't impl Parse directly.
+struct ModelAttrs {
+    module: String,
+    name_template: Option<String>,
+}
+
+fn parse_model_attrs(attr: TokenStream) -> syn::Result<ModelAttrs> {
     struct AttrArgs(Vec<syn::Meta>);
     impl syn::parse::Parse for AttrArgs {
         fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
@@ -194,6 +235,9 @@ fn parse_module_attr(attr: TokenStream) -> syn::Result<String> {
     }
 
     let args: AttrArgs = syn::parse2(attr)?;
+    let mut module = None;
+    let mut name_template = None;
+
     for meta in &args.0 {
         if let syn::Meta::NameValue(nv) = meta {
             if nv.path.is_ident("module") {
@@ -201,16 +245,104 @@ fn parse_module_attr(attr: TokenStream) -> syn::Result<String> {
                     lit: Lit::Str(s), ..
                 }) = &nv.value
                 {
-                    return Ok(s.value());
+                    module = Some(s.value());
+                }
+            } else if nv.path.is_ident("name") {
+                if let syn::Expr::Lit(syn::ExprLit {
+                    lit: Lit::Str(s), ..
+                }) = &nv.value
+                {
+                    name_template = Some(s.value());
                 }
             }
         }
     }
 
-    Err(syn::Error::new(
-        proc_macro2::Span::call_site(),
-        "model requires: #[model(module = \"...\")]",
-    ))
+    let module = module.ok_or_else(|| {
+        syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "model requires: #[model(module = \"...\")]",
+        )
+    })?;
+
+    Ok(ModelAttrs { module, name_template })
+}
+
+/// Parse a name template like `"auth/users/{id}"` into prefix `"auth/users/"` and key field `"id"`.
+fn parse_name_template(template: &str) -> syn::Result<(String, String)> {
+    let open = template.rfind('{').ok_or_else(|| {
+        syn::Error::new(
+            proc_macro2::Span::call_site(),
+            format!("name template must contain {{field}}, got: {}", template),
+        )
+    })?;
+    let close = template.rfind('}').ok_or_else(|| {
+        syn::Error::new(
+            proc_macro2::Span::call_site(),
+            format!("name template must contain {{field}}, got: {}", template),
+        )
+    })?;
+    if close <= open {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            format!("malformed name template: {}", template),
+        ));
+    }
+    let prefix = &template[..open];
+    let key_field = &template[open + 1..close];
+    Ok((prefix.to_string(), key_field.to_string()))
+}
+
+/// Extract the target type names from a `Name<T>` field type.
+///
+/// Returns `Some(vec!["User"])` for `Name<User>`,
+/// `Some(vec!["User", "Device"])` for `Name<(User, Device)>`,
+/// `Some(vec![])` for `Name<()>` (any resource),
+/// `None` if the field type is not `Name<...>`.
+///
+/// Also handles `Option<Name<T>>`.
+fn extract_name_ref_targets(ty: &syn::Type) -> Option<Vec<String>> {
+    if let syn::Type::Path(tp) = ty {
+        if let Some(seg) = tp.path.segments.last() {
+            let name = seg.ident.to_string();
+            if name == "Option" {
+                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        return extract_name_ref_targets(inner);
+                    }
+                }
+            }
+            if name == "Name" {
+                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        return Some(extract_tuple_type_names(inner));
+                    }
+                }
+                return Some(vec![]);
+            }
+        }
+    }
+    None
+}
+
+/// Extract type names from a type, handling tuples.
+/// `User` → `["User"]`, `(User, Device)` → `["User", "Device"]`, `()` → `[]`.
+fn extract_tuple_type_names(ty: &syn::Type) -> Vec<String> {
+    if let syn::Type::Tuple(tuple) = ty {
+        return tuple.elems.iter().filter_map(|t| {
+            if let syn::Type::Path(tp) = t {
+                tp.path.segments.last().map(|s| s.ident.to_string())
+            } else {
+                None
+            }
+        }).collect();
+    }
+    if let syn::Type::Path(tp) = ty {
+        if let Some(seg) = tp.path.segments.last() {
+            return vec![seg.ident.to_string()];
+        }
+    }
+    vec![]
 }
 
 /// Get the full type as a string (e.g. "Option<Email>").
@@ -271,6 +403,7 @@ const BUILTIN_TYPES: &[&str] = &[
     "Password", "PasswordHash", "Secret",
     "Text", "Markdown", "Code",
     "DateTime", "Date", "Color", "SemVer",
+    "Name",
     "String", "bool", "u8", "u16", "u32", "u64", "i8", "i16", "i32", "i64",
     "f32", "f64", "Vec",
 ];
@@ -291,6 +424,7 @@ fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
         "Date" => "date",
         "Color" => "color",
         "SemVer" => "text",
+        "Name" => "select",
         "bool" => "switch",
         "Vec" => "tags",
         _ => {

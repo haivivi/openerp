@@ -30,6 +30,10 @@ pub trait KvStore: Serialize + DeserializeOwned + Clone + Send + Sync + 'static 
 
     /// Called after a record is deleted.
     fn after_delete(&self) {}
+
+    /// Validate Name<T> fields. Returns a list of (field_name, invalid_value) pairs.
+    /// Default: no validation (empty vec). Override when the model has Name fields.
+    fn validate_names(&self) -> Vec<(&'static str, String)> { vec![] }
 }
 
 /// CRUD operations for a KvStore model. Holds a reference to the KV backend.
@@ -120,10 +124,21 @@ impl<T: KvStore> KvOps<T> {
         Ok(entries.len())
     }
 
+    fn check_names(record: &T) -> Result<(), ServiceError> {
+        let invalid = record.validate_names();
+        if let Some((field, value)) = invalid.first() {
+            return Err(ServiceError::Validation(format!(
+                "invalid resource name in field '{}': '{}'", field, value
+            )));
+        }
+        Ok(())
+    }
+
     /// Create a new record. Calls before_create hook, checks for duplicates.
     /// The store layer sets `createdAt` and `updatedAt` — models don't need to.
     pub fn save_new(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_create();
+        Self::check_names(&record)?;
 
         let id = record.key_value();
         let key = Self::make_key(&id);
@@ -176,6 +191,7 @@ impl<T: KvStore> KvOps<T> {
         }
 
         record.before_update();
+        Self::check_names(&record)?;
 
         let mut json_val = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
@@ -216,6 +232,7 @@ impl<T: KvStore> KvOps<T> {
         let mut record: T = serde_json::from_value(base)
             .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
         record.before_update();
+        Self::check_names(&record)?;
 
         let mut json_val = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
