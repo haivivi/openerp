@@ -75,6 +75,7 @@ mod tests {
             }
         }
     }
+    openerp_store::assert_name_pk!(TestUser);
 
     impl KvStore for TestDevice {
         const KEY: Field = Self::sn;
@@ -88,6 +89,7 @@ mod tests {
             invalid
         }
     }
+    openerp_store::assert_name_pk!(TestDevice);
 
     impl KvStore for TestBatch {
         const KEY: Field = Self::id;
@@ -99,6 +101,7 @@ mod tests {
             }
         }
     }
+    openerp_store::assert_name_pk!(TestBatch);
 
     impl KvStore for AuditEntry {
         const KEY: Field = Self::id;
