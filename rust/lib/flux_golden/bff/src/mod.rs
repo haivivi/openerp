@@ -59,6 +59,17 @@ impl TwitterBff {
         }
     }
 
+    /// Fetch current user profile (GET /me with JWT).
+    async fn fetch_me(&self) -> Option<app::AppUser> {
+        let token = self.token.token.read().await.clone();
+        let url = format!("{}/app/twitter/me", self.server_url);
+        let mut req = self.http.get(&url);
+        if let Some(t) = &token {
+            req = req.header("authorization", format!("Bearer {}", t));
+        }
+        req.send().await.ok()?.json().await.ok()
+    }
+
     /// Fetch inbox with Accept-Language header set to current locale.
     async fn fetch_inbox(&self) -> Result<app::InboxResponse, String> {
         let locale = self.locale.read().await.clone();
@@ -283,7 +294,7 @@ impl TwitterBff {
     pub async fn handle_follow(&self, req: &FollowUserReq, store: &StateStore) {
         let _ = self.client.follow_user(&req.user_id).await;
         // Refresh my profile.
-        if let Ok(me) = self.client.get_me("self").await {
+        if let Some(me) = self.fetch_me().await {
             store.set(AuthState::PATH, AuthState {
                 phase: AuthPhase::Authenticated,
                 user: Some(to_user_profile(&me)),
@@ -295,7 +306,7 @@ impl TwitterBff {
     #[handle(UnfollowUserReq)]
     pub async fn handle_unfollow(&self, req: &UnfollowUserReq, store: &StateStore) {
         let _ = self.client.unfollow_user(&req.user_id).await;
-        if let Ok(me) = self.client.get_me("self").await {
+        if let Some(me) = self.fetch_me().await {
             store.set(AuthState::PATH, AuthState {
                 phase: AuthPhase::Authenticated,
                 user: Some(to_user_profile(&me)),
@@ -377,7 +388,7 @@ impl TwitterBff {
 
     #[handle(SettingsLoadReq)]
     pub async fn handle_settings_load(&self, _req: &SettingsLoadReq, store: &StateStore) {
-        if let Ok(me) = self.client.get_me("self").await {
+        if let Some(me) = self.fetch_me().await {
             store.set(SettingsState::PATH, SettingsState {
                 display_name: me.display_name.clone().unwrap_or_default(),
                 bio: me.bio.clone().unwrap_or_default(),

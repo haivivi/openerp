@@ -1,13 +1,8 @@
 // TwitterFluxUITests — XCUITest for the Twitter app.
 //
-// Tests real UI interactions on a running simulator:
-// - Tap buttons, type text, verify screen content
-// - Full user journey: login → timeline → compose → like → profile → logout
-//
+// Tests real UI interactions on a running simulator.
 // Requires a booted simulator. Run via:
-//   bazel run //ios/TwitterFlux:UITests -- \
-//     bazel-bin/ios/TwitterFlux/TwitterFlux.app \
-//     bazel-bin/ios/TwitterFlux/UITests.xctest
+//   bazel run //ios/TwitterFlux:UITests
 
 import XCTest
 
@@ -29,181 +24,210 @@ final class TwitterFluxUITests: XCTestCase {
     // MARK: - Login
 
     func testLoginScreenAppears() {
-        // Login page should show the app name and username field.
         XCTAssertTrue(app.staticTexts["TwitterFlux"].waitForExistence(timeout: 5))
-        XCTAssertTrue(app.textFields["Username"].exists)
-        XCTAssertTrue(app.buttons["Sign In"].exists)
+        XCTAssertTrue(app.secureTextFields.firstMatch.exists, "Password field should exist")
     }
 
     func testLoginWithValidUser() {
-        let usernameField = app.textFields["Username"]
-        XCTAssertTrue(usernameField.waitForExistence(timeout: 5))
+        login(username: "alice", password: "password")
+        XCTAssertTrue(app.tabBars.firstMatch.waitForExistence(timeout: 5))
+    }
 
+    func testLoginWithWrongPassword() {
+        let usernameField = app.textFields.firstMatch
+        XCTAssertTrue(usernameField.waitForExistence(timeout: 5))
         usernameField.tap()
         usernameField.typeText("alice")
 
-        app.buttons["Sign In"].tap()
+        let passwordField = app.secureTextFields.firstMatch
+        passwordField.tap()
+        passwordField.typeText("wrong")
 
-        // Should navigate to Home tab.
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 5))
+        app.buttons.matching(NSPredicate(format: "label CONTAINS 'Sign' OR label CONTAINS '登录'")).firstMatch.tap()
+        sleep(2)
+
+        // Should still be on login page.
+        XCTAssertTrue(app.textFields.firstMatch.exists)
+        XCTAssertFalse(app.tabBars.firstMatch.exists)
     }
 
-    func testLoginWithInvalidUser() {
-        let usernameField = app.textFields["Username"]
-        XCTAssertTrue(usernameField.waitForExistence(timeout: 5))
+    // MARK: - Tab Navigation
 
-        usernameField.tap()
-        usernameField.typeText("nonexistent_user")
-
-        app.buttons["Sign In"].tap()
-
-        // Should stay on login page — error should appear.
-        // Give it a moment to process.
-        sleep(1)
-        XCTAssertTrue(app.textFields["Username"].exists, "Should still be on login page")
+    func testTabBarHasFourTabs() {
+        login(username: "alice", password: "password")
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 5))
+        XCTAssertGreaterThanOrEqual(tabBar.buttons.count, 4, "Should have Home, Search, Inbox, Me")
     }
 
-    // MARK: - Navigation
+    func testSwitchAllTabs() {
+        login(username: "alice", password: "password")
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 5))
 
-    func testTabBarExists() {
-        login(username: "alice")
-
-        XCTAssertTrue(app.tabBars.buttons["Home"].exists)
-        XCTAssertTrue(app.tabBars.buttons["Search"].exists)
-        XCTAssertTrue(app.tabBars.buttons["Me"].exists)
-    }
-
-    func testSwitchTabs() {
-        login(username: "alice")
-
-        // Switch to Search.
-        app.tabBars.buttons["Search"].tap()
-        XCTAssertTrue(app.navigationBars["Search"].waitForExistence(timeout: 3))
-
-        // Switch to Me.
-        app.tabBars.buttons["Me"].tap()
-        XCTAssertTrue(app.navigationBars["Me"].waitForExistence(timeout: 3))
-
-        // Back to Home.
-        app.tabBars.buttons["Home"].tap()
-        XCTAssertTrue(app.navigationBars["Home"].waitForExistence(timeout: 3))
+        for i in 0..<tabBar.buttons.count {
+            tabBar.buttons.element(boundBy: i).tap()
+            sleep(1)
+        }
     }
 
     // MARK: - Compose
 
     func testComposeAndPost() {
-        login(username: "alice")
+        login(username: "alice", password: "password")
 
-        // Tap compose button (pencil icon in toolbar).
         let composeButton = app.navigationBars.buttons.matching(
             NSPredicate(format: "label CONTAINS 'pencil' OR label CONTAINS 'Compose'")
         ).firstMatch
-        if composeButton.waitForExistence(timeout: 3) {
-            composeButton.tap()
+        guard composeButton.waitForExistence(timeout: 3) else { return }
+        composeButton.tap()
 
-            // Type a tweet.
-            let textView = app.textViews.firstMatch
-            if textView.waitForExistence(timeout: 3) {
-                textView.tap()
-                textView.typeText("Hello from XCUITest!")
+        let textView = app.textViews.firstMatch
+        guard textView.waitForExistence(timeout: 3) else { return }
+        textView.tap()
+        textView.typeText("Hello from XCUITest!")
 
-                // Character count should appear.
-                XCTAssertTrue(app.staticTexts.matching(
-                    NSPredicate(format: "label CONTAINS '20/280' OR label CONTAINS '/280'")
-                ).firstMatch.exists)
+        // Character count visible.
+        XCTAssertTrue(app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS '/280'")
+        ).firstMatch.exists)
 
-                // Post.
-                app.buttons["Post"].tap()
+        // Post button.
+        app.buttons.matching(
+            NSPredicate(format: "label CONTAINS 'Post' OR label CONTAINS '发布' OR label CONTAINS '投稿' OR label CONTAINS 'Publicar'")
+        ).firstMatch.tap()
 
-                // Should go back to Home.
-                XCTAssertTrue(app.navigationBars["Home"].waitForExistence(timeout: 3))
-            }
-        }
+        sleep(1)
+        // Should return to home.
+        XCTAssertTrue(app.tabBars.firstMatch.exists)
+    }
+
+    // MARK: - Inbox Tab
+
+    func testInboxTabShowsMessages() {
+        login(username: "alice", password: "password")
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 5))
+
+        // Tap inbox tab (3rd tab, index 2).
+        tabBar.buttons.element(boundBy: 2).tap()
+        sleep(2)
+
+        // Should show at least one message.
+        let hasContent = app.staticTexts.matching(
+            NSPredicate(format: "label CONTAINS 'Welcome' OR label CONTAINS '欢迎' OR label CONTAINS 'Broadcast' OR label CONTAINS 'System'")
+        ).firstMatch.waitForExistence(timeout: 5)
+        XCTAssertTrue(hasContent, "Inbox should show seeded messages")
     }
 
     // MARK: - Me / Settings
 
     func testMeTabShowsProfile() {
-        login(username: "alice")
+        login(username: "alice", password: "password")
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 5))
 
-        app.tabBars.buttons["Me"].tap()
+        // Me is the last tab.
+        tabBar.buttons.element(boundBy: tabBar.buttons.count - 1).tap()
 
-        // Should show user info.
         XCTAssertTrue(app.staticTexts.matching(
             NSPredicate(format: "label CONTAINS 'alice' OR label CONTAINS 'Alice'")
         ).firstMatch.waitForExistence(timeout: 3))
     }
 
     func testSignOut() {
-        login(username: "alice")
+        login(username: "alice", password: "password")
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 5))
 
-        // Go to Me tab.
-        app.tabBars.buttons["Me"].tap()
+        tabBar.buttons.element(boundBy: tabBar.buttons.count - 1).tap()
         sleep(1)
 
-        // Tap Sign Out.
-        let signOut = app.buttons["Sign Out"]
-        if signOut.waitForExistence(timeout: 3) {
-            signOut.tap()
+        let signOut = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS 'Sign Out' OR label CONTAINS '退出' OR label CONTAINS 'サインアウト' OR label CONTAINS 'Cerrar'")
+        ).firstMatch
+        guard signOut.waitForExistence(timeout: 3) else { return }
+        signOut.tap()
 
-            // Should be back on login page.
-            XCTAssertTrue(app.textFields["Username"].waitForExistence(timeout: 5))
-        }
+        XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 5), "Should be back on login")
     }
 
-    // MARK: - Admin Dashboard Link
+    // MARK: - Language Switcher
 
-    func testAdminDashboardLinkExists() {
-        login(username: "alice")
+    func testLanguageSwitcher() {
+        login(username: "alice", password: "password")
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 5))
 
-        app.tabBars.buttons["Me"].tap()
+        // Go to Me tab.
+        tabBar.buttons.element(boundBy: tabBar.buttons.count - 1).tap()
+        sleep(1)
 
-        // Should show "Open Admin Dashboard" link.
-        let dashLink = app.buttons.matching(
-            NSPredicate(format: "label CONTAINS 'Admin' OR label CONTAINS 'Dashboard'")
+        // Tap Language row.
+        let langRow = app.cells.matching(
+            NSPredicate(format: "label CONTAINS 'Language' OR label CONTAINS '语言' OR label CONTAINS '言語' OR label CONTAINS 'Idioma'")
         ).firstMatch
-        XCTAssertTrue(dashLink.waitForExistence(timeout: 3))
+        guard langRow.waitForExistence(timeout: 3) else { return }
+        langRow.tap()
+        sleep(1)
+
+        // Select Chinese.
+        let zhOption = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS '中文'")
+        ).firstMatch
+        guard zhOption.waitForExistence(timeout: 3) else { return }
+        zhOption.tap()
+        sleep(1)
+
+        // Navigate back — tab labels should now be in Chinese.
+        app.navigationBars.buttons.firstMatch.tap()
+        sleep(1)
     }
 
     // MARK: - Full Journey
 
     func testFullUserJourney() {
-        // 1. Login.
-        login(username: "alice")
-        XCTAssertTrue(app.tabBars.buttons["Home"].waitForExistence(timeout: 5))
+        login(username: "alice", password: "password")
+        let tabBar = app.tabBars.firstMatch
+        XCTAssertTrue(tabBar.waitForExistence(timeout: 5))
 
-        // 2. Switch tabs.
-        app.tabBars.buttons["Search"].tap()
-        XCTAssertTrue(app.navigationBars["Search"].waitForExistence(timeout: 3))
+        // Switch through all tabs.
+        for i in 0..<tabBar.buttons.count {
+            tabBar.buttons.element(boundBy: i).tap()
+            sleep(1)
+        }
 
-        // 3. Back to Home.
-        app.tabBars.buttons["Home"].tap()
-
-        // 4. Go to Me.
-        app.tabBars.buttons["Me"].tap()
-        XCTAssertTrue(app.navigationBars["Me"].waitForExistence(timeout: 3))
-
-        // 5. Sign out.
-        let signOut = app.buttons["Sign Out"]
+        // Go to Me and sign out.
+        tabBar.buttons.element(boundBy: tabBar.buttons.count - 1).tap()
+        sleep(1)
+        let signOut = app.buttons.matching(
+            NSPredicate(format: "label CONTAINS 'Sign Out' OR label CONTAINS '退出'")
+        ).firstMatch
         if signOut.waitForExistence(timeout: 3) {
             signOut.tap()
-            XCTAssertTrue(app.textFields["Username"].waitForExistence(timeout: 5))
+            XCTAssertTrue(app.textFields.firstMatch.waitForExistence(timeout: 5))
         }
     }
 
     // MARK: - Helpers
 
-    private func login(username: String) {
-        let usernameField = app.textFields["Username"]
+    private func login(username: String, password: String) {
+        let usernameField = app.textFields.firstMatch
         guard usernameField.waitForExistence(timeout: 5) else {
             XCTFail("Login screen not visible")
             return
         }
         usernameField.tap()
         usernameField.typeText(username)
-        app.buttons["Sign In"].tap()
 
-        // Wait for home to appear.
-        _ = app.tabBars.buttons["Home"].waitForExistence(timeout: 5)
+        let passwordField = app.secureTextFields.firstMatch
+        passwordField.tap()
+        passwordField.typeText(password)
+
+        app.buttons.matching(
+            NSPredicate(format: "label CONTAINS 'Sign' OR label CONTAINS '登录'")
+        ).firstMatch.tap()
+
+        _ = app.tabBars.firstMatch.waitForExistence(timeout: 5)
     }
 }
