@@ -5,7 +5,7 @@ rust_library(
     crate_name = "auth",
     srcs = glob(["dsl/**/*.rs", "src/**/*.rs"]),
     crate_root = "src/lib.rs",
-    edition = "2021",
+    edition = "2024",
     visibility = ["//rust:__subpackages__"],
     proc_macro_deps = [
         "//rust/lib/dsl/macro",

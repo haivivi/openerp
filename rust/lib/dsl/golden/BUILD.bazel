@@ -4,7 +4,7 @@ rust_test(
     name = "golden_test",
     srcs = glob(["src/**/*.rs"]),
     compile_data = glob(["snapshots/**/*.json"], allow_empty = True),
-    edition = "2021",
+    edition = "2024",
     proc_macro_deps = [
         "//rust/lib/dsl/macro",
     ],

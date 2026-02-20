@@ -4,7 +4,7 @@ rust_library(
     name = "types",
     crate_name = "openerp_types",
     srcs = glob(["src/**/*.rs"]),
-    edition = "2021",
+    edition = "2024",
     visibility = ["//visibility:public"],
     deps = [
         "@crates//:flatbuffers",

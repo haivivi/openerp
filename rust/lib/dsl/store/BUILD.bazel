@@ -4,7 +4,7 @@ rust_library(
     name = "store",
     crate_name = "openerp_store",
     srcs = glob(["src/**/*.rs"]),
-    edition = "2021",
+    edition = "2024",
     visibility = ["//visibility:public"],
     deps = [
         "//rust/lib/dsl/types",

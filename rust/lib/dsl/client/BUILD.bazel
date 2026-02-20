@@ -4,7 +4,7 @@ rust_library(
     name = "client",
     crate_name = "openerp_client",
     srcs = glob(["src/**/*.rs"]),
-    edition = "2021",
+    edition = "2024",
     visibility = ["//visibility:public"],
     proc_macro_deps = [
         "@crates//:async-trait",

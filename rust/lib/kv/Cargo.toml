@@ -1,0 +1,17 @@
+[package]
+name = "openerp-kv"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[lib]
+name = "openerp_kv"
+path = "src/lib.rs"
+
+[dependencies]
+redb = "2"
+thiserror = "2"
+tracing = "0.1"
+
+[dev-dependencies]
+tempfile = "3"
