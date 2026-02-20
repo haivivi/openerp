@@ -40,7 +40,7 @@ pub struct FluxBytes {
 /// Create a new Flux instance.
 /// Starts an embedded HTTP server with admin dashboard + REST API.
 /// Returns an opaque handle. Must be freed with `flux_free`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn flux_create() -> *mut FluxHandle {
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
@@ -73,7 +73,7 @@ pub extern "C" fn flux_create() -> *mut FluxHandle {
 }
 
 /// Free a Flux handle.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn flux_free(handle: *mut FluxHandle) {
     if !handle.is_null() {
         unsafe { drop(Box::from_raw(handle)); }
@@ -82,7 +82,7 @@ pub extern "C" fn flux_free(handle: *mut FluxHandle) {
 
 /// Get the server URL (e.g. "http://192.168.1.100:3000").
 /// Returns a null-terminated C string. Do NOT free it.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn flux_server_url(handle: *const FluxHandle) -> *const c_char {
     let handle = unsafe { &*handle };
     handle.server_url.as_ptr()
@@ -92,7 +92,7 @@ pub extern "C" fn flux_server_url(handle: *const FluxHandle) -> *const c_char {
 // State — read
 // ============================================================================
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn flux_get(handle: *const FluxHandle, path: *const c_char) -> FluxBytes {
     let handle = unsafe { &*handle };
     let path = unsafe { CStr::from_ptr(path) }.to_str().unwrap_or("");
@@ -106,7 +106,7 @@ pub extern "C" fn flux_get(handle: *const FluxHandle, path: *const c_char) -> Fl
     }
 }
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn flux_bytes_free(bytes: FluxBytes) {
     if !bytes.ptr.is_null() && bytes.len > 0 {
         unsafe {
@@ -122,7 +122,7 @@ pub extern "C" fn flux_bytes_free(bytes: FluxBytes) {
 /// Get a translated string. Synchronous.
 /// `url` is "path" or "path?key=value&key2=value2".
 /// Returns a C string. Caller must free with `flux_bytes_free`.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn flux_i18n_get(handle: *const FluxHandle, url: *const c_char) -> FluxBytes {
     let handle = unsafe { &*handle };
     let url = unsafe { CStr::from_ptr(url) }.to_str().unwrap_or("");
@@ -132,7 +132,7 @@ pub extern "C" fn flux_i18n_get(handle: *const FluxHandle, url: *const c_char) -
 
 /// Set the i18n locale (e.g. "zh-CN", "en", "ja", "es").
 /// Updates UI strings (I18nStore) AND notifies BFF to reload locale-dependent data.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn flux_i18n_set_locale(handle: *const FluxHandle, locale: *const c_char) {
     let handle = unsafe { &*handle };
     let locale_str = unsafe { CStr::from_ptr(locale) }.to_str().unwrap_or("en");
@@ -147,7 +147,7 @@ pub extern "C" fn flux_i18n_set_locale(handle: *const FluxHandle, locale: *const
 // Requests — emit
 // ============================================================================
 
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub extern "C" fn flux_emit(
     handle: *mut FluxHandle,
     path: *const c_char,

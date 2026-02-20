@@ -4,7 +4,7 @@ rust_library(
     name = "flux_golden_lib",
     crate_name = "flux_golden",
     srcs = glob(["src/lib.rs", "server/**/*.rs", "bff/**/*.rs"]),
-    edition = "2021",
+    edition = "2024",
     proc_macro_deps = [
         "//rust/lib/dsl/macro",
         "//rust/lib/flux_derive",
@@ -35,7 +35,7 @@ rust_library(
 rust_binary(
     name = "twitterd",
     srcs = ["src/main.rs"],
-    edition = "2021",
+    edition = "2024",
     deps = [
         ":flux_golden_lib",
         "//rust/lib/dsl/store",

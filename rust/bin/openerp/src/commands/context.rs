@@ -30,7 +30,7 @@ pub fn create(
     let jwt_secret: String = {
         use rand::Rng;
         let mut rng = rand::thread_rng();
-        (0..32).map(|_| format!("{:02x}", rng.gen::<u8>())).collect()
+        (0..32).map(|_| format!("{:02x}", rng.r#gen::<u8>())).collect()
     };
 
     // Build server config TOML.

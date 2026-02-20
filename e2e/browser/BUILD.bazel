@@ -5,7 +5,7 @@ load("@rules_rust//rust:defs.bzl", "rust_binary")
 rust_binary(
     name = "runner",
     srcs = ["src/runner.rs"],
-    edition = "2021",
+    edition = "2024",
     deps = [
         "@crates//:reqwest",
         "@crates//:tempfile",

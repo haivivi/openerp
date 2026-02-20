@@ -4,7 +4,7 @@ rust_library(
     name = "flux_ffi",
     crate_name = "flux_ffi",
     srcs = glob(["src/**/*.rs"]),
-    edition = "2021",
+    edition = "2024",
     visibility = ["//visibility:public"],
     deps = [
         "//rust/lib/flux",
@@ -33,7 +33,7 @@ rust_static_library(
     name = "flux_ffi_static",
     crate_name = "flux_ffi",
     srcs = glob(["src/**/*.rs"]),
-    edition = "2021",
+    edition = "2024",
     visibility = ["//visibility:public"],
     deps = [
         "//rust/lib/flux",

@@ -12,7 +12,8 @@ bazel_dep(name = "rules_swift", version = "3.4.2")
 # Rust toolchain — host + iOS cross-compilation
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
-    edition = "2021",
+    edition = "2024",
+    versions = ["1.93.1"],
     extra_target_triples = [
         "aarch64-apple-ios-sim",
         "aarch64-apple-ios",

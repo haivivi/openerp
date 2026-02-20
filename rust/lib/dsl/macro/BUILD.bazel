@@ -4,7 +4,7 @@ rust_proc_macro(
     name = "macro",
     crate_name = "openerp_macro",
     srcs = glob(["src/**/*.rs"]),
-    edition = "2021",
+    edition = "2024",
     visibility = ["//visibility:public"],
     deps = [
         "@crates//:syn",
