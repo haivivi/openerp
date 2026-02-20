@@ -285,6 +285,14 @@ fn get_lan_ip() -> Option<String> {
     socket.local_addr().ok().map(|a| a.ip().to_string())
 }
 
+fn ffi_hash_pw(password: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    password.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
 fn base64_url(input: &str) -> String {
     use base64::Engine;
     base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(input.as_bytes())
@@ -305,6 +313,7 @@ fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
     ] {
         users_ops.save_new(User {
             id: Id::default(), username: username.into(),
+            password_hash: Some(PasswordHash::new(&ffi_hash_pw("password"))),
             bio: Some(bio.into()),
             avatar: Some(Avatar::new(&format!("https://api.dicebear.com/7.x/initials/svg?seed={}", username))),
             follower_count: 0, following_count: 0, tweet_count: 0,
@@ -443,6 +452,7 @@ fn deserialize_request(path: &str, json: &str) -> Option<Arc<dyn Any + Send + Sy
             serde_json::from_str::<serde_json::Value>(json).ok().map(|v| {
                 Arc::new(LoginReq {
                     username: v["username"].as_str().unwrap_or("").to_string(),
+                    password: v["password"].as_str().unwrap_or("").to_string(),
                 }) as Arc<dyn Any + Send + Sync>
             })
         }

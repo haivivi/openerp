@@ -146,7 +146,7 @@ impl TwitterBff {
 
         let login_req = app::LoginRequest {
             username: req.username.clone(),
-            password: String::new(), // Golden test — no password.
+            password: req.password.clone(),
         };
 
         match self.client.login(&login_req).await {

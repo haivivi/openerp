@@ -135,6 +135,7 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
         users_ops.save_new(User {
             id: Id::default(),
             username: username.to_string(),
+            password_hash: Some(PasswordHash::new(&hash_pw("password"))),
             bio: Some(bio.to_string()),
             avatar: Some(Avatar::new(&format!("https://api.dicebear.com/7.x/initials/svg?seed={}", username))),
             follower_count: 0,
@@ -339,4 +340,13 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
 
     info!("Seeded: {} users, {} tweets (+ {} replies), {} likes, {} follows, 3 messages",
         users.len(), tweets_data.len(), replies.len(), likes.len(), follow_pairs.len());
+    info!("All users password: password");
+}
+
+fn hash_pw(password: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    password.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
 }

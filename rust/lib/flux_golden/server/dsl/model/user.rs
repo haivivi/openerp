@@ -6,6 +6,7 @@ use openerp_types::*;
 pub struct User {
     pub id: Id,
     pub username: String,
+    pub password_hash: Option<PasswordHash>,
     pub bio: Option<String>,
     pub avatar: Option<Avatar>,
     pub follower_count: u32,

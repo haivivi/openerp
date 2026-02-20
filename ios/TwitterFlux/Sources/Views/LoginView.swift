@@ -5,6 +5,7 @@ import SwiftUI
 struct LoginView: View {
     @EnvironmentObject var store: FluxStore
     @State private var username = ""
+    @State private var password = ""
 
     private var auth: AuthState? {
         store.get("auth/state") as AuthState?
@@ -33,6 +34,9 @@ struct LoginView: View {
                     #endif
                     .disableAutocorrection(true)
 
+                SecureField(store.t("ui/login/password"), text: $password)
+                    .textFieldStyle(.roundedBorder)
+
                 Button(action: login) {
                     if auth?.busy == true {
                         ProgressView()
@@ -43,7 +47,7 @@ struct LoginView: View {
                     }
                 }
                 .buttonStyle(.borderedProminent)
-                .disabled(username.isEmpty || auth?.busy == true)
+                .disabled(username.isEmpty || password.isEmpty || auth?.busy == true)
 
                 if let error = auth?.error {
                     Text(error)
@@ -63,6 +67,6 @@ struct LoginView: View {
     }
 
     private func login() {
-        store.emit("auth/login", json: ["username": username])
+        store.emit("auth/login", json: ["username": username, "password": password])
     }
 }

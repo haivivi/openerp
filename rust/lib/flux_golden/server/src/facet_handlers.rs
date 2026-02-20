@@ -111,6 +111,19 @@ fn to_app_user(u: &User) -> AppUser {
 
 // ── Handlers ──
 
+/// Simple password hash for golden test (SHA256 hex).
+fn hash_password(password: &str) -> String {
+    use std::collections::hash_map::DefaultHasher;
+    use std::hash::{Hash, Hasher};
+    let mut hasher = DefaultHasher::new();
+    password.hash(&mut hasher);
+    format!("{:016x}", hasher.finish())
+}
+
+fn verify_password(password: &str, hash: &str) -> bool {
+    hash_password(password) == hash
+}
+
 /// POST /auth/login — public, no JWT required.
 pub async fn login(
     headers: HeaderMap,
@@ -122,6 +135,14 @@ pub async fn login(
         .ok_or_else(|| ServiceError::Unauthorized(
             state.i18n.t("error.auth.user_not_found", &[("username", &req.username)])
         ))?;
+
+    if let Some(ref stored_hash) = user.password_hash {
+        if !verify_password(&req.password, stored_hash.as_str()) {
+            return Err(ServiceError::Unauthorized(
+                state.i18n.t("error.auth.invalid_token", &[])
+            ));
+        }
+    }
 
     let display = user.display_name.as_deref().unwrap_or(&user.username);
     let token = state.jwt.issue(user.id.as_str(), display)
@@ -543,6 +564,7 @@ mod tests {
         let users = KvOps::<User>::new(kv.clone());
         users.save_new(User {
             id: Id::default(), username: "alice".into(),
+            password_hash: Some(PasswordHash::new(&hash_password("password"))),
             bio: Some("Rust dev".into()), avatar: None,
             follower_count: 0, following_count: 0, tweet_count: 0,
             display_name: Some("Alice".into()),
@@ -550,6 +572,7 @@ mod tests {
         }).unwrap();
         users.save_new(User {
             id: Id::default(), username: "bob".into(),
+            password_hash: Some(PasswordHash::new(&hash_password("password"))),
             bio: None, avatar: None,
             follower_count: 0, following_count: 0, tweet_count: 0,
             display_name: Some("Bob".into()),
@@ -614,7 +637,7 @@ mod tests {
     async fn login_success() {
         let (r, _) = setup();
         let (s, body) = call(&r, "POST", "/auth/login", None,
-            Some(serde_json::json!({"username": "alice", "password": ""}))).await;
+            Some(serde_json::json!({"username": "alice", "password": "password"}))).await;
         assert_eq!(s, StatusCode::OK);
         assert!(body["accessToken"].as_str().unwrap().contains('.'));
         assert_eq!(body["user"]["username"], "alice");
@@ -624,7 +647,16 @@ mod tests {
     async fn login_unknown_user() {
         let (r, _) = setup();
         let (s, body) = call(&r, "POST", "/auth/login", None,
-            Some(serde_json::json!({"username": "nobody", "password": ""}))).await;
+            Some(serde_json::json!({"username": "nobody", "password": "password"}))).await;
+        assert_eq!(s, StatusCode::UNAUTHORIZED);
+        assert_eq!(body["code"], "UNAUTHENTICATED");
+    }
+
+    #[tokio::test]
+    async fn login_wrong_password() {
+        let (r, _) = setup();
+        let (s, body) = call(&r, "POST", "/auth/login", None,
+            Some(serde_json::json!({"username": "alice", "password": "wrong"}))).await;
         assert_eq!(s, StatusCode::UNAUTHORIZED);
         assert_eq!(body["code"], "UNAUTHENTICATED");
     }
@@ -1105,6 +1137,7 @@ mod tests {
         let jwt = JwtService::golden_test();
         KvOps::<User>::new(kv.clone()).save_new(User {
             id: Id::default(), username: "alice".into(),
+            password_hash: Some(PasswordHash::new(&hash_password("password"))),
             bio: None, avatar: None,
             follower_count: 0, following_count: 0, tweet_count: 0,
             display_name: Some("Alice".into()),
