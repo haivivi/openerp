@@ -28,6 +28,38 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
         _ => return Err(syn::Error::new_spanned(&item.ident, "model must have named fields")),
     };
 
+    // ── id / name mutual exclusion check ──
+    //
+    // If a model has both `id: Id` AND a name template referencing a different
+    // field, the identity is ambiguous. Error out.
+    //
+    // Allowed combinations:
+    //   - `id: Id` without `name`        → id is the PK
+    //   - `name = ".../{sn}"` without id → sn is the PK via NameTemplate
+    //   - `name = ".../{id}"` + `id: Id` → OK, name references the id field
+    //   - no `id: Id` and no `name`      → PK declared manually in KvStore
+    //
+    // Rejected:
+    //   - `id: Id` + `name = ".../{sn}"` → conflicting identity
+    if let Some(ref tmpl) = name_template {
+        let (_, key_field) = parse_name_template(tmpl)?;
+        let has_id_field = named.named.iter().any(|f| {
+            f.ident.as_ref().map(|i| i == "id").unwrap_or(false)
+                && is_type_id(&f.ty)
+        });
+        if has_id_field && key_field != "id" {
+            return Err(syn::Error::new_spanned(
+                &item.ident,
+                format!(
+                    "model has both `id: Id` and name template referencing `{{{}}}`. \
+                     Remove the `id` field — the name template field `{}` is the PK. \
+                     If you need `id: Id` as the PK, use `name = \".../{{{}}}\"`.",
+                    key_field, key_field, "id"
+                ),
+            ));
+        }
+    }
+
     // Strip #[ui(...)] and #[permission(...)] from field output.
     // Add #[serde(default)] to all fields for flexible deserialization.
     let mut clean_fields = named.clone();
@@ -160,9 +192,11 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
 
     let name_template_impl = if let Some(ref tmpl) = name_template {
         let (prefix, key_field) = parse_name_template(tmpl)?;
+        let key_field_str = &key_field;
         let key_ident = format_ident!("{}", key_field);
         quote! {
             impl openerp_types::NameTemplate for #struct_name {
+                const NAME_KEY_FIELD: &'static str = #key_field_str;
                 fn name_prefix() -> &'static str { #prefix }
                 fn name_template() -> &'static str { #tmpl }
                 fn name_of(&self) -> String {
@@ -343,6 +377,16 @@ fn extract_tuple_type_names(ty: &syn::Type) -> Vec<String> {
         }
     }
     vec![]
+}
+
+/// Check if a field type is `Id` (the identity newtype).
+fn is_type_id(ty: &syn::Type) -> bool {
+    if let syn::Type::Path(tp) = ty {
+        if let Some(seg) = tp.path.segments.last() {
+            return seg.ident == "Id";
+        }
+    }
+    false
 }
 
 /// Get the full type as a string (e.g. "Option<Email>").

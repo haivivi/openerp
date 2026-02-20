@@ -8,6 +8,41 @@ use openerp_types::Field;
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
+/// Compile-time assertion: KvStore KEY field must match NameTemplate key field.
+///
+/// Call this for any type that implements both `KvStore` and `NameTemplate`.
+/// Triggers a compile error if `KvStore::KEY.name` differs from
+/// `NameTemplate::NAME_KEY_FIELD`.
+///
+/// ```ignore
+/// #[model(module = "auth", name = "auth/users/{id}")]
+/// pub struct User { pub id: Id, ... }
+///
+/// impl KvStore for User {
+///     const KEY: Field = Self::id;
+///     ...
+/// }
+///
+/// openerp_store::assert_name_pk!(User); // OK — both reference "id"
+/// ```
+#[macro_export]
+macro_rules! assert_name_pk {
+    ($T:ty) => {
+        const _: () = {
+            if !openerp_types::const_str_eq(
+                <$T as $crate::KvStore>::KEY.name,
+                <$T as openerp_types::NameTemplate>::NAME_KEY_FIELD,
+            ) {
+                panic!(concat!(
+                    "KvStore KEY field does not match NameTemplate key field for `",
+                    stringify!($T),
+                    "`. The name template's {{field}} must be the same as KvStore::KEY."
+                ));
+            }
+        };
+    };
+}
+
 /// Trait implemented by models to declare KV storage behavior.
 ///
 /// KEY is the field used as the KV key. Hooks have default no-op impls.
