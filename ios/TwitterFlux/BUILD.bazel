@@ -7,6 +7,7 @@ swift_library(
     srcs = glob(["Sources/**/*.swift"]),
     module_name = "TwitterFlux",
     tags = ["manual"],
+    target_compatible_with = ["@platforms//os:macos"],
 )
 
 # Probe: test that iOS platform transition builds all deps.
@@ -16,6 +17,7 @@ ios_probe(
         ":TwitterFluxLib",
         "//rust/lib/flux_ffi:flux_ffi_static",
     ],
+    target_compatible_with = ["@platforms//os:macos"],
 )
 
 # Swift source built for testing (no @main).
@@ -25,6 +27,7 @@ swift_library(
     copts = ["-DTESTING"],
     module_name = "TwitterFlux",
     tags = ["manual"],
+    target_compatible_with = ["@platforms//os:macos"],
     testonly = True,
 )
 
@@ -32,6 +35,7 @@ swift_library(
 swift_test(
     name = "FluxFFITests",
     srcs = glob(["Tests/**/*.swift"]),
+    target_compatible_with = ["@platforms//os:macos"],
     deps = [
         ":TwitterFluxTestLib",
         "//rust/lib/flux_ffi:flux_ffi_static",
@@ -44,21 +48,18 @@ ios_app(
     app_name = "TwitterFlux",
     bundle_id = "com.haivivi.twitterflux",
     infoplist = "Info.plist",
+    target_compatible_with = ["@platforms//os:macos"],
     deps = [
         ":TwitterFluxLib",
         "//rust/lib/flux_ffi:flux_ffi_static",
     ],
 )
 
-# XCUITest — UI test library.
-# XCUITest runner.
-# Bazel builds the .app, then swiftc compiles XCUITest bundle, simctl runs it.
-#
-# Usage:
-#   bazel run //ios/TwitterFlux:UITests
+# XCUITest runner — macOS only.
 ios_ui_runner(
     name = "UITests",
     app = [":TwitterFlux"],
     app_bundle_id = "com.haivivi.twitterflux",
+    target_compatible_with = ["@platforms//os:macos"],
     test_srcs = glob(["UITests/**/*.swift"]),
 )
