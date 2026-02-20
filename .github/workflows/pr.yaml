@@ -13,9 +13,12 @@ jobs:
     name: Find affected targets
     runs-on: ubuntu-latest
     outputs:
-      build_targets: ${{ steps.affected.outputs.build_targets }}
-      test_targets: ${{ steps.affected.outputs.test_targets }}
-      has_targets: ${{ steps.affected.outputs.has_targets }}
+      linux_build: ${{ steps.split.outputs.linux_build }}
+      linux_test: ${{ steps.split.outputs.linux_test }}
+      macos_build: ${{ steps.split.outputs.macos_build }}
+      macos_test: ${{ steps.split.outputs.macos_test }}
+      has_linux: ${{ steps.split.outputs.has_linux }}
+      has_macos: ${{ steps.split.outputs.has_macos }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -24,30 +27,55 @@ jobs:
       - name: Find affected targets
         id: affected
         run: |
-          # Get affected build targets
           BUILD=$(bazel run //devops/tools/affected -- \
             --base=origin/${{ github.base_ref }} --mode=build --oneline)
-          # Get affected test targets
           TEST=$(bazel run //devops/tools/affected -- \
             --base=origin/${{ github.base_ref }} --mode=test --oneline)
-
           echo "build_targets=${BUILD}" >> "$GITHUB_OUTPUT"
           echo "test_targets=${TEST}" >> "$GITHUB_OUTPUT"
 
-          if [ -n "$BUILD" ] || [ -n "$TEST" ]; then
-            echo "has_targets=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_targets=false" >> "$GITHUB_OUTPUT"
-          fi
+      - name: Split by platform
+        id: split
+        run: |
+          # Split targets: ios/ → macOS, everything else → Linux.
+          LINUX_BUILD=""
+          MACOS_BUILD=""
+          for t in ${{ steps.affected.outputs.build_targets }}; do
+            if echo "$t" | grep -qE '^//ios/'; then
+              MACOS_BUILD="$MACOS_BUILD $t"
+            else
+              LINUX_BUILD="$LINUX_BUILD $t"
+            fi
+          done
+
+          LINUX_TEST=""
+          MACOS_TEST=""
+          for t in ${{ steps.affected.outputs.test_targets }}; do
+            if echo "$t" | grep -qE '^//ios/'; then
+              MACOS_TEST="$MACOS_TEST $t"
+            else
+              LINUX_TEST="$LINUX_TEST $t"
+            fi
+          done
+
+          echo "linux_build=$(echo $LINUX_BUILD | xargs)" >> "$GITHUB_OUTPUT"
+          echo "linux_test=$(echo $LINUX_TEST | xargs)" >> "$GITHUB_OUTPUT"
+          echo "macos_build=$(echo $MACOS_BUILD | xargs)" >> "$GITHUB_OUTPUT"
+          echo "macos_test=$(echo $MACOS_TEST | xargs)" >> "$GITHUB_OUTPUT"
+
+          [ -n "$(echo $LINUX_BUILD $LINUX_TEST | xargs)" ] && echo "has_linux=true" >> "$GITHUB_OUTPUT" || echo "has_linux=false" >> "$GITHUB_OUTPUT"
+          [ -n "$(echo $MACOS_BUILD $MACOS_TEST | xargs)" ] && echo "has_macos=true" >> "$GITHUB_OUTPUT" || echo "has_macos=false" >> "$GITHUB_OUTPUT"
 
           echo "### Affected targets" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Build:** ${BUILD:-none}" >> "$GITHUB_STEP_SUMMARY"
-          echo "**Test:** ${TEST:-none}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Linux build:** ${LINUX_BUILD:-none}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**Linux test:** ${LINUX_TEST:-none}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**macOS build:** ${MACOS_BUILD:-none}" >> "$GITHUB_STEP_SUMMARY"
+          echo "**macOS test:** ${MACOS_TEST:-none}" >> "$GITHUB_STEP_SUMMARY"
 
   build:
-    name: Build
+    name: Build (Linux)
     needs: affected
-    if: needs.affected.outputs.has_targets == 'true' && needs.affected.outputs.build_targets != ''
+    if: needs.affected.outputs.has_linux == 'true' && needs.affected.outputs.linux_build != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -56,13 +84,13 @@ jobs:
 
       - name: Build affected targets
         env:
-          BUILD_TARGETS: ${{ needs.affected.outputs.build_targets }}
+          BUILD_TARGETS: ${{ needs.affected.outputs.linux_build }}
         run: bazel build $BUILD_TARGETS
 
   test:
-    name: Test
+    name: Test (Linux)
     needs: affected
-    if: needs.affected.outputs.has_targets == 'true' && needs.affected.outputs.test_targets != ''
+    if: needs.affected.outputs.has_linux == 'true' && needs.affected.outputs.linux_test != ''
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -71,5 +99,35 @@ jobs:
 
       - name: Test affected targets
         env:
-          TEST_TARGETS: ${{ needs.affected.outputs.test_targets }}
+          TEST_TARGETS: ${{ needs.affected.outputs.linux_test }}
+        run: bazel test $TEST_TARGETS
+
+  build-macos:
+    name: Build (macOS)
+    needs: affected
+    if: needs.affected.outputs.has_macos == 'true' && needs.affected.outputs.macos_build != ''
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Build affected targets
+        env:
+          BUILD_TARGETS: ${{ needs.affected.outputs.macos_build }}
+        run: bazel build $BUILD_TARGETS
+
+  test-macos:
+    name: Test (macOS)
+    needs: affected
+    if: needs.affected.outputs.has_macos == 'true' && needs.affected.outputs.macos_test != ''
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Test affected targets
+        env:
+          TEST_TARGETS: ${{ needs.affected.outputs.macos_test }}
         run: bazel test $TEST_TARGETS
