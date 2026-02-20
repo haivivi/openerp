@@ -38,9 +38,12 @@ jobs:
         id: split
         run: |
           # Split targets: ios/ → macOS, everything else → Linux.
+          # Filter out manual swift_library targets (internal deps, conflict when built together).
           LINUX_BUILD=""
           MACOS_BUILD=""
           for t in ${{ steps.affected.outputs.build_targets }}; do
+            # Skip internal swift libs that conflict on swiftmodule output.
+            case "$t" in *:TwitterFluxLib|*:TwitterFluxTestLib) continue ;; esac
             if echo "$t" | grep -qE '^//ios/'; then
               MACOS_BUILD="$MACOS_BUILD $t"
             else
@@ -51,6 +54,7 @@ jobs:
           LINUX_TEST=""
           MACOS_TEST=""
           for t in ${{ steps.affected.outputs.test_targets }}; do
+            case "$t" in *:TwitterFluxLib|*:TwitterFluxTestLib) continue ;; esac
             if echo "$t" | grep -qE '^//ios/'; then
               MACOS_TEST="$MACOS_TEST $t"
             else

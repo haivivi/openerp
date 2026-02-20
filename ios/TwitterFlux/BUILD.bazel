@@ -6,10 +6,9 @@ swift_library(
     name = "TwitterFluxLib",
     srcs = glob(["Sources/**/*.swift"]),
     module_name = "TwitterFlux",
-    tags = ["macos"],
+    tags = ["macos", "manual"],
 )
 
-# Probe: test that iOS platform transition builds all deps.
 ios_probe(
     name = "probe",
     tags = ["macos"],
@@ -19,17 +18,15 @@ ios_probe(
     ],
 )
 
-# Swift source built for testing (no @main).
 swift_library(
     name = "TwitterFluxTestLib",
     srcs = glob(["Sources/**/*.swift"]),
     copts = ["-DTESTING"],
     module_name = "TwitterFlux",
-    tags = ["macos"],
+    tags = ["macos", "manual"],
     testonly = True,
 )
 
-# Swift integration tests — run on macOS host, test FFI full path.
 swift_test(
     name = "FluxFFITests",
     srcs = glob(["Tests/**/*.swift"]),
@@ -40,7 +37,6 @@ swift_test(
     ],
 )
 
-# Full iOS .app bundle (simulator).
 ios_app(
     name = "TwitterFlux",
     app_name = "TwitterFlux",
@@ -53,7 +49,6 @@ ios_app(
     ],
 )
 
-# XCUITest runner — macOS only.
 ios_ui_runner(
     name = "UITests",
     app = [":TwitterFlux"],
