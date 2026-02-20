@@ -12,7 +12,7 @@ pub mod settings;
 pub mod tweet;
 pub mod user;
 
-pub use app::{ComposeUpdateReq, InitializeReq, TimelineLoadReq};
+pub use app::{ComposeUpdateReq, InitializeReq, SetLocaleReq, TimelineLoadReq};
 pub use auth::{LoginReq, LogoutReq};
 pub use inbox::{InboxLoadReq, InboxMarkReadReq};
 pub use search::{SearchClearReq, SearchReq};

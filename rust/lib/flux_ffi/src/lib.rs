@@ -131,11 +131,16 @@ pub extern "C" fn flux_i18n_get(handle: *const FluxHandle, url: *const c_char) -
 }
 
 /// Set the i18n locale (e.g. "zh-CN", "en", "ja", "es").
+/// Updates UI strings (I18nStore) AND notifies BFF to reload locale-dependent data.
 #[no_mangle]
 pub extern "C" fn flux_i18n_set_locale(handle: *const FluxHandle, locale: *const c_char) {
     let handle = unsafe { &*handle };
-    let locale = unsafe { CStr::from_ptr(locale) }.to_str().unwrap_or("en");
-    handle.i18n.set_locale(locale);
+    let locale_str = unsafe { CStr::from_ptr(locale) }.to_str().unwrap_or("en");
+    handle.i18n.set_locale(locale_str);
+    let req = Arc::new(SetLocaleReq { locale: locale_str.to_string() });
+    handle.rt.block_on(async {
+        handle.flux.emit_arc(SetLocaleReq::PATH, req).await;
+    });
 }
 
 // ============================================================================
@@ -515,6 +520,13 @@ fn deserialize_request(path: &str, json: &str) -> Option<Arc<dyn Any + Send + Sy
                 Arc::new(ChangePasswordReq {
                     old_password: v["oldPassword"].as_str().unwrap_or("").to_string(),
                     new_password: v["newPassword"].as_str().unwrap_or("").to_string(),
+                }) as Arc<dyn Any + Send + Sync>
+            })
+        }
+        "app/set-locale" => {
+            serde_json::from_str::<serde_json::Value>(json).ok().map(|v| {
+                Arc::new(SetLocaleReq {
+                    locale: v["locale"].as_str().unwrap_or("en").to_string(),
                 }) as Arc<dyn Any + Send + Sync>
             })
         }

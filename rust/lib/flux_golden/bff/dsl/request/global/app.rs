@@ -16,3 +16,9 @@ pub struct ComposeUpdateReq {
     pub field: String,
     pub value: String,
 }
+
+/// Set the BFF locale (triggers inbox reload with correct language).
+#[request("app/set-locale")]
+pub struct SetLocaleReq {
+    pub locale: String,
+}

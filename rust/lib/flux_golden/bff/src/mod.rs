@@ -37,11 +37,13 @@ impl openerp_client::TokenSource for MutableToken {
     }
 }
 
-/// BFF context — holds the facet client + mutable token.
+/// BFF context — holds the facet client + mutable token + locale.
 pub struct TwitterBff {
     pub client: AppClient,
     pub token: Arc<MutableToken>,
     pub server_url: String,
+    pub locale: tokio::sync::RwLock<String>,
+    http: reqwest::Client,
 }
 
 impl TwitterBff {
@@ -52,7 +54,41 @@ impl TwitterBff {
             client: AppClient::new(base_url, ts),
             token,
             server_url: base_url.to_string(),
+            locale: tokio::sync::RwLock::new("en".into()),
+            http: reqwest::Client::new(),
         }
+    }
+
+    /// Fetch inbox with Accept-Language header set to current locale.
+    async fn fetch_inbox(&self) -> Result<app::InboxResponse, String> {
+        let locale = self.locale.read().await.clone();
+        let token = self.token.token.read().await.clone();
+        let url = format!("{}/app/twitter/inbox", self.server_url);
+        let mut req = self.http.post(&url).header("accept-language", &locale);
+        if let Some(t) = &token {
+            req = req.header("authorization", format!("Bearer {}", t));
+        }
+        let resp = req.send().await.map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            return Err(format!("HTTP {}", resp.status()));
+        }
+        resp.json().await.map_err(|e| e.to_string())
+    }
+
+    /// Fetch and mark a message as read.
+    async fn fetch_mark_read(&self, id: &str) -> Result<app::AppMessage, String> {
+        let locale = self.locale.read().await.clone();
+        let token = self.token.token.read().await.clone();
+        let url = format!("{}/app/twitter/messages/{}/read", self.server_url, id);
+        let mut req = self.http.post(&url).header("accept-language", &locale);
+        if let Some(t) = &token {
+            req = req.header("authorization", format!("Bearer {}", t));
+        }
+        let resp = req.send().await.map_err(|e| e.to_string())?;
+        if !resp.status().is_success() {
+            return Err(format!("HTTP {}", resp.status()));
+        }
+        resp.json().await.map_err(|e| e.to_string())
     }
 }
 
@@ -387,12 +423,29 @@ impl TwitterBff {
         }
     }
 
+    #[handle(SetLocaleReq)]
+    pub async fn handle_set_locale(&self, req: &SetLocaleReq, store: &StateStore) {
+        *self.locale.write().await = req.locale.clone();
+        // Reload inbox with new language.
+        if let Ok(resp) = self.fetch_inbox().await {
+            let msgs: Vec<InboxMessage> = resp.messages.iter().map(|m| InboxMessage {
+                id: m.id.clone(), kind: m.kind.clone(),
+                title: m.title.clone(), body: m.body.clone(),
+                read: m.read, created_at: m.created_at.clone(),
+            }).collect();
+            let unread = msgs.iter().filter(|m| !m.read).count();
+            store.set(InboxState::PATH, InboxState {
+                messages: msgs, unread_count: unread, loading: false, error: None,
+            });
+        }
+    }
+
     #[handle(InboxLoadReq)]
     pub async fn handle_inbox_load(&self, _req: &InboxLoadReq, store: &StateStore) {
         store.set(InboxState::PATH, InboxState {
             messages: vec![], unread_count: 0, loading: true, error: None,
         });
-        match self.client.inbox().await {
+        match self.fetch_inbox().await {
             Ok(resp) => {
                 let msgs: Vec<InboxMessage> = resp.messages.iter().map(|m| InboxMessage {
                     id: m.id.clone(), kind: m.kind.clone(),
@@ -407,7 +460,7 @@ impl TwitterBff {
             Err(e) => {
                 store.set(InboxState::PATH, InboxState {
                     messages: vec![], unread_count: 0, loading: false,
-                    error: Some(e.to_string()),
+                    error: Some(e),
                 });
             }
         }
@@ -415,9 +468,8 @@ impl TwitterBff {
 
     #[handle(InboxMarkReadReq)]
     pub async fn handle_inbox_mark_read(&self, req: &InboxMarkReadReq, store: &StateStore) {
-        let _ = self.client.mark_read(&req.message_id).await;
-        // Reload inbox.
-        if let Ok(resp) = self.client.inbox().await {
+        let _ = self.fetch_mark_read(&req.message_id).await;
+        if let Ok(resp) = self.fetch_inbox().await {
             let msgs: Vec<InboxMessage> = resp.messages.iter().map(|m| InboxMessage {
                 id: m.id.clone(), kind: m.kind.clone(),
                 title: m.title.clone(), body: m.body.clone(),
