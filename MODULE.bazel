@@ -6,10 +6,18 @@ module(
 bazel_dep(name = "bazel_skylib", version = "1.9.0")
 bazel_dep(name = "platforms", version = "1.0.0")
 bazel_dep(name = "rules_rust", version = "0.68.1")
+bazel_dep(name = "apple_support", version = "2.2.0")
+bazel_dep(name = "rules_swift", version = "3.4.2")
 
-# Rust toolchain
+# Rust toolchain — host + iOS cross-compilation
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
-rust.toolchain(edition = "2021")
+rust.toolchain(
+    edition = "2021",
+    extra_target_triples = [
+        "aarch64-apple-ios-sim",
+        "aarch64-apple-ios",
+    ],
+)
 use_repo(rust, "rust_toolchains")
 register_toolchains("@rust_toolchains//:all")
 
@@ -81,5 +89,14 @@ crate.spec(package = "criterion", version = "0.5", features = ["html_reports"])
 # Pin: 0.3.37+ needs nightly
 crate.spec(package = "time", version = ">=0.3.20, <0.3.37")
 
-crate.from_specs()
+crate.from_specs(
+    supported_platform_triples = [
+        "aarch64-apple-darwin",
+        "x86_64-apple-darwin",
+        "aarch64-apple-ios-sim",
+        "aarch64-apple-ios",
+        "x86_64-unknown-linux-gnu",
+        "aarch64-unknown-linux-gnu",
+    ],
+)
 use_repo(crate, "crates")

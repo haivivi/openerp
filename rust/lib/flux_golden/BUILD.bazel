@@ -1,0 +1,68 @@
+load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
+
+rust_library(
+    name = "flux_golden_lib",
+    crate_name = "flux_golden",
+    srcs = glob(["src/lib.rs", "server/**/*.rs", "bff/**/*.rs"]),
+    edition = "2021",
+    proc_macro_deps = [
+        "//rust/lib/dsl/macro",
+        "//rust/lib/flux_derive",
+        "@crates//:async-trait",
+    ],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//rust/lib/flux",
+        "//rust/lib/dsl/client",
+        "//rust/lib/dsl/store",
+        "//rust/lib/dsl/types",
+        "//rust/lib/blob",
+        "//rust/lib/core",
+        "//rust/lib/kv",
+        "@crates//:axum",
+        "@crates//:base64",
+        "@crates//:chrono",
+        "@crates//:flatbuffers",
+        "@crates//:jsonwebtoken",
+        "@crates//:reqwest",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tokio",
+        "@crates//:uuid",
+    ],
+)
+
+rust_binary(
+    name = "twitterd",
+    srcs = ["src/main.rs"],
+    edition = "2021",
+    deps = [
+        ":flux_golden_lib",
+        "//rust/lib/dsl/store",
+        "//rust/lib/dsl/types",
+        "//rust/lib/dsl/web",
+        "//rust/lib/core",
+        "//rust/lib/kv",
+        "@crates//:anyhow",
+        "@crates//:axum",
+        "@crates//:base64",
+        "@crates//:chrono",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tracing",
+        "@crates//:tracing-subscriber",
+    ],
+)
+
+rust_test(
+    name = "flux_golden_test",
+    crate = ":flux_golden_lib",
+    deps = [
+        "//rust/lib/flux",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tower",
+    ],
+)

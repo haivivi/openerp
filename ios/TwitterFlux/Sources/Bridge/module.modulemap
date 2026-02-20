@@ -1,0 +1,4 @@
+module FluxFFI {
+    header "flux_ffi.h"
+    export *
+}
