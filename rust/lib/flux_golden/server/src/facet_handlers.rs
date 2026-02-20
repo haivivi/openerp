@@ -394,6 +394,34 @@ pub async fn update_profile(
     Ok(FacetResponse::negotiate(to_app_user(&updated), &headers))
 }
 
+/// PUT /me/password
+pub async fn change_password(
+    headers: HeaderMap,
+    State(state): State<FacetState>,
+    Json(req): Json<ChangePasswordRequest>,
+) -> Result<Json<ChangePasswordResponse>, ServiceError> {
+    let uid = current_user(&headers, &state)?;
+    let mut user = state.users.get(&uid)
+        .map_err(|e| ServiceError::Internal(e.to_string()))?
+        .ok_or_else(|| ServiceError::NotFound("user not found".into()))?;
+
+    if let Some(ref stored) = user.password_hash {
+        if !verify_password(&req.old_password, stored.as_str()) {
+            return Err(ServiceError::Unauthorized("incorrect old password".into()));
+        }
+    }
+    if req.new_password.len() < 6 {
+        return Err(ServiceError::Validation("password must be at least 6 characters".into()));
+    }
+    if req.old_password == req.new_password {
+        return Err(ServiceError::Validation("new password must be different".into()));
+    }
+
+    user.password_hash = Some(PasswordHash::new(&hash_password(&req.new_password)));
+    state.users.save(user).map_err(|e| ServiceError::Internal(e.to_string()))?;
+    Ok(Json(ChangePasswordResponse { ok: true }))
+}
+
 /// POST /search
 pub async fn search(
     headers: HeaderMap,
@@ -518,6 +546,7 @@ openerp_macro::impl_handler!(app::FollowUser);
 openerp_macro::impl_handler!(app::UnfollowUser);
 openerp_macro::impl_handler!(app::UserProfile);
 openerp_macro::impl_handler!(app::UpdateProfile);
+openerp_macro::impl_handler!(app::ChangePassword);
 openerp_macro::impl_handler!(app::Upload);
 openerp_macro::impl_handler!(app::Search);
 openerp_macro::impl_handler!(app::Inbox);
@@ -531,6 +560,7 @@ pub fn facet_router(state: FacetState) -> axum::Router {
         .route("/auth/login", post(login))
         .route("/me", get(get_me))
         .route("/me/profile", put(update_profile))
+        .route("/me/password", put(change_password))
         .route("/timeline", post(get_timeline))
         .route("/tweets", post(create_tweet))
         .route("/tweets/{id}/detail", post(tweet_detail))

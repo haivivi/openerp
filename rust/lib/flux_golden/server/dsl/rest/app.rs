@@ -187,6 +187,24 @@ pub mod app {
     #[action(method = "PUT", path = "/me/profile")]
     pub type UpdateProfile = fn(req: UpdateProfileRequest) -> AppUser;
 
+    /// Change password request.
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ChangePasswordRequest {
+        pub old_password: String,
+        pub new_password: String,
+    }
+
+    /// Change password response.
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct ChangePasswordResponse {
+        pub ok: bool,
+    }
+
+    /// Change current user's password.
+    #[action(method = "PUT", path = "/me/password")]
+    pub type ChangePassword = fn(req: ChangePasswordRequest) -> ChangePasswordResponse;
+
     /// Search request.
     #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
     pub struct SearchRequest {

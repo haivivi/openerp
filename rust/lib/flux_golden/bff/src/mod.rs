@@ -484,23 +484,22 @@ impl TwitterBff {
 
     #[handle(ChangePasswordReq)]
     pub async fn handle_change_password(&self, req: &ChangePasswordReq, store: &StateStore) {
-        if req.new_password.len() < 6 {
-            store.set(PasswordState::PATH, PasswordState {
-                busy: false, success: false,
-                error: Some("Password must be at least 6 characters".into()),
-            });
-            return;
+        let change_req = app::ChangePasswordRequest {
+            old_password: req.old_password.clone(),
+            new_password: req.new_password.clone(),
+        };
+        match self.client.change_password(&change_req).await {
+            Ok(_) => {
+                store.set(PasswordState::PATH, PasswordState {
+                    busy: false, success: true, error: None,
+                });
+            }
+            Err(e) => {
+                store.set(PasswordState::PATH, PasswordState {
+                    busy: false, success: false, error: Some(e.to_string()),
+                });
+            }
         }
-        if req.old_password == req.new_password {
-            store.set(PasswordState::PATH, PasswordState {
-                busy: false, success: false,
-                error: Some("New password must be different".into()),
-            });
-            return;
-        }
-        store.set(PasswordState::PATH, PasswordState {
-            busy: false, success: true, error: None,
-        });
     }
 }
 
