@@ -2,7 +2,7 @@ use openerp_macro::model;
 use openerp_types::*;
 
 /// A Twitter user account.
-#[model(module = "twitter")]
+#[model(module = "twitter", name = "twitter/users/{id}")]
 pub struct User {
     pub id: Id,
     pub username: String,

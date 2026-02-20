@@ -59,12 +59,13 @@ fn current_user(headers: &HeaderMap, state: &FacetStateInner) -> Result<String, 
 // ── Converters ──
 
 fn to_app_tweet(t: &Tweet, uid: &str, state: &FacetStateInner) -> AppTweet {
-    let author = state.users.get(&t.author_id).ok().flatten();
+    let author_id = t.author.resource_id();
+    let author = state.users.get(author_id).ok().flatten();
     let like_key = format!("{}:{}", uid, t.id);
     let liked = state.likes.get(&like_key).ok().flatten().is_some();
     AppTweet {
         id: t.id.to_string(),
-        author_id: t.author_id.to_string(),
+        author_id: author_id.to_string(),
         author_username: author.as_ref().map(|u| u.username.clone()).unwrap_or_default(),
         author_display_name: author.as_ref().and_then(|u| u.display_name.clone()),
         author_avatar: author.as_ref().and_then(|u| u.avatar.as_ref().map(|a| a.to_string())),
@@ -73,7 +74,7 @@ fn to_app_tweet(t: &Tweet, uid: &str, state: &FacetStateInner) -> AppTweet {
         like_count: t.like_count,
         liked_by_me: liked,
         reply_count: t.reply_count,
-        reply_to_id: t.reply_to_id.as_ref().map(|s| s.to_string()),
+        reply_to_id: t.reply_to.as_ref().map(|n| n.resource_id().to_string()),
         created_at: t.created_at.to_string(),
     }
 }
@@ -156,7 +157,7 @@ pub async fn get_timeline(
     let mut tweets = state.tweets.list().map_err(|e| ServiceError::Internal(e.to_string()))?;
     tweets.sort_by(|a, b| b.created_at.as_str().cmp(a.created_at.as_str()));
     let all_items: Vec<AppTweet> = tweets.iter()
-        .filter(|t| t.reply_to_id.is_none())
+        .filter(|t| t.reply_to.is_none())
         .map(|t| to_app_tweet(t, &uid, &state))
         .collect();
     let total = all_items.len();
@@ -182,11 +183,11 @@ pub async fn create_tweet(
     }
     let tweet = Tweet {
         id: Id::default(),
-        author_id: Id::new(&uid),
+        author: Name::new(&format!("twitter/users/{}", uid)),
         content: req.content,
         image_url: None,
         like_count: 0, reply_count: 0,
-        reply_to_id: req.reply_to_id.map(|s| Id::new(&s)),
+        reply_to: req.reply_to_id.map(|s| Name::new(&format!("twitter/tweets/{}", s))),
         display_name: None, description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
     };
     let created = state.tweets.save_new(tweet).map_err(|e| ServiceError::Internal(e.to_string()))?;
@@ -194,8 +195,8 @@ pub async fn create_tweet(
         user.tweet_count += 1;
         let _ = state.users.save(user);
     }
-    if let Some(ref pid) = created.reply_to_id {
-        if let Ok(Some(mut parent)) = state.tweets.get(pid.as_str()) {
+    if let Some(ref parent_name) = created.reply_to {
+        if let Ok(Some(mut parent)) = state.tweets.get(parent_name.resource_id()) {
             parent.reply_count += 1;
             let _ = state.tweets.save(parent);
         }
@@ -216,7 +217,7 @@ pub async fn tweet_detail(
     let item = to_app_tweet(&tweet, &uid, &state);
     let all = state.tweets.list().unwrap_or_default();
     let mut replies: Vec<AppTweet> = all.iter()
-        .filter(|t| t.reply_to_id.as_ref().map(|s| s.as_str()) == Some(&id))
+        .filter(|t| t.reply_to.as_ref().map(|n| n.resource_id()) == Some(&id))
         .map(|t| to_app_tweet(t, &uid, &state))
         .collect();
     replies.sort_by(|a, b| a.created_at.cmp(&b.created_at));
@@ -232,17 +233,16 @@ pub async fn like_tweet(
     let uid = current_user(&headers, &state)?;
     let like = Like {
         id: Id::default(),
-        user_id: Id::new(&uid),
-        tweet_id: Id::new(&id),
+        user: Name::new(&format!("twitter/users/{}", uid)),
+        tweet: Name::new(&format!("twitter/tweets/{}", id)),
         display_name: None, description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
     };
-    let _ = state.likes.save_new(like); // Idempotent.
+    let _ = state.likes.save_new(like);
     let mut tweet = state.tweets.get(&id)
         .map_err(|e| ServiceError::Internal(e.to_string()))?
         .ok_or_else(|| ServiceError::NotFound(state.i18n.t("error.tweet.not_found", &[("id", &id)])))?;
-    // Recount for accuracy.
     let all_likes = state.likes.list().unwrap_or_default();
-    tweet.like_count = all_likes.iter().filter(|l| l.tweet_id.as_str() == id).count() as u32;
+    tweet.like_count = all_likes.iter().filter(|l| l.tweet.resource_id() == id).count() as u32;
     let _ = state.tweets.save(tweet.clone());
     Ok(FacetResponse::negotiate(to_app_tweet(&tweet, &uid, &state), &headers))
 }
@@ -258,7 +258,7 @@ pub async fn unlike_tweet(
     let _ = state.likes.delete(&like_key);
     if let Ok(Some(mut tweet)) = state.tweets.get(&id) {
         let all_likes = state.likes.list().unwrap_or_default();
-        tweet.like_count = all_likes.iter().filter(|l| l.tweet_id.as_str() == id).count() as u32;
+        tweet.like_count = all_likes.iter().filter(|l| l.tweet.resource_id() == id).count() as u32;
         let _ = state.tweets.save(tweet);
     }
     Ok(())
@@ -273,8 +273,8 @@ pub async fn follow_user(
     let uid = current_user(&headers, &state)?;
     let follow = Follow {
         id: Id::default(),
-        follower_id: Id::new(&uid),
-        followee_id: Id::new(&id),
+        follower: Name::new(&format!("twitter/users/{}", uid)),
+        followee: Name::new(&format!("twitter/users/{}", id)),
         display_name: None, description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
     };
     if state.follows.save_new(follow).is_ok() {
@@ -327,7 +327,7 @@ pub async fn user_profile(
     let profile = to_app_profile(&user, &uid, &state);
     let all = state.tweets.list().unwrap_or_default();
     let tweets: Vec<AppTweet> = all.iter()
-        .filter(|t| t.author_id.as_str() == id)
+        .filter(|t| t.author.resource_id() == id)
         .map(|t| to_app_tweet(t, &uid, &state))
         .collect();
     Ok(Json(UserProfileResponse { user: profile, tweets }))
@@ -456,8 +456,8 @@ pub async fn get_inbox(
 
     let msgs: Vec<AppMessage> = all.iter()
         .filter(|m| {
-            m.recipient_id.as_ref().map(|r| r.as_str()) == Some(&uid)
-                || m.recipient_id.is_none() // broadcast
+            m.recipient.as_ref().map(|n| n.resource_id()) == Some(uid.as_str())
+                || m.recipient.is_none()
         })
         .map(|m| to_app_message(m, &lang))
         .collect();
@@ -1079,7 +1079,7 @@ mod tests {
         b1.set("zh-CN", "欢迎使用本应用。");
         ops.save_new(crate::server::model::Message {
             id: Id::default(), kind: "broadcast".into(),
-            sender_id: None, recipient_id: None,
+            sender: None, recipient: None,
             title: t1, body: b1, read: false,
             display_name: None, description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),
@@ -1090,7 +1090,7 @@ mod tests {
         let b2 = LocalizedText::en("Your account is verified.");
         ops.save_new(crate::server::model::Message {
             id: Id::default(), kind: "personal".into(),
-            sender_id: None, recipient_id: Some(Id::new("alice")),
+            sender: None, recipient: Some(Name::new("twitter/users/alice")),
             title: t2, body: b2, read: false,
             display_name: None, description: None, metadata: None,
             created_at: DateTime::default(), updated_at: DateTime::default(),

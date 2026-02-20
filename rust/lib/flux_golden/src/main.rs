@@ -164,12 +164,12 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
     for &(author, content, reply_to) in &tweets_data {
         let tweet = Tweet {
             id: Id::default(),
-            author_id: Id::new(author),
+            author: Name::new(&format!("twitter/users/{}", author)),
             content: content.to_string(),
             image_url: None,
             like_count: 0,
             reply_count: 0,
-            reply_to_id: reply_to.map(|s| Id::new(s)),
+            reply_to: reply_to.map(|s| Name::new(&format!("twitter/tweets/{}", s))),
             display_name: None,
             description: None,
             metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
@@ -197,12 +197,12 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
         let parent_id = &tweet_ids[parent_idx];
         tweets_ops.save_new(Tweet {
             id: Id::default(),
-            author_id: Id::new(author),
+            author: Name::new(&format!("twitter/users/{}", author)),
             content: content.to_string(),
             image_url: None,
             like_count: 0,
             reply_count: 0,
-            reply_to_id: Some(Id::new(parent_id)),
+            reply_to: Some(Name::new(&format!("twitter/tweets/{}", parent_id))),
             display_name: None,
             description: None,
             metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
@@ -230,12 +230,12 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
         ("carol", 7), ("eve", 7), ("alice", 7),   // 3 likes on carol's bazel hot take
         ("bob", 8), ("carol", 8), ("dave", 8), ("eve", 8), // 4 likes on alice's flux tweet
     ];
-    for &(user_id, tweet_idx) in &likes {
+    for &(liker, tweet_idx) in &likes {
         let tweet_id = &tweet_ids[tweet_idx];
         let _ = likes_ops.save_new(Like {
             id: Id::default(),
-            user_id: Id::new(user_id),
-            tweet_id: Id::new(tweet_id),
+            user: Name::new(&format!("twitter/users/{}", liker)),
+            tweet: Name::new(&format!("twitter/tweets/{}", tweet_id)),
             display_name: None,
             description: None,
             metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
@@ -257,8 +257,8 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
     for &(follower, followee) in &follow_pairs {
         let _ = follows_ops.save_new(Follow {
             id: Id::default(),
-            follower_id: Id::new(follower),
-            followee_id: Id::new(followee),
+            follower: Name::new(&format!("twitter/users/{}", follower)),
+            followee: Name::new(&format!("twitter/users/{}", followee)),
             display_name: None,
             description: None,
             metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
@@ -292,7 +292,7 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
     // Broadcast to all users
     let _ = messages_ops.save_new(Message {
         id: Id::default(), kind: "broadcast".into(),
-        sender_id: None, recipient_id: None,
+        sender: None, recipient: None,
         title: welcome_title, body: welcome_body, read: false,
         display_name: None, description: None, metadata: None,
         created_at: DateTime::default(), updated_at: DateTime::default(),
@@ -312,7 +312,7 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
 
     let _ = messages_ops.save_new(Message {
         id: Id::default(), kind: "system".into(),
-        sender_id: None, recipient_id: None,
+        sender: None, recipient: None,
         title: update_title, body: update_body, read: false,
         display_name: None, description: None, metadata: None,
         created_at: DateTime::default(), updated_at: DateTime::default(),
@@ -331,7 +331,7 @@ fn seed_data(kv: &Arc<dyn openerp_kv::KVStore>) {
 
     let _ = messages_ops.save_new(Message {
         id: Id::default(), kind: "personal".into(),
-        sender_id: None, recipient_id: Some(Id::new("alice")),
+        sender: None, recipient: Some(Name::new("twitter/users/alice")),
         title: personal_title, body: personal_body, read: false,
         display_name: None, description: None, metadata: None,
         created_at: DateTime::default(), updated_at: DateTime::default(),

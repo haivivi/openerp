@@ -15,7 +15,6 @@ impl KvStore for User {
     fn key_value(&self) -> String { self.id.to_string() }
 
     fn before_create(&mut self) {
-        // Use username as ID for easy lookup.
         if self.id.is_empty() {
             self.id = Id::new(&self.username);
         }
@@ -58,9 +57,8 @@ impl KvStore for Like {
     fn key_value(&self) -> String { self.id.to_string() }
 
     fn before_create(&mut self) {
-        // Composite key ensures one like per (user, tweet).
         if self.id.is_empty() {
-            self.id = Id::new(&format!("{}:{}", self.user_id, self.tweet_id));
+            self.id = Id::new(&format!("{}:{}", self.user.resource_id(), self.tweet.resource_id()));
         }
         let now = chrono::Utc::now().to_rfc3339();
         if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }
@@ -97,9 +95,8 @@ impl KvStore for Follow {
     fn key_value(&self) -> String { self.id.to_string() }
 
     fn before_create(&mut self) {
-        // Composite key ensures one follow per (follower, followee).
         if self.id.is_empty() {
-            self.id = Id::new(&format!("{}:{}", self.follower_id, self.followee_id));
+            self.id = Id::new(&format!("{}:{}", self.follower.resource_id(), self.followee.resource_id()));
         }
         let now = chrono::Utc::now().to_rfc3339();
         if self.created_at.is_empty() { self.created_at = DateTime::new(&now); }

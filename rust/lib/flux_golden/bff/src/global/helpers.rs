@@ -27,11 +27,12 @@ pub fn tweet_to_feed_item(
     users: &[model::User],
     likes: &[model::Like],
 ) -> FeedItem {
+    let author_id = t.author.resource_id();
     let author = users.iter()
-        .find(|u| u.id.as_str() == t.author_id.as_str())
+        .find(|u| u.id.as_str() == author_id)
         .map(|u| user_to_profile(u))
         .unwrap_or_else(|| UserProfile {
-            id: t.author_id.to_string(),
+            id: author_id.to_string(),
             username: "unknown".into(),
             display_name: "Unknown".into(),
             bio: None, avatar: None,
@@ -48,7 +49,7 @@ pub fn tweet_to_feed_item(
         like_count: t.like_count,
         liked_by_me,
         reply_count: t.reply_count,
-        reply_to_id: t.reply_to_id.as_ref().map(|s| s.to_string()),
+        reply_to_id: t.reply_to.as_ref().map(|n| n.resource_id().to_string()),
         created_at: t.created_at.to_string(),
     }
 }
@@ -63,7 +64,7 @@ pub fn build_timeline(
     tweets.sort_by(|a, b| b.created_at.as_str().cmp(a.created_at.as_str()));
 
     let items: Vec<FeedItem> = tweets.iter()
-        .filter(|t| t.reply_to_id.is_none())
+        .filter(|t| t.reply_to.is_none())
         .map(|t| tweet_to_feed_item(t, current_user_id, users, likes))
         .collect();
 

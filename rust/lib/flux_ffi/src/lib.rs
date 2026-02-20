@@ -314,10 +314,10 @@ fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
         ("carol", "Hot take: Bazel > Cargo for monorepos."),
     ] {
         tweets_ops.save_new(Tweet {
-            id: Id::default(), author_id: Id::new(author),
+            id: Id::default(), author: Name::new(&format!("twitter/users/{}", author)),
             content: content.into(),
             image_url: None,
-            like_count: 0, reply_count: 0, reply_to_id: None,
+            like_count: 0, reply_count: 0, reply_to: None,
             display_name: None, description: None, metadata: None, created_at: DateTime::default(), updated_at: DateTime::default(),
         }).unwrap();
         if let Ok(Some(mut u)) = users_ops.get(author) {
@@ -342,7 +342,7 @@ fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
     b1.set("es", "¡Gracias por unirte! Sigue a usuarios y publica tu primer tweet.");
     msgs_ops.save_new(Message {
         id: Id::default(), kind: "broadcast".into(),
-        sender_id: None, recipient_id: None,
+        sender: None, recipient: None,
         title: t1, body: b1, read: false,
         display_name: None, description: None, metadata: None,
         created_at: DateTime::default(), updated_at: DateTime::default(),
@@ -360,7 +360,7 @@ fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
     b2.set("es", "Cambia entre inglés, chino, japonés y español en Configuración.");
     msgs_ops.save_new(Message {
         id: Id::default(), kind: "system".into(),
-        sender_id: None, recipient_id: None,
+        sender: None, recipient: None,
         title: t2, body: b2, read: false,
         display_name: None, description: None, metadata: None,
         created_at: DateTime::default(), updated_at: DateTime::default(),
@@ -376,7 +376,7 @@ fn seed_demo_data(kv: &Arc<dyn openerp_kv::KVStore>) {
     b3.set("es", "¡Felicitaciones! Ahora tienes acceso al panel de API.");
     msgs_ops.save_new(Message {
         id: Id::default(), kind: "personal".into(),
-        sender_id: None, recipient_id: Some(Id::new("alice")),
+        sender: None, recipient: Some(Name::new("twitter/users/alice")),
         title: t3, body: b3, read: false,
         display_name: None, description: None, metadata: None,
         created_at: DateTime::default(), updated_at: DateTime::default(),

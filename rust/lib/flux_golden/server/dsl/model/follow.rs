@@ -1,11 +1,13 @@
 use openerp_macro::model;
 use openerp_types::*;
 
-/// A follow relationship. Composite key: `{follower_id}:{followee_id}`.
+use super::User;
+
+/// A follow relationship. Composite key: `{follower}:{followee}`.
 #[model(module = "twitter")]
 pub struct Follow {
     pub id: Id,
-    pub follower_id: Id,
-    pub followee_id: Id,
+    pub follower: Name<User>,
+    pub followee: Name<User>,
     // display_name, description, metadata, created_at, updated_at → auto-injected
 }
