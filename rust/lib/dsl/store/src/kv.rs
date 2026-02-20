@@ -36,7 +36,7 @@ macro_rules! assert_name_pk {
                 panic!(concat!(
                     "KvStore KEY field does not match NameTemplate key field for `",
                     stringify!($T),
-                    "`. The name template's {{field}} must be the same as KvStore::KEY."
+                    "`. The name template's {field} must be the same as KvStore::KEY."
                 ));
             }
         };
