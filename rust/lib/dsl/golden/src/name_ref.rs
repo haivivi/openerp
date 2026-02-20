@@ -50,6 +50,14 @@ mod tests {
         pub quantity: u32,
     }
 
+    /// A model with name template on a non-Id field (String key, no `id: Id`).
+    /// Exercises the "name without id" identity pattern.
+    #[model(module = "pms", name = "pms/sensors/{code}")]
+    pub struct TestSensor {
+        pub code: String,
+        pub label: String,
+    }
+
     /// A model that uses multi-type Name and any-type Name.
     #[model(module = "audit")]
     pub struct AuditEntry {
@@ -103,6 +111,13 @@ mod tests {
     }
     openerp_store::assert_name_pk!(TestBatch);
 
+    impl KvStore for TestSensor {
+        const KEY: Field = Self::code;
+        fn kv_prefix() -> &'static str { "pms:sensor:" }
+        fn key_value(&self) -> String { self.code.clone() }
+    }
+    openerp_store::assert_name_pk!(TestSensor);
+
     impl KvStore for AuditEntry {
         const KEY: Field = Self::id;
         fn kv_prefix() -> &'static str { "audit:entry:" }
@@ -132,18 +147,21 @@ mod tests {
     fn name_template_generated_for_user() {
         assert_eq!(TestUser::name_prefix(), "auth/users/");
         assert_eq!(TestUser::name_template(), "auth/users/{id}");
+        assert_eq!(TestUser::NAME_KEY_FIELD, "id");
     }
 
     #[test]
     fn name_template_generated_for_device() {
         assert_eq!(TestDevice::name_prefix(), "pms/devices/");
         assert_eq!(TestDevice::name_template(), "pms/devices/{sn}");
+        assert_eq!(TestDevice::NAME_KEY_FIELD, "sn");
     }
 
     #[test]
     fn name_template_generated_for_batch() {
         assert_eq!(TestBatch::name_prefix(), "pms/batches/");
         assert_eq!(TestBatch::name_template(), "pms/batches/{id}");
+        assert_eq!(TestBatch::NAME_KEY_FIELD, "id");
     }
 
     #[test]
@@ -710,7 +728,67 @@ mod tests {
     }
 
     // =====================================================================
-    // 9. Schema includes ref info
+    // 9. NAME_KEY_FIELD matches KvStore KEY (assert_name_pk!)
+    // =====================================================================
+
+    #[test]
+    fn name_key_field_matches_kvstore_key() {
+        assert_eq!(TestUser::NAME_KEY_FIELD, TestUser::KEY.name);
+        assert_eq!(TestDevice::NAME_KEY_FIELD, TestDevice::KEY.name);
+        assert_eq!(TestBatch::NAME_KEY_FIELD, TestBatch::KEY.name);
+        assert_eq!(TestSensor::NAME_KEY_FIELD, TestSensor::KEY.name);
+    }
+
+    #[test]
+    fn name_template_string_key_no_id_field() {
+        assert_eq!(TestSensor::NAME_KEY_FIELD, "code");
+        assert_eq!(TestSensor::name_prefix(), "pms/sensors/");
+        assert_eq!(TestSensor::name_template(), "pms/sensors/{code}");
+
+        let sensor = TestSensor {
+            code: "TEMP-01".into(),
+            label: "Temperature Sensor".into(),
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        assert_eq!(sensor.name_of(), "pms/sensors/TEMP-01");
+    }
+
+    #[test]
+    fn assert_name_pk_is_const_evaluated() {
+        const _: () = {
+            assert!(openerp_types::const_str_eq(
+                <TestUser as KvStore>::KEY.name,
+                <TestUser as openerp_types::NameTemplate>::NAME_KEY_FIELD,
+            ));
+            assert!(openerp_types::const_str_eq(
+                <TestDevice as KvStore>::KEY.name,
+                <TestDevice as openerp_types::NameTemplate>::NAME_KEY_FIELD,
+            ));
+            assert!(openerp_types::const_str_eq(
+                <TestBatch as KvStore>::KEY.name,
+                <TestBatch as openerp_types::NameTemplate>::NAME_KEY_FIELD,
+            ));
+            assert!(openerp_types::const_str_eq(
+                <TestSensor as KvStore>::KEY.name,
+                <TestSensor as openerp_types::NameTemplate>::NAME_KEY_FIELD,
+            ));
+        };
+    }
+
+    // Compile-fail scenarios (cannot be auto-tested without trybuild):
+    //
+    // 1. KvStore KEY mismatch:
+    //    #[model(module = "x", name = "x/items/{sn}")]
+    //    struct Bad { pub sn: Id, pub id: Id }  // ERROR: id: Id + name refs {sn}
+    //
+    // 2. assert_name_pk! mismatch:
+    //    impl KvStore for T { const KEY: Field = Self::id; }
+    //    // but NameTemplate::NAME_KEY_FIELD = "sn"
+    //    assert_name_pk!(T);  // const panic: KEY.name != NAME_KEY_FIELD
+
+    // =====================================================================
+    // 10. Schema includes ref info
     // =====================================================================
 
     #[test]
