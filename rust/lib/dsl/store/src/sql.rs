@@ -79,7 +79,7 @@ impl<T: SqlStore + DslModel> SqlOps<T> {
 
     fn sql_err(e: openerp_sql::SQLError) -> ServiceError {
         let msg = e.to_string();
-        if msg.contains("UNIQUE") || msg.contains("constraint") {
+        if msg.contains("UNIQUE") {
             return ServiceError::Conflict(msg);
         }
         ServiceError::Storage(msg)
@@ -508,29 +508,65 @@ impl<T: SqlStore + DslModel> SqlOps<T> {
     /// Query by multiple field conditions (AND).
     ///
     /// Empty conditions returns all records (equivalent to `list()`).
-    /// Works for both indexed and non-indexed fields — indexed fields
-    /// use SQL WHERE clauses; non-indexed fields are extracted from JSON.
+    /// Works for both indexed and non-indexed fields:
+    /// - Indexed fields (PK/UNIQUE/INDEX) → SQL WHERE on dedicated columns
+    /// - Non-indexed fields → full scan + in-memory filter on JSON data
     pub fn find_by_multi(&self, conditions: &[(&Field, &str)]) -> Result<Vec<T>, ServiceError> {
         if conditions.is_empty() {
             return self.list();
         }
 
+        let indexed = T::indexed_fields();
+        let indexed_names: Vec<&str> = indexed.iter().map(|f| f.name).collect();
+
+        let mut sql_conditions: Vec<(&Field, &str)> = Vec::new();
+        let mut mem_conditions: Vec<(&Field, &str)> = Vec::new();
+
+        for &(field, value) in conditions {
+            if indexed_names.contains(&field.name) {
+                sql_conditions.push((field, value));
+            } else {
+                mem_conditions.push((field, value));
+            }
+        }
+
         let mut where_parts = Vec::new();
         let mut params: Vec<openerp_sql::Value> = Vec::new();
-
-        for (i, (field, value)) in conditions.iter().enumerate() {
+        for (i, (field, value)) in sql_conditions.iter().enumerate() {
             where_parts.push(format!("\"{}\" = ?{}", field.name, i + 1));
             params.push(openerp_sql::Value::Text(value.to_string()));
         }
 
-        let sql = format!(
-            "SELECT data FROM \"{}\" WHERE {}",
-            T::table_name(),
-            where_parts.join(" AND ")
-        );
+        let sql = if where_parts.is_empty() {
+            format!("SELECT data FROM \"{}\"", T::table_name())
+        } else {
+            format!(
+                "SELECT data FROM \"{}\" WHERE {}",
+                T::table_name(),
+                where_parts.join(" AND ")
+            )
+        };
 
         let rows = self.sql.query(&sql, &params).map_err(Self::sql_err)?;
-        Self::rows_to_records(&rows)
+        let mut records = Self::rows_to_records(&rows)?;
+
+        if !mem_conditions.is_empty() {
+            records.retain(|record| {
+                let json = match serde_json::to_value(record) {
+                    Ok(v) => v,
+                    Err(_) => return false,
+                };
+                mem_conditions.iter().all(|(field, value)| {
+                    let camel = to_camel_case(field.name);
+                    json.get(field.name)
+                        .or_else(|| json.get(&camel))
+                        .and_then(|v| v.as_str())
+                        .is_some_and(|v| v == *value)
+                })
+            });
+        }
+
+        Ok(records)
     }
 }
 
@@ -863,5 +899,28 @@ mod tests {
         let results = ops.find_by_multi(&[(&sn_field, "D3")]).unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].sn, "D3");
+    }
+
+    #[test]
+    fn find_by_multi_non_indexed_field() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let desc_field = Field::new("description", "Option<String>", "text");
+        let results = ops.find_by_multi(&[(&desc_field, "Alpha")]).unwrap();
+        assert_eq!(results.len(), 1, "non-indexed field should filter via JSON");
+        assert_eq!(results[0].sn, "D1");
+    }
+
+    #[test]
+    fn find_by_multi_mixed_indexed_and_non_indexed() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let status_field = Field::new("status", "String", "text");
+        let desc_field = Field::new("description", "Option<String>", "text");
+        let results = ops.find_by_multi(&[(&status_field, "active"), (&desc_field, "Echo")]).unwrap();
+        assert_eq!(results.len(), 1, "mixed: SQL filters status, memory filters description");
+        assert_eq!(results[0].sn, "D5");
     }
 }
