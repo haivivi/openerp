@@ -26,7 +26,7 @@ pub mod ui_macro;
 pub use kv::{KvStore, KvOps};
 pub use sql::{SqlStore, SqlOps};
 pub use search::{SearchStore, SearchOps};
-pub use admin::admin_kv_router;
+pub use admin::{admin_kv_router, admin_sql_router};
 pub use facet::FacetDef;
 pub use format::{negotiate_format, FacetResponse, FacetListResponse};
 pub use hierarchy::HierarchyNode;
