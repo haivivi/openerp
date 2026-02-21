@@ -89,13 +89,6 @@ mod tests {
         const KEY: Field = Self::sn;
         fn kv_prefix() -> &'static str { "pms:device:" }
         fn key_value(&self) -> String { self.sn.to_string() }
-        fn validate_names(&self) -> Vec<(&'static str, String)> {
-            let mut invalid = Vec::new();
-            if !self.owner.is_empty() && !self.owner.validate() {
-                invalid.push(("owner", self.owner.to_string()));
-            }
-            invalid
-        }
     }
     openerp_store::assert_name_pk!(TestDevice);
 
@@ -126,16 +119,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-        }
-        fn validate_names(&self) -> Vec<(&'static str, String)> {
-            let mut invalid = Vec::new();
-            if !self.subject.is_empty() && !self.subject.validate() {
-                invalid.push(("subject", self.subject.to_string()));
-            }
-            if !self.target.is_empty() && !self.target.validate() {
-                invalid.push(("target", self.target.to_string()));
-            }
-            invalid
         }
     }
 

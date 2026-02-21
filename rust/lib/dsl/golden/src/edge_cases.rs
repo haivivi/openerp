@@ -86,7 +86,7 @@ mod tests {
         }
     }
 
-    fn make_router<T: KvStore + serde::Serialize + serde::de::DeserializeOwned>(
+    fn make_router<T: KvStore + openerp_types::DslModel + serde::Serialize + serde::de::DeserializeOwned>(
         path: &str, resource: &str,
     ) -> (Router<()>, Arc<dyn openerp_kv::KVStore>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();

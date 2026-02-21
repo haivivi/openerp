@@ -76,7 +76,7 @@ mod tests {
     // Helpers
     // =====================================================================
 
-    fn make_sql_ops<T: SqlStore>() -> (SqlOps<T>, tempfile::TempDir) {
+    fn make_sql_ops<T: SqlStore + openerp_types::DslModel>() -> (SqlOps<T>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let sql: Arc<dyn openerp_sql::SQLStore> =
             Arc::new(openerp_sql::SqliteStore::open(&dir.path().join("test.db")).unwrap());
@@ -85,7 +85,7 @@ mod tests {
         (ops, dir)
     }
 
-    fn make_sql_ops_no_ensure<T: SqlStore>() -> (SqlOps<T>, tempfile::TempDir) {
+    fn make_sql_ops_no_ensure<T: SqlStore + openerp_types::DslModel>() -> (SqlOps<T>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let sql: Arc<dyn openerp_sql::SQLStore> =
             Arc::new(openerp_sql::SqliteStore::open(&dir.path().join("test.db")).unwrap());

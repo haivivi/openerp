@@ -4,7 +4,7 @@
 //! `KvOps<T>` provides the actual get/save/list/delete using a KVStore backend.
 
 use openerp_core::ServiceError;
-use openerp_types::Field;
+use openerp_types::{DslModel, Field};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
@@ -65,19 +65,15 @@ pub trait KvStore: Serialize + DeserializeOwned + Clone + Send + Sync + 'static 
 
     /// Called after a record is deleted.
     fn after_delete(&self) {}
-
-    /// Validate Name<T> fields. Returns a list of (field_name, invalid_value) pairs.
-    /// Default: no validation (empty vec). Override when the model has Name fields.
-    fn validate_names(&self) -> Vec<(&'static str, String)> { vec![] }
 }
 
 /// CRUD operations for a KvStore model. Holds a reference to the KV backend.
-pub struct KvOps<T: KvStore> {
+pub struct KvOps<T: KvStore + DslModel> {
     kv: Arc<dyn openerp_kv::KVStore>,
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T: KvStore> KvOps<T> {
+impl<T: KvStore + DslModel> KvOps<T> {
     pub fn new(kv: Arc<dyn openerp_kv::KVStore>) -> Self {
         Self {
             kv,
@@ -160,7 +156,7 @@ impl<T: KvStore> KvOps<T> {
     }
 
     fn check_names(record: &T) -> Result<(), ServiceError> {
-        let invalid = record.validate_names();
+        let invalid = <T as DslModel>::validate_names(record);
         if let Some((field, value)) = invalid.first() {
             return Err(ServiceError::Validation(format!(
                 "invalid resource name in field '{}': '{}'", field, value
@@ -326,6 +322,12 @@ mod tests {
                 self.id = "auto-id".to_string();
             }
         }
+    }
+
+    impl DslModel for Thing {
+        fn module() -> &'static str { "test" }
+        fn resource() -> &'static str { "thing" }
+        fn resource_path() -> &'static str { "things" }
     }
 
     fn make_ops() -> (KvOps<Thing>, tempfile::TempDir) {

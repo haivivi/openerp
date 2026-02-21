@@ -16,9 +16,10 @@ use serde::Serialize;
 
 use crate::kv::{KvOps, KvStore};
 use crate::sql::{SqlOps, SqlStore};
+use openerp_types::DslModel;
 
 /// Shared state for admin route handlers.
-struct AdminState<T: KvStore> {
+struct AdminState<T: KvStore + DslModel> {
     ops: KvOps<T>,
     auth: Arc<dyn Authenticator>,
     module: String,
@@ -38,7 +39,7 @@ struct AdminState<T: KvStore> {
 ///
 /// - `resource_path`: URL segment (e.g. "users", "roles")
 /// - `resource_name`: permission resource name (e.g. "user", "role")
-pub fn admin_kv_router<T: KvStore + Serialize + DeserializeOwned>(
+pub fn admin_kv_router<T: KvStore + DslModel + Serialize + DeserializeOwned>(
     ops: KvOps<T>,
     auth: Arc<dyn Authenticator>,
     module: &str,
@@ -73,7 +74,7 @@ fn perm(module: &str, resource: &str, action: &str) -> String {
     format!("{}:{}:{}", module, resource, action)
 }
 
-async fn list_handler<T: KvStore + Serialize>(
+async fn list_handler<T: KvStore + DslModel + Serialize>(
     State(state): State<Arc<AdminState<T>>>,
     headers: HeaderMap,
     Query(params): Query<ListParams>,
@@ -85,7 +86,7 @@ async fn list_handler<T: KvStore + Serialize>(
     Ok(Json(result))
 }
 
-async fn count_handler<T: KvStore + Serialize>(
+async fn count_handler<T: KvStore + DslModel + Serialize>(
     State(state): State<Arc<AdminState<T>>>,
     headers: HeaderMap,
 ) -> Result<Json<CountResult>, ServiceError> {
@@ -96,7 +97,7 @@ async fn count_handler<T: KvStore + Serialize>(
     Ok(Json(CountResult { count }))
 }
 
-async fn get_handler<T: KvStore + Serialize>(
+async fn get_handler<T: KvStore + DslModel + Serialize>(
     State(state): State<Arc<AdminState<T>>>,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -108,7 +109,7 @@ async fn get_handler<T: KvStore + Serialize>(
     Ok(Json(record))
 }
 
-async fn create_handler<T: KvStore + Serialize + DeserializeOwned>(
+async fn create_handler<T: KvStore + DslModel + Serialize + DeserializeOwned>(
     State(state): State<Arc<AdminState<T>>>,
     headers: HeaderMap,
     Json(record): Json<T>,
@@ -120,7 +121,7 @@ async fn create_handler<T: KvStore + Serialize + DeserializeOwned>(
     Ok(Json(created))
 }
 
-async fn update_handler<T: KvStore + Serialize + DeserializeOwned>(
+async fn update_handler<T: KvStore + DslModel + Serialize + DeserializeOwned>(
     State(state): State<Arc<AdminState<T>>>,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -135,7 +136,7 @@ async fn update_handler<T: KvStore + Serialize + DeserializeOwned>(
     Ok(Json(updated))
 }
 
-async fn patch_handler<T: KvStore + Serialize + DeserializeOwned>(
+async fn patch_handler<T: KvStore + DslModel + Serialize + DeserializeOwned>(
     State(state): State<Arc<AdminState<T>>>,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -148,7 +149,7 @@ async fn patch_handler<T: KvStore + Serialize + DeserializeOwned>(
     Ok(Json(patched))
 }
 
-async fn delete_handler<T: KvStore + Serialize>(
+async fn delete_handler<T: KvStore + DslModel + Serialize>(
     State(state): State<Arc<AdminState<T>>>,
     Path(id): Path<String>,
     headers: HeaderMap,
@@ -162,7 +163,7 @@ async fn delete_handler<T: KvStore + Serialize>(
 
 // ── SQL admin router ──
 
-struct SqlAdminState<T: SqlStore> {
+struct SqlAdminState<T: SqlStore + DslModel> {
     ops: SqlOps<T>,
     auth: Arc<dyn Authenticator>,
     module: String,
@@ -184,7 +185,7 @@ struct SqlAdminState<T: SqlStore> {
 ///   PUT    /{resources}/{pk...}      — full update (with updatedAt check)
 ///   PATCH  /{resources}/{pk...}      — partial update (RFC 7386 merge patch)
 ///   DELETE /{resources}/{pk...}      — delete
-pub fn admin_sql_router<T: SqlStore + Serialize + DeserializeOwned>(
+pub fn admin_sql_router<T: SqlStore + DslModel + Serialize + DeserializeOwned>(
     ops: SqlOps<T>,
     auth: Arc<dyn Authenticator>,
     module: &str,
@@ -235,7 +236,7 @@ fn parse_pk_path(pk_path: &str, expected: usize) -> Result<Vec<String>, ServiceE
     Ok(parts)
 }
 
-async fn sql_list_handler<T: SqlStore + Serialize>(
+async fn sql_list_handler<T: SqlStore + DslModel + Serialize>(
     State(state): State<Arc<SqlAdminState<T>>>,
     headers: HeaderMap,
     Query(params): Query<ListParams>,
@@ -247,7 +248,7 @@ async fn sql_list_handler<T: SqlStore + Serialize>(
     Ok(Json(result))
 }
 
-async fn sql_count_handler<T: SqlStore + Serialize>(
+async fn sql_count_handler<T: SqlStore + DslModel + Serialize>(
     State(state): State<Arc<SqlAdminState<T>>>,
     headers: HeaderMap,
 ) -> Result<Json<CountResult>, ServiceError> {
@@ -258,7 +259,7 @@ async fn sql_count_handler<T: SqlStore + Serialize>(
     Ok(Json(CountResult { count }))
 }
 
-async fn sql_get_handler<T: SqlStore + Serialize>(
+async fn sql_get_handler<T: SqlStore + DslModel + Serialize>(
     State(state): State<Arc<SqlAdminState<T>>>,
     Path(pk_path): Path<String>,
     headers: HeaderMap,
@@ -272,7 +273,7 @@ async fn sql_get_handler<T: SqlStore + Serialize>(
     Ok(Json(record))
 }
 
-async fn sql_create_handler<T: SqlStore + Serialize + DeserializeOwned>(
+async fn sql_create_handler<T: SqlStore + DslModel + Serialize + DeserializeOwned>(
     State(state): State<Arc<SqlAdminState<T>>>,
     headers: HeaderMap,
     Json(record): Json<T>,
@@ -284,7 +285,7 @@ async fn sql_create_handler<T: SqlStore + Serialize + DeserializeOwned>(
     Ok(Json(created))
 }
 
-async fn sql_update_handler<T: SqlStore + Serialize + DeserializeOwned>(
+async fn sql_update_handler<T: SqlStore + DslModel + Serialize + DeserializeOwned>(
     State(state): State<Arc<SqlAdminState<T>>>,
     Path(pk_path): Path<String>,
     headers: HeaderMap,
@@ -300,7 +301,7 @@ async fn sql_update_handler<T: SqlStore + Serialize + DeserializeOwned>(
     Ok(Json(updated))
 }
 
-async fn sql_patch_handler<T: SqlStore + Serialize + DeserializeOwned>(
+async fn sql_patch_handler<T: SqlStore + DslModel + Serialize + DeserializeOwned>(
     State(state): State<Arc<SqlAdminState<T>>>,
     Path(pk_path): Path<String>,
     headers: HeaderMap,
@@ -315,7 +316,7 @@ async fn sql_patch_handler<T: SqlStore + Serialize + DeserializeOwned>(
     Ok(Json(patched))
 }
 
-async fn sql_delete_handler<T: SqlStore + Serialize>(
+async fn sql_delete_handler<T: SqlStore + DslModel + Serialize>(
     State(state): State<Arc<SqlAdminState<T>>>,
     Path(pk_path): Path<String>,
     headers: HeaderMap,

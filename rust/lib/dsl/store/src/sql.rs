@@ -7,7 +7,7 @@
 //! extracted into dedicated columns for efficient queries.
 
 use openerp_core::ServiceError;
-use openerp_types::Field;
+use openerp_types::{DslModel, Field};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
@@ -64,12 +64,12 @@ pub trait SqlStore: Serialize + DeserializeOwned + Clone + Send + Sync + 'static
 }
 
 /// CRUD operations for a SqlStore model.
-pub struct SqlOps<T: SqlStore> {
+pub struct SqlOps<T: SqlStore + DslModel> {
     sql: Arc<dyn openerp_sql::SQLStore>,
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T: SqlStore> SqlOps<T> {
+impl<T: SqlStore + DslModel> SqlOps<T> {
     pub fn new(sql: Arc<dyn openerp_sql::SQLStore>) -> Self {
         Self {
             sql,
@@ -83,6 +83,16 @@ impl<T: SqlStore> SqlOps<T> {
             return ServiceError::Conflict(msg);
         }
         ServiceError::Storage(msg)
+    }
+
+    fn check_names(record: &T) -> Result<(), ServiceError> {
+        let invalid = <T as DslModel>::validate_names(record);
+        if let Some((field, value)) = invalid.first() {
+            return Err(ServiceError::Validation(format!(
+                "invalid resource name in field '{}': '{}'", field, value
+            )));
+        }
+        Ok(())
     }
 
     /// Ensure the table exists. Call once at startup.
@@ -255,6 +265,7 @@ impl<T: SqlStore> SqlOps<T> {
     /// The store layer sets `createdAt` and `updatedAt`.
     pub fn save_new(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_create();
+        Self::check_names(&record)?;
 
         let mut json_val: serde_json::Value = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
@@ -332,6 +343,7 @@ impl<T: SqlStore> SqlOps<T> {
         }
 
         record.before_update();
+        Self::check_names(&record)?;
 
         let mut json_val = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
@@ -367,6 +379,7 @@ impl<T: SqlStore> SqlOps<T> {
         let mut record: T = serde_json::from_value(base)
             .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
         record.before_update();
+        Self::check_names(&record)?;
 
         let mut json_val = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
@@ -538,6 +551,12 @@ mod tests {
         }
     }
 
+    impl DslModel for Device {
+        fn module() -> &'static str { "test" }
+        fn resource() -> &'static str { "device" }
+        fn resource_path() -> &'static str { "devices" }
+    }
+
     fn make_ops() -> (SqlOps<Device>, tempfile::TempDir) {
         let dir = tempfile::tempdir().unwrap();
         let sql: Arc<dyn openerp_sql::SQLStore> =
@@ -651,6 +670,12 @@ mod tests {
         fn pk_values(&self) -> Vec<String> {
             vec![self.model.to_string(), self.semver.clone()]
         }
+    }
+
+    impl DslModel for Firmware {
+        fn module() -> &'static str { "test" }
+        fn resource() -> &'static str { "firmware" }
+        fn resource_path() -> &'static str { "firmware" }
     }
 
     #[test]
