@@ -504,6 +504,34 @@ impl<T: SqlStore + DslModel> SqlOps<T> {
         }
         Ok(records)
     }
+
+    /// Query by multiple field conditions (AND).
+    ///
+    /// Empty conditions returns all records (equivalent to `list()`).
+    /// Works for both indexed and non-indexed fields — indexed fields
+    /// use SQL WHERE clauses; non-indexed fields are extracted from JSON.
+    pub fn find_by_multi(&self, conditions: &[(&Field, &str)]) -> Result<Vec<T>, ServiceError> {
+        if conditions.is_empty() {
+            return self.list();
+        }
+
+        let mut where_parts = Vec::new();
+        let mut params: Vec<openerp_sql::Value> = Vec::new();
+
+        for (i, (field, value)) in conditions.iter().enumerate() {
+            where_parts.push(format!("\"{}\" = ?{}", field.name, i + 1));
+            params.push(openerp_sql::Value::Text(value.to_string()));
+        }
+
+        let sql = format!(
+            "SELECT data FROM \"{}\" WHERE {}",
+            T::table_name(),
+            where_parts.join(" AND ")
+        );
+
+        let rows = self.sql.query(&sql, &params).map_err(Self::sql_err)?;
+        Self::rows_to_records(&rows)
+    }
 }
 
 fn to_camel_case(s: &str) -> String {
@@ -758,5 +786,82 @@ mod tests {
 
         ops.delete(&["CNT1"]).unwrap();
         assert_eq!(ops.count().unwrap(), 2);
+    }
+
+    // ── find_by_multi tests ──
+
+    fn seed_devices(ops: &SqlOps<Device>) {
+        let devices = vec![
+            Device { sn: "D1".into(), model: 100, status: "active".into(), description: Some("Alpha".into()) },
+            Device { sn: "D2".into(), model: 100, status: "inactive".into(), description: None },
+            Device { sn: "D3".into(), model: 200, status: "active".into(), description: Some("Gamma".into()) },
+            Device { sn: "D4".into(), model: 200, status: "inactive".into(), description: None },
+            Device { sn: "D5".into(), model: 100, status: "active".into(), description: Some("Echo".into()) },
+        ];
+        for d in devices {
+            ops.save_new(d).unwrap();
+        }
+    }
+
+    #[test]
+    fn find_by_multi_single_condition() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let status_field = Field::new("status", "String", "text");
+        let results = ops.find_by_multi(&[(&status_field, "active")]).unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn find_by_multi_and_conditions() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let model_field = Field::new("model", "u32", "number");
+        let status_field = Field::new("status", "String", "text");
+        let results = ops.find_by_multi(&[(&model_field, "100"), (&status_field, "active")]).unwrap();
+        assert_eq!(results.len(), 2, "model=100 AND status=active should match D1, D5");
+    }
+
+    #[test]
+    fn find_by_multi_no_match() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let model_field = Field::new("model", "u32", "number");
+        let results = ops.find_by_multi(&[(&model_field, "999")]).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn find_by_multi_empty_conditions() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let results = ops.find_by_multi(&[]).unwrap();
+        assert_eq!(results.len(), 5, "empty conditions should return all");
+    }
+
+    #[test]
+    fn find_by_multi_indexed_field() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let model_field = Field::new("model", "u32", "number");
+        let results = ops.find_by_multi(&[(&model_field, "200")]).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|d| d.model == 200));
+    }
+
+    #[test]
+    fn find_by_multi_pk_field() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let sn_field = Field::new("sn", "String", "text");
+        let results = ops.find_by_multi(&[(&sn_field, "D3")]).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].sn, "D3");
     }
 }
