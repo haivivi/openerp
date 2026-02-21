@@ -130,7 +130,12 @@ async fn update_handler<T: KvStore + DslModel + Serialize + DeserializeOwned>(
     let p = perm(&state.module, &state.resource, "update");
     state.auth.check(&headers, &p)?;
 
-    // Ensure it exists first.
+    let body_key = record.key_value();
+    if body_key != id {
+        return Err(ServiceError::Validation(format!(
+            "URL key '{}' does not match body key '{}'", id, body_key
+        )));
+    }
     let _existing = state.ops.get_or_err(&id)?;
     let updated = state.ops.save(record)?;
     Ok(Json(updated))
@@ -295,6 +300,12 @@ async fn sql_update_handler<T: SqlStore + DslModel + Serialize + DeserializeOwne
     state.auth.check(&headers, &p)?;
 
     let pks = parse_pk_path(&pk_path, T::PK.len())?;
+    let body_pks = record.pk_values();
+    if pks != body_pks {
+        return Err(ServiceError::Validation(format!(
+            "URL PK {:?} does not match body PK {:?}", pks, body_pks
+        )));
+    }
     let pk_refs: Vec<&str> = pks.iter().map(|s| s.as_str()).collect();
     let _existing = state.ops.get_or_err(&pk_refs)?;
     let updated = state.ops.save(record)?;

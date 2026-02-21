@@ -350,7 +350,7 @@ mod tests {
         let (router, _, _dir) = make_router::<ValidatedRecord>("items", "item");
 
         // Create two records.
-        let (s, r1) = call(&router, "POST", "/items",
+        let (s, _) = call(&router, "POST", "/items",
             Some(serde_json::json!({"id": "rec-1", "priority": 1, "displayName": "R1"})),
         ).await;
         assert_eq!(s, StatusCode::OK);
@@ -359,24 +359,22 @@ mod tests {
         ).await;
         assert_eq!(s, StatusCode::OK);
 
-        // PUT to /items/rec-1 but body has id=rec-2.
-        // Framework uses body's key_value() for storage, URL id only for existence check.
-        // Must use rec-2's updatedAt for optimistic locking to pass.
+        // PUT to /items/rec-1 but body has id=rec-2 → 400 PK mismatch.
         let (_, r2) = call(&router, "GET", "/items/rec-2", None).await;
         let mut edit = r2.clone();
         edit["displayName"] = serde_json::json!("Overwritten");
-        let (s, _) = call(&router, "PUT", "/items/rec-1", Some(edit)).await;
-        assert_eq!(s, StatusCode::OK);
+        let (s, err) = call(&router, "PUT", "/items/rec-1", Some(edit)).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST, "URL/body PK mismatch should return 400");
+        assert_eq!(err["code"], "VALIDATION_FAILED");
 
-        // Verify rec-1 still exists unchanged (URL id was checked for existence).
+        // Both records are unchanged.
         let (s, check1) = call(&router, "GET", "/items/rec-1", None).await;
         assert_eq!(s, StatusCode::OK);
-        assert_eq!(check1["displayName"], "R1", "rec-1 should be unchanged");
+        assert_eq!(check1["displayName"], "R1");
 
-        // rec-2 was overwritten by the body's id.
         let (s, check2) = call(&router, "GET", "/items/rec-2", None).await;
         assert_eq!(s, StatusCode::OK);
-        assert_eq!(check2["displayName"], "Overwritten");
+        assert_eq!(check2["displayName"], "R2", "rec-2 should be unchanged");
     }
 
     // =====================================================================
