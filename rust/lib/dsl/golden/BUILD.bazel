@@ -14,6 +14,7 @@ rust_test(
         "//rust/lib/dsl/types",
         "//rust/lib/core",
         "//rust/lib/kv",
+        "//rust/lib/sql",
         "@crates//:axum",
         "@crates//:flatbuffers",
         "@crates//:jsonwebtoken",

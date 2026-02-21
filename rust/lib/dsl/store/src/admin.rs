@@ -204,7 +204,7 @@ pub fn admin_sql_router<T: SqlStore + Serialize + DeserializeOwned>(
     let item_path = if T::PK.len() <= 1 {
         format!("/{}/{{id}}", resource_path)
     } else {
-        format!("/{}/*pk", resource_path)
+        format!("/{}/{{*pk}}", resource_path)
     };
 
     Router::new()

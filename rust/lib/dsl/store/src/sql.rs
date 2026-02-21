@@ -78,7 +78,11 @@ impl<T: SqlStore> SqlOps<T> {
     }
 
     fn sql_err(e: openerp_sql::SQLError) -> ServiceError {
-        ServiceError::Storage(e.to_string())
+        let msg = e.to_string();
+        if msg.contains("UNIQUE") || msg.contains("constraint") {
+            return ServiceError::Conflict(msg);
+        }
+        ServiceError::Storage(msg)
     }
 
     /// Ensure the table exists. Call once at startup.
