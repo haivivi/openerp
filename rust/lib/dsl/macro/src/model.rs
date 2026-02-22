@@ -106,9 +106,10 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
         }
     }
 
-    // Generate Field consts and IR data for each field.
+    // Generate Field consts, IR data, and Name validation entries for each field.
     let mut field_consts = Vec::new();
     let mut field_ir_entries = Vec::new();
+    let mut name_validate_stmts: Vec<proc_macro2::TokenStream> = Vec::new();
 
     for field in &named.named {
         let fname = field
@@ -135,6 +136,28 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
             pub const #const_name: openerp_types::Field =
                 openerp_types::Field::new(#fname_str, #ty_str, #widget_str);
         });
+
+        // Collect Name<T> validation statements.
+        let name_info = classify_name_field(&field.ty);
+        match name_info {
+            NameFieldKind::Direct => {
+                name_validate_stmts.push(quote! {
+                    if !self.#fname.is_empty() && !self.#fname.validate() {
+                        __invalid.push((#fname_str, self.#fname.to_string()));
+                    }
+                });
+            }
+            NameFieldKind::Option => {
+                name_validate_stmts.push(quote! {
+                    if let Some(ref __name) = self.#fname {
+                        if !__name.is_empty() && !__name.validate() {
+                            __invalid.push((#fname_str, __name.to_string()));
+                        }
+                    }
+                });
+            }
+            NameFieldKind::NotName => {}
+        }
 
         // IR entry for schema JSON.
         // If the field type is Name<T>, extract the target type(s) for the "ref" property.
@@ -245,6 +268,12 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
             fn module() -> &'static str { #module }
             fn resource() -> &'static str { #resource_snake }
             fn resource_path() -> &'static str { #resource_path }
+
+            fn validate_names(&self) -> Vec<(&'static str, String)> {
+                let mut __invalid: Vec<(&'static str, String)> = Vec::new();
+                #(#name_validate_stmts)*
+                __invalid
+            }
         }
 
         #name_template_impl
@@ -325,6 +354,48 @@ fn parse_name_template(template: &str) -> syn::Result<(String, String)> {
     let prefix = &template[..open];
     let key_field = &template[open + 1..close];
     Ok((prefix.to_string(), key_field.to_string()))
+}
+
+/// Classification of a field's relationship to Name<T>.
+enum NameFieldKind {
+    /// `Name<T>` directly (requires `.is_empty()` + `.validate()` check)
+    Direct,
+    /// `Option<Name<T>>` (requires `if let Some(ref n) = ...` pattern)
+    Option,
+    /// Not a Name field at all
+    NotName,
+}
+
+/// Classify whether a field type is Name<T>, Option<Name<T>>, or neither.
+fn classify_name_field(ty: &syn::Type) -> NameFieldKind {
+    if let syn::Type::Path(tp) = ty {
+        if let Some(seg) = tp.path.segments.last() {
+            let name = seg.ident.to_string();
+            if name == "Option" {
+                if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                    if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                        if is_name_type(inner) {
+                            return NameFieldKind::Option;
+                        }
+                    }
+                }
+                return NameFieldKind::NotName;
+            }
+            if name == "Name" {
+                return NameFieldKind::Direct;
+            }
+        }
+    }
+    NameFieldKind::NotName
+}
+
+fn is_name_type(ty: &syn::Type) -> bool {
+    if let syn::Type::Path(tp) = ty {
+        if let Some(seg) = tp.path.segments.last() {
+            return seg.ident == "Name";
+        }
+    }
+    false
 }
 
 /// Extract the target type names from a `Name<T>` field type.

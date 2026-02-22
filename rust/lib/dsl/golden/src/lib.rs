@@ -8,6 +8,7 @@ mod edge_cases;
 mod client_test;
 mod facet;
 mod name_ref;
+mod admin_sql;
 
 #[cfg(test)]
 mod tests {

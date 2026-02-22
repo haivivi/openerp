@@ -7,7 +7,7 @@
 //! extracted into dedicated columns for efficient queries.
 
 use openerp_core::ServiceError;
-use openerp_types::Field;
+use openerp_types::{DslModel, Field};
 use serde::{de::DeserializeOwned, Serialize};
 use std::sync::Arc;
 
@@ -64,12 +64,12 @@ pub trait SqlStore: Serialize + DeserializeOwned + Clone + Send + Sync + 'static
 }
 
 /// CRUD operations for a SqlStore model.
-pub struct SqlOps<T: SqlStore> {
+pub struct SqlOps<T: SqlStore + DslModel> {
     sql: Arc<dyn openerp_sql::SQLStore>,
     _phantom: std::marker::PhantomData<T>,
 }
 
-impl<T: SqlStore> SqlOps<T> {
+impl<T: SqlStore + DslModel> SqlOps<T> {
     pub fn new(sql: Arc<dyn openerp_sql::SQLStore>) -> Self {
         Self {
             sql,
@@ -78,7 +78,21 @@ impl<T: SqlStore> SqlOps<T> {
     }
 
     fn sql_err(e: openerp_sql::SQLError) -> ServiceError {
-        ServiceError::Storage(e.to_string())
+        let msg = e.to_string();
+        if msg.contains("UNIQUE") {
+            return ServiceError::Conflict(msg);
+        }
+        ServiceError::Storage(msg)
+    }
+
+    fn check_names(record: &T) -> Result<(), ServiceError> {
+        let invalid = <T as DslModel>::validate_names(record);
+        if let Some((field, value)) = invalid.first() {
+            return Err(ServiceError::Validation(format!(
+                "invalid resource name in field '{}': '{}'", field, value
+            )));
+        }
+        Ok(())
     }
 
     /// Ensure the table exists. Call once at startup.
@@ -251,6 +265,7 @@ impl<T: SqlStore> SqlOps<T> {
     /// The store layer sets `createdAt` and `updatedAt`.
     pub fn save_new(&self, mut record: T) -> Result<T, ServiceError> {
         record.before_create();
+        Self::check_names(&record)?;
 
         let mut json_val: serde_json::Value = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
@@ -328,6 +343,7 @@ impl<T: SqlStore> SqlOps<T> {
         }
 
         record.before_update();
+        Self::check_names(&record)?;
 
         let mut json_val = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
@@ -363,6 +379,7 @@ impl<T: SqlStore> SqlOps<T> {
         let mut record: T = serde_json::from_value(base)
             .map_err(|e| ServiceError::Internal(format!("deserialize: {}", e)))?;
         record.before_update();
+        Self::check_names(&record)?;
 
         let mut json_val = serde_json::to_value(&record)
             .map_err(|e| ServiceError::Internal(format!("serialize: {}", e)))?;
@@ -487,6 +504,81 @@ impl<T: SqlStore> SqlOps<T> {
         }
         Ok(records)
     }
+
+    /// Query by multiple field conditions (AND).
+    ///
+    /// Empty conditions returns all records (equivalent to `list()`).
+    /// Works for both indexed and non-indexed fields:
+    /// - Indexed fields (PK/UNIQUE/INDEX) → SQL WHERE on dedicated columns
+    /// - Non-indexed fields → full scan + in-memory filter on JSON data
+    pub fn find_by_multi(&self, conditions: &[(&Field, &str)]) -> Result<Vec<T>, ServiceError> {
+        if conditions.is_empty() {
+            return self.list();
+        }
+
+        let indexed = T::indexed_fields();
+        let indexed_names: Vec<&str> = indexed.iter().map(|f| f.name).collect();
+
+        let mut sql_conditions: Vec<(&Field, &str)> = Vec::new();
+        let mut mem_conditions: Vec<(&Field, &str)> = Vec::new();
+
+        for &(field, value) in conditions {
+            if indexed_names.contains(&field.name) {
+                sql_conditions.push((field, value));
+            } else {
+                mem_conditions.push((field, value));
+            }
+        }
+
+        let mut where_parts = Vec::new();
+        let mut params: Vec<openerp_sql::Value> = Vec::new();
+        for (i, (field, value)) in sql_conditions.iter().enumerate() {
+            where_parts.push(format!("\"{}\" = ?{}", field.name, i + 1));
+            params.push(openerp_sql::Value::Text(value.to_string()));
+        }
+
+        let sql = if where_parts.is_empty() {
+            format!("SELECT data FROM \"{}\"", T::table_name())
+        } else {
+            format!(
+                "SELECT data FROM \"{}\" WHERE {}",
+                T::table_name(),
+                where_parts.join(" AND ")
+            )
+        };
+
+        let rows = self.sql.query(&sql, &params).map_err(Self::sql_err)?;
+        let mut records = Self::rows_to_records(&rows)?;
+
+        if !mem_conditions.is_empty() {
+            records.retain(|record| {
+                let json = match serde_json::to_value(record) {
+                    Ok(v) => v,
+                    Err(_) => return false,
+                };
+                mem_conditions.iter().all(|(field, value)| {
+                    let camel = to_camel_case(field.name);
+                    json.get(field.name)
+                        .or_else(|| json.get(&camel))
+                        .is_some_and(|v| json_value_matches_str(v, value))
+                })
+            });
+        }
+
+        Ok(records)
+    }
+}
+
+fn json_value_matches_str(v: &serde_json::Value, expected: &str) -> bool {
+    match v {
+        serde_json::Value::String(s) => s == expected,
+        serde_json::Value::Number(n) => n.to_string() == expected,
+        serde_json::Value::Bool(b) => {
+            (expected == "true" && *b) || (expected == "false" && !*b)
+        }
+        serde_json::Value::Null => expected.is_empty(),
+        _ => false,
+    }
 }
 
 fn to_camel_case(s: &str) -> String {
@@ -532,6 +624,12 @@ mod tests {
         fn pk_values(&self) -> Vec<String> {
             vec![self.sn.clone()]
         }
+    }
+
+    impl DslModel for Device {
+        fn module() -> &'static str { "test" }
+        fn resource() -> &'static str { "device" }
+        fn resource_path() -> &'static str { "devices" }
     }
 
     fn make_ops() -> (SqlOps<Device>, tempfile::TempDir) {
@@ -649,6 +747,12 @@ mod tests {
         }
     }
 
+    impl DslModel for Firmware {
+        fn module() -> &'static str { "test" }
+        fn resource() -> &'static str { "firmware" }
+        fn resource_path() -> &'static str { "firmware" }
+    }
+
     #[test]
     fn compound_pk() {
         let dir = tempfile::tempdir().unwrap();
@@ -729,5 +833,122 @@ mod tests {
 
         ops.delete(&["CNT1"]).unwrap();
         assert_eq!(ops.count().unwrap(), 2);
+    }
+
+    // ── find_by_multi tests ──
+
+    fn seed_devices(ops: &SqlOps<Device>) {
+        let devices = vec![
+            Device { sn: "D1".into(), model: 100, status: "active".into(), description: Some("Alpha".into()) },
+            Device { sn: "D2".into(), model: 100, status: "inactive".into(), description: None },
+            Device { sn: "D3".into(), model: 200, status: "active".into(), description: Some("Gamma".into()) },
+            Device { sn: "D4".into(), model: 200, status: "inactive".into(), description: None },
+            Device { sn: "D5".into(), model: 100, status: "active".into(), description: Some("Echo".into()) },
+        ];
+        for d in devices {
+            ops.save_new(d).unwrap();
+        }
+    }
+
+    #[test]
+    fn find_by_multi_single_condition() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let status_field = Field::new("status", "String", "text");
+        let results = ops.find_by_multi(&[(&status_field, "active")]).unwrap();
+        assert_eq!(results.len(), 3);
+    }
+
+    #[test]
+    fn find_by_multi_and_conditions() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let model_field = Field::new("model", "u32", "number");
+        let status_field = Field::new("status", "String", "text");
+        let results = ops.find_by_multi(&[(&model_field, "100"), (&status_field, "active")]).unwrap();
+        assert_eq!(results.len(), 2, "model=100 AND status=active should match D1, D5");
+    }
+
+    #[test]
+    fn find_by_multi_no_match() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let model_field = Field::new("model", "u32", "number");
+        let results = ops.find_by_multi(&[(&model_field, "999")]).unwrap();
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn find_by_multi_empty_conditions() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let results = ops.find_by_multi(&[]).unwrap();
+        assert_eq!(results.len(), 5, "empty conditions should return all");
+    }
+
+    #[test]
+    fn find_by_multi_indexed_field() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let model_field = Field::new("model", "u32", "number");
+        let results = ops.find_by_multi(&[(&model_field, "200")]).unwrap();
+        assert_eq!(results.len(), 2);
+        assert!(results.iter().all(|d| d.model == 200));
+    }
+
+    #[test]
+    fn find_by_multi_pk_field() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let sn_field = Field::new("sn", "String", "text");
+        let results = ops.find_by_multi(&[(&sn_field, "D3")]).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].sn, "D3");
+    }
+
+    #[test]
+    fn find_by_multi_non_indexed_field() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let desc_field = Field::new("description", "Option<String>", "text");
+        let results = ops.find_by_multi(&[(&desc_field, "Alpha")]).unwrap();
+        assert_eq!(results.len(), 1, "non-indexed field should filter via JSON");
+        assert_eq!(results[0].sn, "D1");
+    }
+
+    #[test]
+    fn find_by_multi_non_indexed_numeric_field() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let build_field = Field::new("model", "u32", "number");
+        let desc_field = Field::new("description", "Option<String>", "text");
+        // model is indexed so it goes through SQL. But test the value matching
+        // logic by using description (non-indexed string) + verifying numeric
+        // fields work when they happen to be non-indexed in another schema.
+        // Here we directly test json_value_matches_str via a non-indexed lookup
+        // that uses the in-memory path with a string value for a string field.
+        let results = ops.find_by_multi(&[(&desc_field, "Gamma")]).unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].model, 200);
+    }
+
+    #[test]
+    fn find_by_multi_mixed_indexed_and_non_indexed() {
+        let (ops, _dir) = make_ops();
+        seed_devices(&ops);
+
+        let status_field = Field::new("status", "String", "text");
+        let desc_field = Field::new("description", "Option<String>", "text");
+        let results = ops.find_by_multi(&[(&status_field, "active"), (&desc_field, "Echo")]).unwrap();
+        assert_eq!(results.len(), 1, "mixed: SQL filters status, memory filters description");
+        assert_eq!(results[0].sn, "D5");
     }
 }

@@ -89,13 +89,6 @@ mod tests {
         const KEY: Field = Self::sn;
         fn kv_prefix() -> &'static str { "pms:device:" }
         fn key_value(&self) -> String { self.sn.to_string() }
-        fn validate_names(&self) -> Vec<(&'static str, String)> {
-            let mut invalid = Vec::new();
-            if !self.owner.is_empty() && !self.owner.validate() {
-                invalid.push(("owner", self.owner.to_string()));
-            }
-            invalid
-        }
     }
     openerp_store::assert_name_pk!(TestDevice);
 
@@ -126,16 +119,6 @@ mod tests {
             if self.id.is_empty() {
                 self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
             }
-        }
-        fn validate_names(&self) -> Vec<(&'static str, String)> {
-            let mut invalid = Vec::new();
-            if !self.subject.is_empty() && !self.subject.validate() {
-                invalid.push(("subject", self.subject.to_string()));
-            }
-            if !self.target.is_empty() && !self.target.validate() {
-                invalid.push(("target", self.target.to_string()));
-            }
-            invalid
         }
     }
 
@@ -853,5 +836,171 @@ mod tests {
         let target_field = audit_ir["fields"].as_array().unwrap()
             .iter().find(|f| f["name"] == "target").unwrap();
         assert_eq!(target_field["ref"].as_array().unwrap().len(), 0);
+    }
+
+    // =====================================================================
+    // 11. Auto-generated validate_names — Option<Name<T>> support
+    // =====================================================================
+
+    #[model(module = "test", name = "test/tasks/{id}")]
+    pub struct OptNameTask {
+        pub id: Id,
+        /// Optional reference to an owner (single-type Name).
+        pub assignee: Option<Name<TestUser>>,
+        pub title: String,
+    }
+
+    impl KvStore for OptNameTask {
+        const KEY: Field = Self::id;
+        fn kv_prefix() -> &'static str { "test:opt_task:" }
+        fn key_value(&self) -> String { self.id.to_string() }
+        fn before_create(&mut self) {
+            if self.id.is_empty() {
+                self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
+            }
+        }
+    }
+
+    #[test]
+    fn autogen_option_name_none_passes() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("opt1.redb")).unwrap(),
+        );
+        let ops = KvOps::<OptNameTask>::new(kv);
+
+        let task = OptNameTask {
+            id: Id::default(), assignee: None, title: "No assignee".into(),
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        ops.save_new(task).unwrap();
+    }
+
+    #[test]
+    fn autogen_option_name_some_valid_passes() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("opt2.redb")).unwrap(),
+        );
+        let ops = KvOps::<OptNameTask>::new(kv);
+
+        let task = OptNameTask {
+            id: Id::default(),
+            assignee: Some(Name::new("auth/users/u1")),
+            title: "Valid assignee".into(),
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        ops.save_new(task).unwrap();
+    }
+
+    #[test]
+    fn autogen_option_name_some_invalid_fails() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("opt3.redb")).unwrap(),
+        );
+        let ops = KvOps::<OptNameTask>::new(kv);
+
+        let task = OptNameTask {
+            id: Id::default(),
+            assignee: Some(Name::new("garbage")),
+            title: "Bad assignee".into(),
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        let err = ops.save_new(task).unwrap_err();
+        assert!(err.to_string().contains("invalid resource name"),
+            "Expected validation error, got: {}", err);
+    }
+
+    // =====================================================================
+    // 12. Auto-generated validate_names — save (update) also validates
+    // =====================================================================
+
+    #[test]
+    fn autogen_validate_on_save_update() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("upd.redb")).unwrap(),
+        );
+        let ops = KvOps::<TestDevice>::new(kv);
+
+        let device = TestDevice {
+            sn: Id::new("UPD01"), model_code: 1,
+            owner: Name::new("auth/users/alice"),
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        let created = ops.save_new(device).unwrap();
+
+        let mut bad = created;
+        bad.owner = Name::new("wrong/prefix/x");
+        let err = ops.save(bad).unwrap_err();
+        assert!(err.to_string().contains("invalid resource name"),
+            "save (update) should validate Name fields, got: {}", err);
+    }
+
+    // =====================================================================
+    // 13. Auto-generated validate_names — patch also validates
+    // =====================================================================
+
+    #[test]
+    fn autogen_validate_on_patch() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("patch.redb")).unwrap(),
+        );
+        let ops = KvOps::<TestDevice>::new(kv);
+
+        let device = TestDevice {
+            sn: Id::new("PATCH01"), model_code: 1,
+            owner: Name::new("auth/users/bob"),
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        ops.save_new(device).unwrap();
+
+        let patch = serde_json::json!({"owner": "not-valid"});
+        let err = ops.patch("PATCH01", &patch).unwrap_err();
+        assert!(err.to_string().contains("invalid resource name"),
+            "patch should validate Name fields, got: {}", err);
+    }
+
+    // =====================================================================
+    // 14. Auto-generated validate_names is truly auto — no manual override
+    // =====================================================================
+
+    #[test]
+    fn autogen_no_manual_override_needed() {
+        use openerp_types::DslModel;
+
+        let device = TestDevice {
+            sn: Id::new("X"), model_code: 0,
+            owner: Name::new("wrong/prefix"),
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        let invalid = device.validate_names();
+        assert_eq!(invalid.len(), 1);
+        assert_eq!(invalid[0].0, "owner");
+
+        let device_ok = TestDevice {
+            sn: Id::new("X"), model_code: 0,
+            owner: Name::new("auth/users/ok"),
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        let valid = device_ok.validate_names();
+        assert!(valid.is_empty());
+
+        let no_name_model = TestUser {
+            id: Id::new("u1"), email: Email::new("a@b.com"), active: true,
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        let no_names = no_name_model.validate_names();
+        assert!(no_names.is_empty(), "model without Name fields should return empty vec");
     }
 }

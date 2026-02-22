@@ -4,7 +4,7 @@ rust_library(
     name = "flux",
     crate_name = "openerp_flux",
     srcs = glob(["src/**/*.rs"]),
-    visibility = ["//rust:__subpackages__"],
+    visibility = ["//visibility:public"],
     deps = [],
 )
 
