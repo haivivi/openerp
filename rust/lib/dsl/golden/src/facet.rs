@@ -1407,4 +1407,113 @@ mod tests {
         // is NOT satisfied, so __assert_handlers::<__Handlers>() would
         // fail to compile — exactly the behavior we want.
     }
+
+    // =====================================================================
+    // D10: FlatBuffers Content-Type negotiation
+    // =====================================================================
+
+    #[test]
+    fn negotiate_format_json_accept() {
+        use openerp_store::negotiate_format;
+        use openerp_types::Format;
+        use axum::http::HeaderMap;
+
+        let mut headers = HeaderMap::new();
+        headers.insert("accept", "application/json".parse().unwrap());
+        assert_eq!(negotiate_format(&headers), Format::Json);
+    }
+
+    #[test]
+    fn negotiate_format_flatbuffers_accept() {
+        use openerp_store::negotiate_format;
+        use openerp_types::Format;
+        use axum::http::HeaderMap;
+
+        let mut headers = HeaderMap::new();
+        headers.insert("accept", "application/x-flatbuffers".parse().unwrap());
+        assert_eq!(negotiate_format(&headers), Format::FlatBuffers);
+    }
+
+    #[test]
+    fn negotiate_format_wildcard_defaults_json() {
+        use openerp_store::negotiate_format;
+        use openerp_types::Format;
+        use axum::http::HeaderMap;
+
+        let mut headers = HeaderMap::new();
+        headers.insert("accept", "*/*".parse().unwrap());
+        assert_eq!(negotiate_format(&headers), Format::Json,
+            "Accept: */* should default to JSON");
+    }
+
+    #[test]
+    fn negotiate_format_no_accept_defaults_json() {
+        use openerp_store::negotiate_format;
+        use openerp_types::Format;
+        use axum::http::HeaderMap;
+
+        let headers = HeaderMap::new();
+        assert_eq!(negotiate_format(&headers), Format::Json,
+            "No Accept header should default to JSON");
+    }
+
+    #[test]
+    fn facet_response_json_content_type() {
+        use axum::response::IntoResponse;
+        use openerp_store::FacetResponse;
+        use openerp_types::Format;
+
+        let device = mfg::MfgDevice {
+            sn: "SN001".into(),
+            model: 42,
+            status: "active".into(),
+            sku: None,
+            imei: vec![],
+        };
+        let resp = FacetResponse::new(device, Format::Json).into_response();
+        let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
+        assert_eq!(ct, "application/json",
+            "JSON format should set Content-Type: application/json");
+    }
+
+    #[test]
+    fn facet_response_flatbuffers_content_type() {
+        use axum::response::IntoResponse;
+        use openerp_store::FacetResponse;
+        use openerp_types::Format;
+
+        let device = mfg::MfgDevice {
+            sn: "SN002".into(),
+            model: 100,
+            status: "inactive".into(),
+            sku: None,
+            imei: vec![],
+        };
+        let resp = FacetResponse::new(device, Format::FlatBuffers).into_response();
+        let ct = resp.headers().get("content-type").unwrap().to_str().unwrap();
+        assert_eq!(ct, "application/x-flatbuffers",
+            "FlatBuffers format should set Content-Type: application/x-flatbuffers");
+    }
+
+    #[tokio::test]
+    async fn facet_response_flatbuffers_decodable() {
+        use axum::response::IntoResponse;
+        use openerp_store::FacetResponse;
+        use openerp_types::{Format, FromFlatBuffer};
+
+        let device = mfg::MfgDevice {
+            sn: "SN003".into(),
+            model: 77,
+            status: "pending".into(),
+            sku: Some("TEST-SKU".into()),
+            imei: vec!["123".into()],
+        };
+        let resp = FacetResponse::new(device, Format::FlatBuffers).into_response();
+        let bytes = axum::body::to_bytes(resp.into_body(), 1024 * 1024).await.unwrap();
+
+        let decoded = mfg::MfgDevice::decode_flatbuffer(&bytes).unwrap();
+        assert_eq!(decoded.sn, "SN003");
+        assert_eq!(decoded.model, 77);
+        assert_eq!(decoded.status, "pending");
+    }
 }

@@ -865,6 +865,79 @@ mod tests {
         assert!(!const_str_eq("hello", "world"));
     }
 
+    // =================================================================
+    // is_enum_type: custom struct types should NOT be treated as enums
+    // =================================================================
+
+    #[test]
+    fn is_enum_type_rejects_custom_struct_names() {
+        // Custom struct names that start uppercase but are NOT #[dsl_enum].
+        // These should return false — they're structs, not enums.
+        assert!(!super::is_enum_type("ExternalInfo"),
+            "ExternalInfo is a struct, not a dsl_enum — should not be treated as enum");
+        assert!(!super::is_enum_type("ProvisionRequest"),
+            "ProvisionRequest is a struct, not a dsl_enum — should not be treated as enum");
+        assert!(!super::is_enum_type("LocalizedText"),
+            "LocalizedText is a struct defined in this crate — should not be treated as enum");
+        assert!(!super::is_enum_type("HashMap"),
+            "HashMap is a std type — should not be treated as enum");
+        assert!(!super::is_enum_type("CustomConfig"),
+            "CustomConfig is a struct — should not be treated as enum");
+    }
+
+    #[test]
+    fn is_enum_type_accepts_builtins() {
+        // Known builtin types should never be treated as enums.
+        assert!(!super::is_enum_type("Id"));
+        assert!(!super::is_enum_type("Email"));
+        assert!(!super::is_enum_type("String"));
+        assert!(!super::is_enum_type("DateTime"));
+        assert!(!super::is_enum_type("Name"));
+        assert!(!super::is_enum_type("Vec"));
+    }
+
+    #[test]
+    fn is_enum_type_rejects_lowercase() {
+        assert!(!super::is_enum_type("bool"));
+        assert!(!super::is_enum_type("u32"));
+        assert!(!super::is_enum_type("f64"));
+    }
+
+    // =================================================================
+    // infer_widget: custom struct types should get "text", not "select"
+    // =================================================================
+
+    #[test]
+    fn infer_widget_custom_struct_not_select() {
+        // A field with a custom struct type should NOT get widget "select".
+        // "select" should be reserved for actual #[dsl_enum] types.
+        assert_ne!(super::infer_widget("ExternalInfo", "info"), "select",
+            "ExternalInfo is a struct — widget should not be select");
+        assert_ne!(super::infer_widget("ProvisionRequest", "request"), "select",
+            "ProvisionRequest is a struct — widget should not be select");
+        assert_ne!(super::infer_widget("CustomConfig", "config"), "select",
+            "CustomConfig is a struct — widget should not be select");
+    }
+
+    #[test]
+    fn infer_widget_known_types_correct() {
+        assert_eq!(super::infer_widget("Id", "id"), "readonly");
+        assert_eq!(super::infer_widget("Email", "email"), "email");
+        assert_eq!(super::infer_widget("bool", "active"), "switch");
+        assert_eq!(super::infer_widget("Vec", "tags"), "tags");
+        assert_eq!(super::infer_widget("DateTime", "timestamp"), "datetime");
+        assert_eq!(super::infer_widget("Secret", "api_key"), "hidden");
+        assert_eq!(super::infer_widget("Name", "owner"), "select");
+    }
+
+    #[test]
+    fn infer_widget_field_name_heuristics() {
+        assert_eq!(super::infer_widget("String", "created_at"), "datetime");
+        assert_eq!(super::infer_widget("String", "description"), "textarea");
+        assert_eq!(super::infer_widget("String", "notes"), "textarea");
+        assert_eq!(super::infer_widget("String", "hostname"), "text");
+    }
+
     #[test]
     fn pluralize_common_cases() {
         // Regular: add s

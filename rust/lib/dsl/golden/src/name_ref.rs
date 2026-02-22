@@ -759,6 +759,28 @@ mod tests {
         };
     }
 
+    // =====================================================================
+    // D2: Option<Name<T>> widget inference
+    // =====================================================================
+
+    #[test]
+    fn option_name_widget_is_select() {
+        assert_eq!(OptNameTask::assignee.widget, "select",
+            "Option<Name<TestUser>> should have widget 'select'");
+    }
+
+    #[test]
+    fn option_name_ir_widget_is_select() {
+        let ir = OptNameTask::__dsl_ir();
+        let fields = ir["fields"].as_array().unwrap();
+        let assignee = fields.iter().find(|f| f["name"] == "assignee").unwrap();
+        assert_eq!(assignee["widget"], "select",
+            "Option<Name<TestUser>> IR widget should be 'select'");
+        let refs = assignee["ref"].as_array().unwrap();
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0]["type"], "TestUser");
+    }
+
     // Compile-fail scenarios (cannot be auto-tested without trybuild):
     //
     // 1. KvStore KEY mismatch:

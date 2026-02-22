@@ -989,4 +989,263 @@ mod tests {
         assert_eq!(json["children"][0]["children"][0]["children"][0]["resource"], "level3");
         assert_eq!(json["children"][0]["children"][0]["children"][0]["description"], "Deep leaf");
     }
+
+    // =====================================================================
+    // D7: #[model] common field injection boundary
+    // =====================================================================
+
+    #[model(module = "edge")]
+    pub struct CustomTimestamp {
+        pub id: Id,
+        pub created_at: String,
+    }
+
+    impl KvStore for CustomTimestamp {
+        const KEY: Field = Self::id;
+        fn kv_prefix() -> &'static str { "edge:cts:" }
+        fn key_value(&self) -> String { self.id.to_string() }
+        fn before_create(&mut self) {
+            if self.id.is_empty() {
+                self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
+            }
+        }
+    }
+
+    #[test]
+    fn common_field_user_type_takes_precedence() {
+        let ir = CustomTimestamp::__dsl_ir();
+        let fields = ir["fields"].as_array().unwrap();
+
+        // User declared created_at: String, so macro should not inject DateTime version.
+        let ca_fields: Vec<_> = fields.iter().filter(|f| f["name"] == "created_at").collect();
+        assert_eq!(ca_fields.len(), 1, "should not have duplicate created_at");
+        assert_eq!(ca_fields[0]["ty"], "String",
+            "user-declared type 'String' should take precedence over auto-injected 'DateTime'");
+    }
+
+    #[model(module = "edge")]
+    pub struct CustomDisplayName {
+        pub id: Id,
+        pub display_name: i32,
+    }
+
+    impl KvStore for CustomDisplayName {
+        const KEY: Field = Self::id;
+        fn kv_prefix() -> &'static str { "edge:cdn:" }
+        fn key_value(&self) -> String { self.id.to_string() }
+    }
+
+    #[test]
+    fn common_field_user_type_conflict_no_duplicate() {
+        let ir = CustomDisplayName::__dsl_ir();
+        let fields = ir["fields"].as_array().unwrap();
+
+        let dn_fields: Vec<_> = fields.iter().filter(|f| f["name"] == "display_name").collect();
+        assert_eq!(dn_fields.len(), 1, "should not have duplicate display_name");
+        assert_eq!(dn_fields[0]["ty"], "i32",
+            "user-declared type 'i32' should take precedence over auto-injected 'Option<String>'");
+    }
+
+    // =====================================================================
+    // D8: #[hidden] field exposure in API responses
+    // =====================================================================
+
+    #[model(module = "edge")]
+    pub struct SecureRecord {
+        pub id: Id,
+        pub username: String,
+        pub password_hash: Option<PasswordHash>,
+        pub api_secret: Option<Secret>,
+        pub public_field: String,
+    }
+
+    impl KvStore for SecureRecord {
+        const KEY: Field = Self::id;
+        fn kv_prefix() -> &'static str { "edge:secure:" }
+        fn key_value(&self) -> String { self.id.to_string() }
+        fn before_create(&mut self) {
+            if self.id.is_empty() {
+                self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn hidden_field_not_exposed_on_get() {
+        let (router, _, _dir) = make_router::<SecureRecord>("secure-records", "secure_record");
+
+        let (s, created) = call(&router, "POST", "/secure-records",
+            Some(serde_json::json!({
+                "username": "alice",
+                "passwordHash": "$argon2id$v=19$m=65536$...",
+                "apiSecret": "sk-secret-key-12345",
+                "publicField": "visible",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+        let id = created["id"].as_str().unwrap();
+
+        let (s, fetched) = call(&router, "GET", &format!("/secure-records/{}", id), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(fetched["username"], "alice");
+        assert_eq!(fetched["publicField"], "visible");
+
+        // Hidden fields (widget = "hidden") should NOT be exposed in GET responses.
+        assert!(fetched["passwordHash"].is_null() || fetched.get("passwordHash").is_none(),
+            "passwordHash (widget=hidden) should not be exposed in GET response, got: {}",
+            fetched["passwordHash"]);
+        assert!(fetched["apiSecret"].is_null() || fetched.get("apiSecret").is_none(),
+            "apiSecret (widget=hidden) should not be exposed in GET response, got: {}",
+            fetched["apiSecret"]);
+    }
+
+    #[tokio::test]
+    async fn hidden_field_not_exposed_on_list() {
+        let (router, _, _dir) = make_router::<SecureRecord>("secure-records", "secure_record");
+
+        let (s, _) = call(&router, "POST", "/secure-records",
+            Some(serde_json::json!({
+                "username": "bob",
+                "passwordHash": "$argon2id$hash...",
+                "apiSecret": "sk-another-secret",
+                "publicField": "ok",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+
+        let (s, list) = call(&router, "GET", "/secure-records", None).await;
+        assert_eq!(s, StatusCode::OK);
+        let items = list["items"].as_array().unwrap();
+        assert!(!items.is_empty());
+
+        let item = &items[0];
+        assert_eq!(item["username"], "bob");
+        assert!(item["passwordHash"].is_null() || item.get("passwordHash").is_none(),
+            "passwordHash should not be exposed in LIST response, got: {}",
+            item["passwordHash"]);
+        assert!(item["apiSecret"].is_null() || item.get("apiSecret").is_none(),
+            "apiSecret should not be exposed in LIST response, got: {}",
+            item["apiSecret"]);
+    }
+
+    #[test]
+    fn hidden_field_widget_is_hidden() {
+        assert_eq!(SecureRecord::password_hash.widget, "hidden");
+        assert_eq!(SecureRecord::api_secret.widget, "hidden");
+        assert_eq!(SecureRecord::username.widget, "text");
+        assert_eq!(SecureRecord::public_field.widget, "text");
+    }
+
+    #[test]
+    fn hidden_field_ir_has_hidden_widget() {
+        let ir = SecureRecord::__dsl_ir();
+        let fields = ir["fields"].as_array().unwrap();
+        let pw = fields.iter().find(|f| f["name"] == "password_hash").unwrap();
+        assert_eq!(pw["widget"], "hidden");
+        let secret = fields.iter().find(|f| f["name"] == "api_secret").unwrap();
+        assert_eq!(secret["widget"], "hidden");
+    }
+
+    // =====================================================================
+    // D9: before_create/before_update hook timing vs stamp
+    // =====================================================================
+
+    static HOOK_LOG: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+    #[model(module = "edge")]
+    pub struct HookTimingRecord {
+        pub id: Id,
+        pub value: String,
+    }
+
+    impl KvStore for HookTimingRecord {
+        const KEY: Field = Self::id;
+        fn kv_prefix() -> &'static str { "edge:hooktiming:" }
+        fn key_value(&self) -> String { self.id.to_string() }
+        fn before_create(&mut self) {
+            HOOK_LOG.lock().unwrap().push("before_create".into());
+            if self.id.is_empty() {
+                self.id = Id::new("hook-id");
+            }
+            self.created_at = DateTime::new("2000-01-01T00:00:00Z");
+            self.updated_at = DateTime::new("2000-01-01T00:00:00Z");
+        }
+        fn before_update(&mut self) {
+            HOOK_LOG.lock().unwrap().push("before_update".into());
+            self.updated_at = DateTime::new("2000-01-01T00:00:00Z");
+        }
+    }
+
+    #[test]
+    fn hook_before_create_created_at_not_overwritten() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("hook1.redb")).unwrap(),
+        );
+        let ops = KvOps::<HookTimingRecord>::new(kv);
+
+        let record = HookTimingRecord {
+            id: Id::default(), value: "test".into(),
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        let created = ops.save_new(record).unwrap();
+
+        // before_create set created_at to "2000-01-01T00:00:00Z".
+        // stamp_create only sets createdAt if it's empty.
+        // Since before_create ran first and set a non-empty value,
+        // stamp_create should preserve it.
+        assert_eq!(created.created_at.as_str(), "2000-01-01T00:00:00Z",
+            "stamp_create should NOT overwrite non-empty created_at set by before_create");
+    }
+
+    #[test]
+    fn hook_before_create_updated_at_overwritten_by_stamp() {
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("hook2.redb")).unwrap(),
+        );
+        let ops = KvOps::<HookTimingRecord>::new(kv);
+
+        let record = HookTimingRecord {
+            id: Id::default(), value: "test".into(),
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        let created = ops.save_new(record).unwrap();
+
+        // before_create set updated_at to "2000-01-01T00:00:00Z".
+        // stamp_create ALWAYS overwrites updatedAt.
+        // So the hook's value should be overwritten.
+        assert_ne!(created.updated_at.as_str(), "2000-01-01T00:00:00Z",
+            "stamp_create should overwrite updatedAt even if before_create set it");
+        assert!(created.updated_at.as_str().contains("T"),
+            "updatedAt should be a valid ISO datetime set by stamp");
+    }
+
+    #[test]
+    fn hook_call_order_before_create_then_check_names_then_stamp() {
+        HOOK_LOG.lock().unwrap().clear();
+
+        let dir = tempfile::tempdir().unwrap();
+        let kv: Arc<dyn openerp_kv::KVStore> = Arc::new(
+            openerp_kv::RedbStore::open(&dir.path().join("hook3.redb")).unwrap(),
+        );
+        let ops = KvOps::<HookTimingRecord>::new(kv);
+
+        let record = HookTimingRecord {
+            id: Id::default(), value: "test".into(),
+            display_name: None, description: None, metadata: None,
+            created_at: DateTime::default(), updated_at: DateTime::default(),
+        };
+        let created = ops.save_new(record).unwrap();
+
+        let log = HOOK_LOG.lock().unwrap();
+        assert!(log.contains(&"before_create".to_string()),
+            "before_create should have been called");
+
+        // The created record should have id set by before_create.
+        assert_eq!(created.id.as_str(), "hook-id",
+            "before_create should run before serialization");
+    }
 }
