@@ -19,6 +19,7 @@ use std::sync::Arc;
 
 use axum::Router;
 use openerp_store::{admin_kv_router, HierarchyNode, KvOps, ModuleDef, ResourceDef};
+use openerp_types::DslModel;
 
 use model::*;
 
