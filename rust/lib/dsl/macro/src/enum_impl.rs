@@ -106,14 +106,6 @@ pub fn expand(attr: TokenStream, item: ItemEnum) -> syn::Result<TokenStream> {
             }
         }
 
-        impl openerp_types::IsDslEnum for #enum_name {
-            const IS_DSL_ENUM: bool = true;
-        }
-
-        impl openerp_types::MaybeDslEnum for #enum_name {
-            const IS_DSL_ENUM: bool = true;
-        }
-
         impl #enum_name {
             pub const __DSL_MODULE: &'static str = #module;
             pub const __DSL_ENUM_NAME: &'static str = #enum_name_str;

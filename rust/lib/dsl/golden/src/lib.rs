@@ -933,7 +933,8 @@ mod tests {
         assert_eq!(fetched["hostname"], "web-01");
         assert_eq!(fetched["ipAddress"], "10.0.0.1");
         assert_eq!(fetched["url"], "https://web-01.internal:8443");
-        assert_eq!(fetched["secretKey"], "s3cr3t-k3y");
+        // secretKey is a hidden field (Option<Secret>), returned as null
+        assert!(fetched["secretKey"].is_null(), "secretKey should be null in response");
         assert_eq!(fetched["version"], "2.5.1");
         assert_eq!(fetched["active"], true);
         assert_eq!(fetched["tags"].as_array().unwrap().len(), 3);

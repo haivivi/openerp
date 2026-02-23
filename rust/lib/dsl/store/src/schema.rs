@@ -68,30 +68,6 @@ impl ResourceDef {
         Self { name, label, path, icon, description: String::new(), ir, permissions }
     }
 
-    /// Fill enum variants info for fields marked with isEnum.
-    /// This should be called after all enums are registered in the module.
-    pub fn with_enum_variants(mut self, module_enums: &[EnumDef]) -> Self {
-        if let Some(fields) = self.ir["fields"].as_array() {
-            let updated_fields: Vec<Value> = fields
-                .iter()
-                .map(|f| {
-                    if f.get("isEnum").is_some() {
-                        let ty = f["ty"].as_str().unwrap_or("");
-                        // Look up the enum in module's enum definitions
-                        if let Some(enum_def) = module_enums.iter().find(|e| e.name == ty) {
-                            let mut updated = f.clone();
-                            updated["variants"] = json!(enum_def.variants);
-                            return updated;
-                        }
-                    }
-                    f.clone()
-                })
-                .collect();
-            self.ir["fields"] = json!(updated_fields);
-        }
-        self
-    }
-
     /// Add custom action permissions.
     pub fn with_action(mut self, module: &str, action: &str) -> Self {
         self.permissions.push(format!("{}:{}:{}", module, self.name, action));
@@ -189,8 +165,18 @@ pub fn build_schema(app_name: &str, modules: Vec<ModuleDef>) -> Value {
                     let updated_fields: Vec<Value> = fields.iter().map(|f| {
                         if f.get("isEnum").is_some() {
                             let ty = f["ty"].as_str().unwrap_or("");
+                            // Extract inner type from Option<Inner> wrapper
+                            let inner_ty = if let Some(start) = ty.find("Option<") {
+                                if let Some(end) = ty.rfind(">") {
+                                    &ty[start + 7..end]
+                                } else {
+                                    ty
+                                }
+                            } else {
+                                ty
+                            };
                             // Look up the enum in module's enum definitions
-                            if let Some(enum_def) = m.enums.iter().find(|e| e.name == ty) {
+                            if let Some(enum_def) = m.enums.iter().find(|e| e.name == inner_ty) {
                                 let mut updated = f.clone();
                                 updated["variants"] = json!(enum_def.variants);
                                 return updated;

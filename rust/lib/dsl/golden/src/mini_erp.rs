@@ -595,7 +595,8 @@ mod tests {
         assert_eq!(updated["ownerId"], "emp1");
         assert_eq!(updated["budget"], 100000);
         assert_eq!(updated["url"], "https://github.com/myproject");
-        assert_eq!(updated["secretToken"], "ghp_abc123secret");
+        // secretToken is a hidden field, so it's masked as null in responses
+        assert!(updated["secretToken"].is_null(), "secretToken should be null in response");
         assert_eq!(updated["tags"].as_array().unwrap().len(), 3);
         assert_eq!(updated["description"], "Test all fields survive edit");
         assert_eq!(updated["status"], "draft");
@@ -607,7 +608,8 @@ mod tests {
         let (s, fetched) = api_call(&erp.pm_router, "GET", &format!("/projects/{}", id), None, "root").await;
         assert_eq!(s, StatusCode::OK);
         assert_eq!(fetched["displayName"], "Roundtrip Edited");
-        assert_eq!(fetched["secretToken"], "ghp_abc123secret");
+        // secretToken is hidden, so returned as null
+        assert!(fetched["secretToken"].is_null(), "secretToken should be null in GET response");
         assert_eq!(fetched["createdAt"], created_at);
     }
 

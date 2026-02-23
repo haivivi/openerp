@@ -268,16 +268,6 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
             pub fn __dsl_fields() -> Vec<serde_json::Value> {
                 vec![ #(#field_ir_entries),* ]
             }
-
-            /// Full IR as JSON value.
-            pub fn __dsl_ir() -> serde_json::Value {
-                serde_json::json!({
-                    "name": #struct_name_str,
-                    "module": #module,
-                    "resource": #resource_snake,
-                    "fields": Self::__dsl_fields()
-                })
-            }
         }
 
         impl openerp_types::DslModel for #struct_name {
@@ -289,6 +279,15 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
                 let mut __invalid: Vec<(&'static str, String)> = Vec::new();
                 #(#name_validate_stmts)*
                 __invalid
+            }
+
+            fn __dsl_ir() -> serde_json::Value {
+                serde_json::json!({
+                    "name": #struct_name_str,
+                    "module": #module,
+                    "resource": #resource_snake,
+                    "fields": Self::__dsl_fields()
+                })
             }
         }
 

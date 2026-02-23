@@ -1090,12 +1090,12 @@ mod tests {
         assert_eq!(fetched["username"], "alice");
         assert_eq!(fetched["publicField"], "visible");
 
-        // Hidden fields (widget = "hidden") should NOT be exposed in GET responses.
-        assert!(fetched["passwordHash"].is_null() || fetched.get("passwordHash").is_none(),
-            "passwordHash (widget=hidden) should not be exposed in GET response, got: {}",
+        // Hidden fields (widget = "hidden") should be masked as null in GET responses.
+        assert!(fetched["passwordHash"].is_null(),
+            "passwordHash (widget=hidden) should be null in GET response, got: {}",
             fetched["passwordHash"]);
-        assert!(fetched["apiSecret"].is_null() || fetched.get("apiSecret").is_none(),
-            "apiSecret (widget=hidden) should not be exposed in GET response, got: {}",
+        assert!(fetched["apiSecret"].is_null(),
+            "apiSecret (widget=hidden) should be null in GET response, got: {}",
             fetched["apiSecret"]);
     }
 
@@ -1120,11 +1120,12 @@ mod tests {
 
         let item = &items[0];
         assert_eq!(item["username"], "bob");
-        assert!(item["passwordHash"].is_null() || item.get("passwordHash").is_none(),
-            "passwordHash should not be exposed in LIST response, got: {}",
+        // Hidden fields should be masked as null in LIST responses.
+        assert!(item["passwordHash"].is_null(),
+            "passwordHash should be null in LIST response, got: {}",
             item["passwordHash"]);
-        assert!(item["apiSecret"].is_null() || item.get("apiSecret").is_none(),
-            "apiSecret should not be exposed in LIST response, got: {}",
+        assert!(item["apiSecret"].is_null(),
+            "apiSecret should be null in LIST response, got: {}",
             item["apiSecret"]);
     }
 
