@@ -78,12 +78,25 @@ async fn list_handler<T: KvStore + DslModel + Serialize>(
     State(state): State<Arc<AdminState<T>>>,
     headers: HeaderMap,
     Query(params): Query<ListParams>,
-) -> Result<Json<ListResult<T>>, ServiceError> {
+) -> Result<Json<serde_json::Value>, ServiceError> {
     let p = perm(&state.module, &state.resource, "list");
     state.auth.check(&headers, &p)?;
 
     let result = state.ops.list_paginated(&params)?;
-    Ok(Json(result))
+    // Filter hidden fields from each record using the secure serializer
+    let filtered_items: Vec<serde_json::Value> = result
+        .items
+        .iter()
+        .map(|item| secure_serialize(item))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| ServiceError::Internal(format!("Serialization error: {}", e)))?;
+
+    // Build response with correct camelCase naming for hasMore
+    let filtered_result = serde_json::json!({
+        "items": filtered_items,
+        "hasMore": result.has_more,
+    });
+    Ok(Json(filtered_result))
 }
 
 async fn count_handler<T: KvStore + DslModel + Serialize>(
@@ -101,24 +114,28 @@ async fn get_handler<T: KvStore + DslModel + Serialize>(
     State(state): State<Arc<AdminState<T>>>,
     Path(id): Path<String>,
     headers: HeaderMap,
-) -> Result<Json<T>, ServiceError> {
+) -> Result<Json<serde_json::Value>, ServiceError> {
     let p = perm(&state.module, &state.resource, "read");
     state.auth.check(&headers, &p)?;
 
     let record = state.ops.get_or_err(&id)?;
-    Ok(Json(record))
+    let filtered = secure_serialize(&record)
+        .map_err(|e| ServiceError::Internal(format!("Serialization error: {}", e)))?;
+    Ok(Json(filtered))
 }
 
 async fn create_handler<T: KvStore + DslModel + Serialize + DeserializeOwned>(
     State(state): State<Arc<AdminState<T>>>,
     headers: HeaderMap,
     Json(record): Json<T>,
-) -> Result<Json<T>, ServiceError> {
+) -> Result<Json<serde_json::Value>, ServiceError> {
     let p = perm(&state.module, &state.resource, "create");
     state.auth.check(&headers, &p)?;
 
     let created = state.ops.save_new(record)?;
-    Ok(Json(created))
+    let filtered = secure_serialize(&created)
+        .map_err(|e| ServiceError::Internal(format!("Serialization error: {}", e)))?;
+    Ok(Json(filtered))
 }
 
 async fn update_handler<T: KvStore + DslModel + Serialize + DeserializeOwned>(
@@ -126,7 +143,7 @@ async fn update_handler<T: KvStore + DslModel + Serialize + DeserializeOwned>(
     Path(id): Path<String>,
     headers: HeaderMap,
     Json(record): Json<T>,
-) -> Result<Json<T>, ServiceError> {
+) -> Result<Json<serde_json::Value>, ServiceError> {
     let p = perm(&state.module, &state.resource, "update");
     state.auth.check(&headers, &p)?;
 
@@ -138,7 +155,9 @@ async fn update_handler<T: KvStore + DslModel + Serialize + DeserializeOwned>(
     }
     let _existing = state.ops.get_or_err(&id)?;
     let updated = state.ops.save(record)?;
-    Ok(Json(updated))
+    let filtered = secure_serialize(&updated)
+        .map_err(|e| ServiceError::Internal(format!("Serialization error: {}", e)))?;
+    Ok(Json(filtered))
 }
 
 async fn patch_handler<T: KvStore + DslModel + Serialize + DeserializeOwned>(
@@ -146,12 +165,14 @@ async fn patch_handler<T: KvStore + DslModel + Serialize + DeserializeOwned>(
     Path(id): Path<String>,
     headers: HeaderMap,
     Json(patch): Json<serde_json::Value>,
-) -> Result<Json<T>, ServiceError> {
+) -> Result<Json<serde_json::Value>, ServiceError> {
     let p = perm(&state.module, &state.resource, "update");
     state.auth.check(&headers, &p)?;
 
     let patched = state.ops.patch(&id, &patch)?;
-    Ok(Json(patched))
+    let filtered = secure_serialize(&patched)
+        .map_err(|e| ServiceError::Internal(format!("Serialization error: {}", e)))?;
+    Ok(Json(filtered))
 }
 
 async fn delete_handler<T: KvStore + DslModel + Serialize>(
@@ -245,12 +266,25 @@ async fn sql_list_handler<T: SqlStore + DslModel + Serialize>(
     State(state): State<Arc<SqlAdminState<T>>>,
     headers: HeaderMap,
     Query(params): Query<ListParams>,
-) -> Result<Json<ListResult<T>>, ServiceError> {
+) -> Result<Json<serde_json::Value>, ServiceError> {
     let p = perm(&state.module, &state.resource, "list");
     state.auth.check(&headers, &p)?;
 
     let result = state.ops.list_paginated(&params)?;
-    Ok(Json(result))
+    // Filter hidden fields from each record
+    let filtered_items: Vec<serde_json::Value> = result
+        .items
+        .iter()
+        .map(|item| secure_serialize(item))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| ServiceError::Internal(format!("Serialization error: {}", e)))?;
+
+    // Build response with correct camelCase naming for hasMore
+    let filtered_result = serde_json::json!({
+        "items": filtered_items,
+        "hasMore": result.has_more,
+    });
+    Ok(Json(filtered_result))
 }
 
 async fn sql_count_handler<T: SqlStore + DslModel + Serialize>(
@@ -268,26 +302,30 @@ async fn sql_get_handler<T: SqlStore + DslModel + Serialize>(
     State(state): State<Arc<SqlAdminState<T>>>,
     Path(pk_path): Path<String>,
     headers: HeaderMap,
-) -> Result<Json<T>, ServiceError> {
+) -> Result<Json<serde_json::Value>, ServiceError> {
     let p = perm(&state.module, &state.resource, "read");
     state.auth.check(&headers, &p)?;
 
     let pks = parse_pk_path(&pk_path, T::PK.len())?;
     let pk_refs: Vec<&str> = pks.iter().map(|s| s.as_str()).collect();
     let record = state.ops.get_or_err(&pk_refs)?;
-    Ok(Json(record))
+    let filtered = secure_serialize(&record)
+        .map_err(|e| ServiceError::Internal(format!("Serialization error: {}", e)))?;
+    Ok(Json(filtered))
 }
 
 async fn sql_create_handler<T: SqlStore + DslModel + Serialize + DeserializeOwned>(
     State(state): State<Arc<SqlAdminState<T>>>,
     headers: HeaderMap,
     Json(record): Json<T>,
-) -> Result<Json<T>, ServiceError> {
+) -> Result<Json<serde_json::Value>, ServiceError> {
     let p = perm(&state.module, &state.resource, "create");
     state.auth.check(&headers, &p)?;
 
     let created = state.ops.save_new(record)?;
-    Ok(Json(created))
+    let filtered = secure_serialize(&created)
+        .map_err(|e| ServiceError::Internal(format!("Serialization error: {}", e)))?;
+    Ok(Json(filtered))
 }
 
 async fn sql_update_handler<T: SqlStore + DslModel + Serialize + DeserializeOwned>(
@@ -295,7 +333,7 @@ async fn sql_update_handler<T: SqlStore + DslModel + Serialize + DeserializeOwne
     Path(pk_path): Path<String>,
     headers: HeaderMap,
     Json(record): Json<T>,
-) -> Result<Json<T>, ServiceError> {
+) -> Result<Json<serde_json::Value>, ServiceError> {
     let p = perm(&state.module, &state.resource, "update");
     state.auth.check(&headers, &p)?;
 
@@ -309,7 +347,9 @@ async fn sql_update_handler<T: SqlStore + DslModel + Serialize + DeserializeOwne
     let pk_refs: Vec<&str> = pks.iter().map(|s| s.as_str()).collect();
     let _existing = state.ops.get_or_err(&pk_refs)?;
     let updated = state.ops.save(record)?;
-    Ok(Json(updated))
+    let filtered = secure_serialize(&updated)
+        .map_err(|e| ServiceError::Internal(format!("Serialization error: {}", e)))?;
+    Ok(Json(filtered))
 }
 
 async fn sql_patch_handler<T: SqlStore + DslModel + Serialize + DeserializeOwned>(
@@ -317,14 +357,16 @@ async fn sql_patch_handler<T: SqlStore + DslModel + Serialize + DeserializeOwned
     Path(pk_path): Path<String>,
     headers: HeaderMap,
     Json(patch): Json<serde_json::Value>,
-) -> Result<Json<T>, ServiceError> {
+) -> Result<Json<serde_json::Value>, ServiceError> {
     let p = perm(&state.module, &state.resource, "update");
     state.auth.check(&headers, &p)?;
 
     let pks = parse_pk_path(&pk_path, T::PK.len())?;
     let pk_refs: Vec<&str> = pks.iter().map(|s| s.as_str()).collect();
     let patched = state.ops.patch(&pk_refs, &patch)?;
-    Ok(Json(patched))
+    let filtered = secure_serialize(&patched)
+        .map_err(|e| ServiceError::Internal(format!("Serialization error: {}", e)))?;
+    Ok(Json(filtered))
 }
 
 async fn sql_delete_handler<T: SqlStore + DslModel + Serialize>(
@@ -339,4 +381,40 @@ async fn sql_delete_handler<T: SqlStore + DslModel + Serialize>(
     let pk_refs: Vec<&str> = pks.iter().map(|s| s.as_str()).collect();
     state.ops.delete(&pk_refs)?;
     Ok(())
+}
+
+/// Securely serialize a record, filtering out hidden fields.
+///
+/// Fields with explicit secret-related names are removed from the response.
+/// This is a security measure to prevent sensitive data from leaking through the admin API.
+///
+/// Filtered field names (case-insensitive, supports both snake_case and camelCase):
+/// - passwordHash, password_hash
+/// - apiKey, api_key
+/// - apiSecret, api_secret
+/// - rev (internal revision field)
+fn secure_serialize<T: Serialize>(record: &T) -> Result<serde_json::Value, serde_json::Error> {
+    let value = serde_json::to_value(record)?;
+
+    if let Some(obj) = value.as_object() {
+        let filtered: serde_json::Map<String, serde_json::Value> = obj
+            .iter()
+            .filter(|(key, _)| {
+                let key_lower = key.to_ascii_lowercase();
+                // Only filter explicit secret field names
+                // NOTE: This is a heuristic. For production, use proper field metadata.
+                !matches!(
+                    key_lower.as_str(),
+                    "passwordhash" | "password_hash" |
+                    "apikey" | "api_key" |
+                    "apisecret" | "api_secret" |
+                    "rev"  // Internal revision field
+                )
+            })
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
+        Ok(serde_json::Value::Object(filtered))
+    } else {
+        Ok(value)
+    }
 }

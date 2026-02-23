@@ -68,6 +68,30 @@ impl ResourceDef {
         Self { name, label, path, icon, description: String::new(), ir, permissions }
     }
 
+    /// Fill enum variants info for fields marked with isEnum.
+    /// This should be called after all enums are registered in the module.
+    pub fn with_enum_variants(mut self, module_enums: &[EnumDef]) -> Self {
+        if let Some(fields) = self.ir["fields"].as_array() {
+            let updated_fields: Vec<Value> = fields
+                .iter()
+                .map(|f| {
+                    if f.get("isEnum").is_some() {
+                        let ty = f["ty"].as_str().unwrap_or("");
+                        // Look up the enum in module's enum definitions
+                        if let Some(enum_def) = module_enums.iter().find(|e| e.name == ty) {
+                            let mut updated = f.clone();
+                            updated["variants"] = json!(enum_def.variants);
+                            return updated;
+                        }
+                    }
+                    f.clone()
+                })
+                .collect();
+            self.ir["fields"] = json!(updated_fields);
+        }
+        self
+    }
+
     /// Add custom action permissions.
     pub fn with_action(mut self, module: &str, action: &str) -> Self {
         self.permissions.push(format!("{}:{}:{}", module, self.name, action));
@@ -157,12 +181,34 @@ pub fn build_schema(app_name: &str, modules: Vec<ModuleDef>) -> Value {
                 (e.name.to_string(), json!(e.variants))
             }).collect();
 
+            // Build resource IRs with enum variants filled in.
+            let resource_irs: Vec<Value> = m.resources.iter().map(|r| {
+                // Clone the IR and fill in enum variants for this resource
+                let mut ir = r.ir.clone();
+                if let Some(fields) = ir["fields"].as_array() {
+                    let updated_fields: Vec<Value> = fields.iter().map(|f| {
+                        if f.get("isEnum").is_some() {
+                            let ty = f["ty"].as_str().unwrap_or("");
+                            // Look up the enum in module's enum definitions
+                            if let Some(enum_def) = m.enums.iter().find(|e| e.name == ty) {
+                                let mut updated = f.clone();
+                                updated["variants"] = json!(enum_def.variants);
+                                return updated;
+                            }
+                        }
+                        f.clone()
+                    }).collect();
+                    ir["fields"] = json!(updated_fields);
+                }
+                ir
+            }).collect();
+
             // Build module JSON.
             json!({
                 "id": m.id,
                 "label": m.label,
                 "icon": m.icon,
-                "resources": m.resources.iter().map(|r| &r.ir).collect::<Vec<_>>(),
+                "resources": resource_irs,
                 "enums": enum_map,
                 "hierarchy": {
                     "nav": m.hierarchy.iter().map(|h| h.to_json()).collect::<Vec<_>>()
