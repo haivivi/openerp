@@ -11,6 +11,7 @@ mod store_impls;
 use std::sync::Arc;
 use axum::Router;
 use openerp_store::{admin_kv_router, KvOps, ResourceDef};
+use openerp_types::DslModel;
 use model::*;
 
 pub fn admin_router(

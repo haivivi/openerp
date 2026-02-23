@@ -162,6 +162,8 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
         // IR entry for schema JSON.
         // If the field type is Name<T>, extract the target type(s) for the "ref" property.
         let name_ref_targets = extract_name_ref_targets(&field.ty);
+        let is_known_enum = KNOWN_DSL_ENUMS.contains(&inner_ty.as_str());
+
         if let Some(ref targets) = name_ref_targets {
             let targets_json: Vec<_> = targets.iter().map(|t| {
                 let snake = to_snake_case(t);
@@ -175,6 +177,20 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
                         "widget": #widget_str
                     });
                     __entry["ref"] = serde_json::json!([ #(#targets_json),* ]);
+                    __entry
+                }
+            });
+        } else if is_known_enum {
+            // For known dsl_enum types, add a marker that will be filled at runtime
+            field_ir_entries.push(quote! {
+                {
+                    let mut __entry = serde_json::json!({
+                        "name": #fname_str,
+                        "ty": #ty_str,
+                        "widget": #widget_str,
+                        "isEnum": true
+                    });
+                    // Variants will be filled by schema builder at runtime
                     __entry
                 }
             });
@@ -252,16 +268,6 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
             pub fn __dsl_fields() -> Vec<serde_json::Value> {
                 vec![ #(#field_ir_entries),* ]
             }
-
-            /// Full IR as JSON value.
-            pub fn __dsl_ir() -> serde_json::Value {
-                serde_json::json!({
-                    "name": #struct_name_str,
-                    "module": #module,
-                    "resource": #resource_snake,
-                    "fields": Self::__dsl_fields()
-                })
-            }
         }
 
         impl openerp_types::DslModel for #struct_name {
@@ -273,6 +279,15 @@ pub fn expand(attr: TokenStream, item: ItemStruct) -> syn::Result<TokenStream> {
                 let mut __invalid: Vec<(&'static str, String)> = Vec::new();
                 #(#name_validate_stmts)*
                 __invalid
+            }
+
+            fn __dsl_ir() -> serde_json::Value {
+                serde_json::json!({
+                    "name": #struct_name_str,
+                    "module": #module,
+                    "resource": #resource_snake,
+                    "fields": Self::__dsl_fields()
+                })
             }
         }
 
@@ -556,10 +571,16 @@ fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
     }
 }
 
-/// Heuristic: a type name that starts uppercase and isn't a known builtin
-/// is treated as a `#[dsl_enum]` → select widget.
+/// Known #[dsl_enum] types in the codebase.
+/// These are manually maintained — when adding a new #[dsl_enum], update this list.
+const KNOWN_DSL_ENUMS: &[&str] = &[
+    "TaskStatus", "TaskPriority", "BatchStatus", "ProvisionStatus",
+    "DeviceStatus", "Priority", "Status", "ItemStatus",
+];
+
+/// Check if a type is a known #[dsl_enum] type.
 fn is_enum_type(ty_name: &str) -> bool {
-    ty_name.starts_with(|c: char| c.is_ascii_uppercase()) && !BUILTIN_TYPES.contains(&ty_name)
+    KNOWN_DSL_ENUMS.contains(&ty_name)
 }
 
 fn to_snake_case(s: &str) -> String {

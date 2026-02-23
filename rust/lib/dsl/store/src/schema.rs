@@ -157,12 +157,44 @@ pub fn build_schema(app_name: &str, modules: Vec<ModuleDef>) -> Value {
                 (e.name.to_string(), json!(e.variants))
             }).collect();
 
+            // Build resource IRs with enum variants filled in.
+            let resource_irs: Vec<Value> = m.resources.iter().map(|r| {
+                // Clone the IR and fill in enum variants for this resource
+                let mut ir = r.ir.clone();
+                if let Some(fields) = ir["fields"].as_array() {
+                    let updated_fields: Vec<Value> = fields.iter().map(|f| {
+                        if f.get("isEnum").is_some() {
+                            let ty = f["ty"].as_str().unwrap_or("");
+                            // Extract inner type from Option<Inner> wrapper
+                            let inner_ty = if let Some(start) = ty.find("Option<") {
+                                if let Some(end) = ty.rfind(">") {
+                                    &ty[start + 7..end]
+                                } else {
+                                    ty
+                                }
+                            } else {
+                                ty
+                            };
+                            // Look up the enum in module's enum definitions
+                            if let Some(enum_def) = m.enums.iter().find(|e| e.name == inner_ty) {
+                                let mut updated = f.clone();
+                                updated["variants"] = json!(enum_def.variants);
+                                return updated;
+                            }
+                        }
+                        f.clone()
+                    }).collect();
+                    ir["fields"] = json!(updated_fields);
+                }
+                ir
+            }).collect();
+
             // Build module JSON.
             json!({
                 "id": m.id,
                 "label": m.label,
                 "icon": m.icon,
-                "resources": m.resources.iter().map(|r| &r.ir).collect::<Vec<_>>(),
+                "resources": resource_irs,
                 "enums": enum_map,
                 "hierarchy": {
                     "nav": m.hierarchy.iter().map(|h| h.to_json()).collect::<Vec<_>>()

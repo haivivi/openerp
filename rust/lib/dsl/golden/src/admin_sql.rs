@@ -634,6 +634,118 @@ mod tests {
     }
 
     // =====================================================================
+    // D4: SQL admin Name<T> validate on POST/PUT/PATCH
+    // =====================================================================
+
+    #[model(module = "test", name = "test/sql-users/{id}")]
+    pub struct SqlUser {
+        pub id: Id,
+        pub email: String,
+    }
+
+    impl SqlStore for SqlUser {
+        const PK: &[Field] = &[Field::new("id", "Id", "readonly")];
+        fn table_name() -> &'static str { "sql_users" }
+        fn pk_values(&self) -> Vec<String> { vec![self.id.to_string()] }
+        fn before_create(&mut self) {
+            if self.id.is_empty() {
+                self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
+            }
+        }
+    }
+
+    #[model(module = "test")]
+    pub struct SqlTask {
+        pub id: Id,
+        pub title: String,
+        pub assignee: Name<SqlUser>,
+    }
+
+    impl SqlStore for SqlTask {
+        const PK: &[Field] = &[Field::new("id", "Id", "readonly")];
+        fn table_name() -> &'static str { "sql_tasks" }
+        fn pk_values(&self) -> Vec<String> { vec![self.id.to_string()] }
+        fn before_create(&mut self) {
+            if self.id.is_empty() {
+                self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn sql_name_validate_post_rejects_invalid() {
+        let (ops, _dir) = make_sql_ops::<SqlTask>();
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let r = admin_sql_router(ops, auth, "test", "tasks", "task");
+
+        let (s, err) = api(&r, "POST", "/tasks",
+            Some(serde_json::json!({
+                "title": "My Task",
+                "assignee": "wrong/prefix/u1",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST,
+            "POST with invalid Name should return 400");
+        assert_eq!(err["code"], "VALIDATION_FAILED");
+    }
+
+    #[tokio::test]
+    async fn sql_name_validate_put_rejects_invalid() {
+        let (ops, _dir) = make_sql_ops::<SqlTask>();
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let r = admin_sql_router(ops, auth, "test", "tasks", "task");
+
+        // Create with valid name first.
+        let (s, created) = api(&r, "POST", "/tasks",
+            Some(serde_json::json!({
+                "title": "Valid Task",
+                "assignee": "test/sql-users/alice",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+        let id = created["id"].as_str().unwrap();
+
+        // PUT with invalid name → 400.
+        let mut edit = created.clone();
+        edit["assignee"] = serde_json::json!("bad/prefix/x");
+        let (s, err) = api(&r, "PUT", &format!("/tasks/{}", id), Some(edit)).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST,
+            "PUT with invalid Name should return 400");
+        assert_eq!(err["code"], "VALIDATION_FAILED");
+    }
+
+    #[tokio::test]
+    async fn sql_name_validate_patch_rejects_invalid() {
+        let (ops, _dir) = make_sql_ops::<SqlTask>();
+        let auth: Arc<dyn openerp_core::Authenticator> = Arc::new(openerp_core::AllowAll);
+        let r = admin_sql_router(ops, auth, "test", "tasks", "task");
+
+        // Create with valid name.
+        let (s, created) = api(&r, "POST", "/tasks",
+            Some(serde_json::json!({
+                "title": "Patch Task",
+                "assignee": "test/sql-users/bob",
+            })),
+        ).await;
+        assert_eq!(s, StatusCode::OK);
+        let id = created["id"].as_str().unwrap();
+
+        // PATCH assignee to invalid name → 400.
+        let (s, err) = api(&r, "PATCH", &format!("/tasks/{}", id),
+            Some(serde_json::json!({"assignee": "not-valid"})),
+        ).await;
+        assert_eq!(s, StatusCode::BAD_REQUEST,
+            "PATCH with invalid Name should return 400");
+        assert_eq!(err["code"], "VALIDATION_FAILED");
+
+        // Verify original value preserved.
+        let (s, fetched) = api(&r, "GET", &format!("/tasks/{}", id), None).await;
+        assert_eq!(s, StatusCode::OK);
+        assert_eq!(fetched["assignee"], "test/sql-users/bob",
+            "original assignee should survive bad PATCH");
+    }
+
+    // =====================================================================
     // 22-23. Auth: AllowAll vs DenyAll
     // =====================================================================
 

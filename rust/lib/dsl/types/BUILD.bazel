@@ -9,6 +9,7 @@ rust_library(
     deps = [
         "@crates//:flatbuffers",
         "@crates//:serde",
+        "@crates//:serde_json",
     ],
 )
 

@@ -150,6 +150,192 @@ mod tests {
     }
 
     // =====================================================================
+    // Golden: Custom struct type — widget must NOT be "select"
+    // =====================================================================
+
+    // A plain struct (NOT a #[dsl_enum]). Used as a field type in a model.
+    #[derive(Debug, Clone, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+    #[serde(rename_all = "camelCase")]
+    pub struct ExternalInfo {
+        pub provider: String,
+        pub external_id: String,
+    }
+
+    // A #[dsl_enum] — this IS an enum, should get "select".
+    #[openerp_macro::dsl_enum(module = "test")]
+    pub enum TaskPriority {
+        Low,
+        Medium,
+        High,
+        Critical,
+    }
+
+    #[model(module = "test")]
+    pub struct TypeTestRecord {
+        pub id: Id,
+        pub info: ExternalInfo,
+        pub opt_info: Option<ExternalInfo>,
+        pub priority: TaskPriority,
+        pub opt_priority: Option<TaskPriority>,
+        pub tags_of_info: Vec<ExternalInfo>,
+    }
+
+    impl KvStore for TypeTestRecord {
+        const KEY: Field = Self::id;
+        fn kv_prefix() -> &'static str { "test:typetest:" }
+        fn key_value(&self) -> String { self.id.to_string() }
+        fn before_create(&mut self) {
+            if self.id.is_empty() {
+                self.id = Id::new(&uuid::Uuid::new_v4().to_string().replace('-', ""));
+            }
+        }
+    }
+
+    #[test]
+    fn golden_custom_struct_field_widget_not_select() {
+        // ExternalInfo is a struct, NOT a #[dsl_enum].
+        // Its widget should NOT be "select".
+        assert_ne!(TypeTestRecord::info.widget, "select",
+            "ExternalInfo is a struct — widget should not be 'select', got: {}",
+            TypeTestRecord::info.widget);
+        assert_ne!(TypeTestRecord::opt_info.widget, "select",
+            "Option<ExternalInfo> is a struct — widget should not be 'select', got: {}",
+            TypeTestRecord::opt_info.widget);
+    }
+
+    #[test]
+    fn golden_dsl_enum_field_widget_is_select() {
+        // TaskPriority IS a #[dsl_enum], so its widget SHOULD be "select".
+        assert_eq!(TypeTestRecord::priority.widget, "select",
+            "TaskPriority is a #[dsl_enum] — widget should be 'select'");
+        assert_eq!(TypeTestRecord::opt_priority.widget, "select",
+            "Option<TaskPriority> is a #[dsl_enum] — widget should be 'select'");
+    }
+
+    #[test]
+    fn golden_vec_of_struct_widget_is_tags() {
+        // Vec<ExternalInfo> should get "tags" (based on Vec), not "select".
+        assert_eq!(TypeTestRecord::tags_of_info.widget, "tags",
+            "Vec<ExternalInfo> should be 'tags' based on outer Vec type");
+    }
+
+    #[test]
+    fn golden_custom_struct_ir_widget_not_select() {
+        let ir = TypeTestRecord::__dsl_ir();
+        let fields = ir["fields"].as_array().unwrap();
+
+        let info_field = fields.iter().find(|f| f["name"] == "info").unwrap();
+        assert_ne!(info_field["widget"].as_str().unwrap(), "select",
+            "IR: ExternalInfo field widget should not be 'select', got: {}",
+            info_field["widget"]);
+
+        let opt_info_field = fields.iter().find(|f| f["name"] == "opt_info").unwrap();
+        assert_ne!(opt_info_field["widget"].as_str().unwrap(), "select",
+            "IR: Option<ExternalInfo> field widget should not be 'select', got: {}",
+            opt_info_field["widget"]);
+
+        let priority_field = fields.iter().find(|f| f["name"] == "priority").unwrap();
+        assert_eq!(priority_field["widget"].as_str().unwrap(), "select",
+            "IR: TaskPriority (#[dsl_enum]) widget should be 'select'");
+    }
+
+    // =====================================================================
+    // D3: Schema enums in /meta/schema output
+    // =====================================================================
+
+    #[test]
+    fn golden_schema_enums_present() {
+        use openerp_types::DslEnum;
+        let schema = build_schema("EnumApp", vec![ModuleDef {
+            id: "test",
+            label: "Test",
+            icon: "flask",
+            resources: vec![ResourceDef::from_ir("test", TypeTestRecord::__dsl_ir())],
+            enums: vec![openerp_store::EnumDef {
+                name: "TaskPriority",
+                variants: TaskPriority::variants(),
+            }],
+            hierarchy: vec![HierarchyNode::leaf("type_test_record", "Records", "file", "")],
+        }]);
+
+        let enums = &schema["modules"][0]["enums"];
+        assert!(enums["TaskPriority"].is_array(),
+            "enum TaskPriority should appear in schema enums");
+    }
+
+    #[test]
+    fn golden_schema_enum_variants_complete() {
+        use openerp_types::DslEnum;
+        let schema = build_schema("EnumApp", vec![ModuleDef {
+            id: "test",
+            label: "Test",
+            icon: "flask",
+            resources: vec![ResourceDef::from_ir("test", TypeTestRecord::__dsl_ir())],
+            enums: vec![openerp_store::EnumDef {
+                name: "TaskPriority",
+                variants: TaskPriority::variants(),
+            }],
+            hierarchy: vec![HierarchyNode::leaf("type_test_record", "Records", "file", "")],
+        }]);
+
+        let variants = schema["modules"][0]["enums"]["TaskPriority"].as_array().unwrap();
+        assert_eq!(variants.len(), 4);
+        assert_eq!(variants[0], "LOW");
+        assert_eq!(variants[1], "MEDIUM");
+        assert_eq!(variants[2], "HIGH");
+        assert_eq!(variants[3], "CRITICAL");
+    }
+
+    #[test]
+    fn golden_schema_enum_field_widget_is_select() {
+        use openerp_types::DslEnum;
+        let schema = build_schema("EnumApp", vec![ModuleDef {
+            id: "test",
+            label: "Test",
+            icon: "flask",
+            resources: vec![ResourceDef::from_ir("test", TypeTestRecord::__dsl_ir())],
+            enums: vec![openerp_store::EnumDef {
+                name: "TaskPriority",
+                variants: TaskPriority::variants(),
+            }],
+            hierarchy: vec![HierarchyNode::leaf("type_test_record", "Records", "file", "")],
+        }]);
+
+        let fields = schema["modules"][0]["resources"][0]["fields"].as_array().unwrap();
+        let priority = fields.iter().find(|f| f["name"] == "priority").unwrap();
+        assert_eq!(priority["widget"], "select",
+            "enum field 'priority' should have widget 'select' in schema");
+    }
+
+    #[test]
+    fn golden_schema_enum_field_has_variants_info() {
+        use openerp_types::DslEnum;
+        let schema = build_schema("EnumApp", vec![ModuleDef {
+            id: "test",
+            label: "Test",
+            icon: "flask",
+            resources: vec![ResourceDef::from_ir("test", TypeTestRecord::__dsl_ir())],
+            enums: vec![openerp_store::EnumDef {
+                name: "TaskPriority",
+                variants: TaskPriority::variants(),
+            }],
+            hierarchy: vec![HierarchyNode::leaf("type_test_record", "Records", "file", "")],
+        }]);
+
+        let fields = schema["modules"][0]["resources"][0]["fields"].as_array().unwrap();
+        let priority = fields.iter().find(|f| f["name"] == "priority").unwrap();
+        // The frontend needs to know WHICH enum this field uses to render select options.
+        // The field IR should carry enum name or variants, not just widget="select".
+        let has_enum_info = priority.get("enum").is_some()
+            || priority.get("variants").is_some()
+            || priority.get("enumName").is_some();
+        assert!(has_enum_info,
+            "enum field should carry enum/variants info for frontend select widget.\n\
+             Currently the IR only has widget='select' but no link to which enum.\n\
+             Field IR: {}", serde_json::to_string_pretty(priority).unwrap());
+    }
+
+    // =====================================================================
     // Golden: ResourceDef auto-derivation
     // =====================================================================
 
@@ -747,7 +933,8 @@ mod tests {
         assert_eq!(fetched["hostname"], "web-01");
         assert_eq!(fetched["ipAddress"], "10.0.0.1");
         assert_eq!(fetched["url"], "https://web-01.internal:8443");
-        assert_eq!(fetched["secretKey"], "s3cr3t-k3y");
+        // secretKey is a hidden field (Option<Secret>), returned as null
+        assert!(fetched["secretKey"].is_null(), "secretKey should be null in response");
         assert_eq!(fetched["version"], "2.5.1");
         assert_eq!(fetched["active"], true);
         assert_eq!(fetched["tags"].as_array().unwrap().len(), 3);
