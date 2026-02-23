@@ -376,7 +376,7 @@ pub fn infer_widget(ty_name: &str, field_name: &str) -> &'static str {
 /// These are manually maintained — when adding a new #[dsl_enum], update this list.
 const KNOWN_DSL_ENUMS: &[&str] = &[
     "TaskStatus", "TaskPriority", "BatchStatus", "ProvisionStatus",
-    "DeviceStatus", "Priority", "Status",
+    "DeviceStatus", "Priority", "Status", "ItemStatus",
 ];
 
 /// Check if a type is a known #[dsl_enum] type.
