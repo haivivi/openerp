@@ -27,7 +27,7 @@ def _macos_app_impl(ctx):
 
     res_cmds = []
     for f in resource_files:
-        res_cmds.append("cp '{src}' \"$APP_DIR/\"".format(src = f.path))
+        res_cmds.append("cp '{src}' \"$APP_DIR/Contents/Resources/\"".format(src = f.path))
     for f in icon_files:
         if f.path.endswith(".png"):
             res_cmds.append("cp '{src}' \"$APP_DIR/Contents/Resources/\"".format(src = f.path))
