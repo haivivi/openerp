@@ -35,6 +35,7 @@ def _macos_app_impl(ctx):
     script = """\
 set -euo pipefail
 APP_DIR="{app_dir}"
+mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
 SDK_PATH=$(xcrun --sdk macosx --show-sdk-path)
