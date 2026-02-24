@@ -6,4 +6,5 @@ exports_files([
     "providers.bzl",
     "probe.bzl",
     "transition.bzl",
+    "ui_test.bzl",
 ])

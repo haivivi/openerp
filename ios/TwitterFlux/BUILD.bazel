@@ -1,7 +1,7 @@
 load("@rules_swift//swift:swift.bzl", "swift_library", "swift_test")
 load("//bazel/ios:defs.bzl", "ios_app", "ios_ui_runner")
 load("//bazel/ios:probe.bzl", "ios_probe")
-load("//bazel/macos:defs.bzl", "macos_app")
+load("//bazel/macos:defs.bzl", "macos_app", "macos_ui_runner")
 
 swift_library(
     name = "TwitterFluxLib",
@@ -67,6 +67,14 @@ ios_ui_runner(
     name = "UITests",
     app = [":TwitterFlux"],
     app_bundle_id = "com.haivivi.twitterflux",
+    tags = ["macos"],
+    test_srcs = glob(["UITests/**/*.swift"]),
+)
+
+macos_ui_runner(
+    name = "TwitterFluxMacUITests",
+    app = [":TwitterFluxMac"],
+    app_bundle_id = "com.haivivi.twitterfluxmac",
     tags = ["macos"],
     test_srcs = glob(["UITests/**/*.swift"]),
 )
