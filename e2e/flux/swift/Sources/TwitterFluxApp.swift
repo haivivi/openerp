@@ -9,7 +9,22 @@ import SwiftUI
 struct TwitterFluxApp: App {
     @StateObject private var store = FluxStore()
 
+    private let iphoneCanvasWidth: CGFloat = 390
+    private let iphoneCanvasHeight: CGFloat = 844
+
     var body: some Scene {
+#if os(macOS)
+        WindowGroup {
+            RootView()
+                .frame(width: iphoneCanvasWidth, height: iphoneCanvasHeight)
+                .environmentObject(store)
+                .onAppear {
+                    store.emit("app/initialize")
+                }
+        }
+        .defaultSize(width: iphoneCanvasWidth, height: iphoneCanvasHeight)
+        .windowResizability(.contentSize)
+#else
         WindowGroup {
             RootView()
                 .environmentObject(store)
@@ -17,6 +32,7 @@ struct TwitterFluxApp: App {
                     store.emit("app/initialize")
                 }
         }
+#endif
     }
 }
 
