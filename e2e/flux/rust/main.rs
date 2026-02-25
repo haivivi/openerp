@@ -1,6 +1,6 @@
 //! Twitter server — standalone binary with admin dashboard.
 //!
-//! Usage: bazel run //rust/lib/flux_golden:twitterd
+//! Usage: bazel run //e2e/flux/rust:twitterd
 
 use std::sync::Arc;
 

@@ -35,7 +35,7 @@ BUNDLE_ID="{bundle_id}"
 echo "=== Flux XCUITest Runner ==="
 
 if [ ! -d "$APP_PATH" ]; then
-    echo "ERROR: App not found. Run: bazel build //ios/TwitterFlux:TwitterFlux"
+    echo "ERROR: App not found. Run: bazel build //e2e/flux/swift:ios_app"
     exit 1
 fi
 

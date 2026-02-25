@@ -3,7 +3,8 @@ load("@rules_rust//rust:defs.bzl", "rust_binary", "rust_library", "rust_test")
 rust_library(
     name = "flux_golden_lib",
     crate_name = "flux_golden",
-    srcs = glob(["src/lib.rs", "server/**/*.rs", "bff/**/*.rs"]),
+    crate_root = "lib.rs",
+    srcs = glob(["lib.rs", "server/**/*.rs", "bff/**/*.rs"]),
     edition = "2024",
     proc_macro_deps = [
         "//rust/lib/dsl/macro",
@@ -34,7 +35,8 @@ rust_library(
 
 rust_binary(
     name = "twitterd",
-    srcs = ["src/main.rs"],
+    crate_root = "main.rs",
+    srcs = ["main.rs"],
     edition = "2024",
     deps = [
         ":flux_golden_lib",

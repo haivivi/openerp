@@ -2,7 +2,7 @@
 //
 // Tests real UI interactions on a running simulator.
 // Requires a booted simulator. Run via:
-//   bazel run //ios/TwitterFlux:UITests
+//   bazel run //e2e/flux/swift:UITests
 
 import XCTest
 
