@@ -46,7 +46,7 @@ jobs:
           MACOS_BUILD=""
           for t in $ALL_BUILD; do
             case "$t" in *:TwitterFluxLib|*:TwitterFluxTestLib) continue ;; esac
-            if echo "$t" | grep -qE '^//e2e/flux/swift/'; then
+            if echo "$t" | grep -qE '^//e2e/flux/swift:'; then
               MACOS_BUILD="$MACOS_BUILD $t"
             else
               LINUX_BUILD="$LINUX_BUILD $t"
@@ -57,7 +57,7 @@ jobs:
           MACOS_TEST=""
           for t in $ALL_TEST; do
             case "$t" in *:TwitterFluxLib|*:TwitterFluxTestLib) continue ;; esac
-            if echo "$t" | grep -qE '^//e2e/flux/swift/'; then
+            if echo "$t" | grep -qE '^//e2e/flux/swift:'; then
               MACOS_TEST="$MACOS_TEST $t"
             else
               LINUX_TEST="$LINUX_TEST $t"
