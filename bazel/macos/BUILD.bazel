@@ -1,5 +1,15 @@
 package(default_visibility = ["//visibility:public"])
 
+platform(
+    name = "catalyst_arm64",
+    constraint_values = [
+        "@platforms//os:macos",
+        "@platforms//cpu:arm64",
+        "@apple_support//constraints:apple",
+        "@apple_support//constraints:catalyst",
+    ],
+)
+
 exports_files([
     "defs.bzl",
     "app.bzl",

@@ -14,6 +14,13 @@ def _macos_x86_64_impl(settings, attr):
         ],
     }
 
+def _catalyst_arm64_impl(settings, attr):
+    return {
+        "//command_line_option:platforms": [
+            "//bazel/macos:catalyst_arm64",
+        ],
+    }
+
 macos_arm64_transition = transition(
     implementation = _macos_arm64_impl,
     inputs = [],
@@ -22,6 +29,12 @@ macos_arm64_transition = transition(
 
 macos_x86_64_transition = transition(
     implementation = _macos_x86_64_impl,
+    inputs = [],
+    outputs = ["//command_line_option:platforms"],
+)
+
+catalyst_arm64_transition = transition(
+    implementation = _catalyst_arm64_impl,
     inputs = [],
     outputs = ["//command_line_option:platforms"],
 )

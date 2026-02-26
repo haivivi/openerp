@@ -2,6 +2,9 @@
 // Flux owns all state. SwiftUI only renders.
 
 import SwiftUI
+#if targetEnvironment(macCatalyst)
+import UIKit
+#endif
 
 #if !TESTING
 @main
@@ -12,13 +15,46 @@ struct TwitterFluxApp: App {
     private let iphoneCanvasWidth: CGFloat = 390
     private let iphoneCanvasHeight: CGFloat = 844
 
+    @MainActor
+    private func configureCatalystForIOSLikePresentation() {
+#if targetEnvironment(macCatalyst)
+        let targetSize = CGSize(width: iphoneCanvasWidth, height: iphoneCanvasHeight)
+        for scene in UIApplication.shared.connectedScenes {
+            guard let windowScene = scene as? UIWindowScene else { continue }
+
+            if let restrictions = windowScene.sizeRestrictions {
+                restrictions.minimumSize = targetSize
+                restrictions.maximumSize = targetSize
+            }
+
+            if let titlebar = windowScene.titlebar {
+                titlebar.titleVisibility = .hidden
+                titlebar.toolbar = nil
+            }
+
+            if #available(iOS 17.0, *) {
+                windowScene.traitOverrides.horizontalSizeClass = .compact
+                windowScene.traitOverrides.verticalSizeClass = .regular
+            }
+
+            for window in windowScene.windows {
+                if #available(iOS 17.0, *) {
+                    window.traitOverrides.horizontalSizeClass = .compact
+                    window.traitOverrides.verticalSizeClass = .regular
+                }
+            }
+        }
+#endif
+    }
+
     var body: some Scene {
-#if os(macOS)
+#if os(macOS) || targetEnvironment(macCatalyst)
         WindowGroup {
             RootView()
                 .frame(width: iphoneCanvasWidth, height: iphoneCanvasHeight)
                 .environmentObject(store)
                 .onAppear {
+                    configureCatalystForIOSLikePresentation()
                     store.emit("app/initialize")
                 }
         }
@@ -55,52 +91,6 @@ struct RootView: View {
             } else {
                 MainTabView()
             }
-        }
-    }
-}
-
-/// Main tab view — shown after login.
-struct MainTabView: View {
-    @EnvironmentObject var store: FluxStore
-    @State private var selectedTab = 0
-
-    var body: some View {
-        TabView(selection: $selectedTab) {
-            NavigationStack {
-                HomeView()
-            }
-            .tabItem {
-                Image(systemName: "house.fill")
-                Text(store.t("ui/tab/home"))
-            }
-            .tag(0)
-
-            NavigationStack {
-                SearchView()
-            }
-            .tabItem {
-                Image(systemName: "magnifyingglass")
-                Text(store.t("ui/tab/search"))
-            }
-            .tag(1)
-
-            NavigationStack {
-                InboxView()
-            }
-            .tabItem {
-                Image(systemName: "tray.fill")
-                Text(store.t("ui/tab/inbox"))
-            }
-            .tag(2)
-
-            NavigationStack {
-                MeView()
-            }
-            .tabItem {
-                Image(systemName: "person.fill")
-                Text(store.t("ui/tab/me"))
-            }
-            .tag(3)
         }
     }
 }

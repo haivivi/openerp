@@ -1,8 +1,8 @@
 """macos_ui_runner — validate macOS app launch and UITest source compilation.
 
-This runner performs:
+This rule is a Bazel *test rule* (usable via `bazel test`) and performs:
 1) Compile-check of provided UITest Swift sources via xcodebuild on macOS.
-2) Smoke launch of Bazel-built .app and short liveness verification.
+2) Smoke launch of Bazel-built app and short liveness verification.
 """
 
 def _macos_ui_runner_impl(ctx):
@@ -32,16 +32,26 @@ def _macos_ui_runner_impl(ctx):
 #!/bin/bash
 set -euo pipefail
 
-WS="${{BUILD_WORKSPACE_DIRECTORY:-$(cd "$(dirname "$0")/../.." && pwd)}}"
-APP_PATH="$WS/bazel-bin/{app_short_path}"
+WS="${{BUILD_WORKSPACE_DIRECTORY:-$(pwd)}}"
 BUNDLE_ID="{bundle_id}"
 TIMEOUT_SEC={timeout_sec}
 
+if [ -n "${{RUNFILES_DIR:-}}" ]; then
+    SRC_BASE="$RUNFILES_DIR/_main"
+elif [ -n "${{TEST_SRCDIR:-}}" ]; then
+    SRC_BASE="$TEST_SRCDIR/_main"
+else
+    SRC_BASE="$WS"
+fi
+
+APP_PATH="$SRC_BASE/{app_short_path}"
+
 echo "=== macOS UI Runner ==="
-echo "App: $APP_PATH"
+echo "App path: $APP_PATH"
 
 if [ ! -d "$APP_PATH" ]; then
-    echo "ERROR: App not found. Build first: bazel build {app_label}"
+    echo "ERROR: App not found at $APP_PATH"
+    echo "Hint: bazel build {app_label}"
     exit 1
 fi
 
@@ -107,11 +117,18 @@ xcodebuild build-for-testing \
     -derivedDataPath "$WORK/dd" \
     2>&1 | tail -10
 
-XCTEST_BUNDLE=$(find "$WORK/dd" -name "UITests.xctest" -type d | head -1)
-if [ -z "$XCTEST_BUNDLE" ]; then
-    echo "ERROR: xctest bundle not found after compile-check"
+RUNNER_APP=$(find "$WORK/dd" -name "UITests-Runner.app" -type d | head -1)
+if [ -z "$RUNNER_APP" ]; then
+    echo "ERROR: UITests-Runner.app not found"
     exit 1
 fi
+
+XCTEST_BUNDLE="$RUNNER_APP/Contents/PlugIns/UITests.xctest"
+if [ ! -d "$XCTEST_BUNDLE" ]; then
+    echo "ERROR: xctest bundle not found at $XCTEST_BUNDLE"
+    exit 1
+fi
+
 echo "UITest sources compile-check passed: $XCTEST_BUNDLE"
 
 APP_EXEC="$(ls -1 "$APP_PATH/Contents/MacOS" | head -1)"
@@ -143,10 +160,10 @@ echo "=== macOS UI Runner complete ==="
 """.format(
         app_short_path = app_dir.short_path,
         bundle_id = bundle_id,
-        timeout_sec = ctx.attr.launch_timeout_sec,
         app_label = str(ctx.attr.app[0].label) if ctx.attr.app else "<app target>",
+        timeout_sec = ctx.attr.launch_timeout_sec,
         src_copies = "\n".join([
-            'cp "$WS/{}" "$WORK/UITests/"'.format(f)
+            'cp "$SRC_BASE/{}" "$WORK/UITests/"'.format(f)
             for f in swift_files
         ]),
         fref_list = ", ".join(["FR" + str(i) for i in range(len(swift_files))]),
@@ -172,13 +189,12 @@ echo "=== macOS UI Runner complete ==="
 
     return [
         DefaultInfo(
-            files = depset([runner]),
             executable = runner,
             runfiles = ctx.runfiles(files = [app_dir] + test_sources),
         ),
     ]
 
-macos_ui_runner = rule(
+_macos_ui_test = rule(
     implementation = _macos_ui_runner_impl,
     attrs = {
         "app": attr.label_list(mandatory = True),
@@ -186,5 +202,15 @@ macos_ui_runner = rule(
         "test_srcs": attr.label_list(allow_files = [".swift"], mandatory = True),
         "launch_timeout_sec": attr.int(default = 8),
     },
-    executable = True,
+    test = True,
 )
+
+def macos_ui_runner(name, app, app_bundle_id, test_srcs, tags = None):
+    """Macro wrapper exposing the historical macos_ui_runner API as test rule."""
+    _macos_ui_test(
+        name = name,
+        app = app,
+        app_bundle_id = app_bundle_id,
+        test_srcs = test_srcs,
+        tags = tags,
+    )

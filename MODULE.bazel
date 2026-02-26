@@ -17,6 +17,95 @@ rust.toolchain(
     extra_target_triples = [
         "aarch64-apple-ios-sim",
         "aarch64-apple-ios",
+        "aarch64-apple-ios-macabi",
+    ],
+)
+
+# Refine Catalyst toolchain constraints so macabi target can be selected
+# independently from ios device toolchains.
+rust.repository_set(
+    name = "rust_macos_aarch64",
+    edition = "2024",
+    exec_triple = "aarch64-apple-darwin",
+    target_triple = "aarch64-apple-ios-sim",
+    target_compatible_with = [
+        "@platforms//cpu:arm64",
+        "@platforms//os:ios",
+        "@apple_support//constraints:simulator",
+    ],
+    versions = ["1.93.1"],
+)
+
+rust.repository_set(
+    name = "rust_macos_aarch64",
+    target_triple = "aarch64-apple-ios",
+    target_compatible_with = [
+        "@platforms//cpu:arm64",
+        "@platforms//os:ios",
+        "@apple_support//constraints:device",
+    ],
+)
+
+rust.repository_set(
+    name = "rust_macos_aarch64",
+    target_triple = "aarch64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:arm64",
+        "@platforms//os:macos",
+        "@apple_support//constraints:device",
+    ],
+)
+
+rust.repository_set(
+    name = "rust_macos_aarch64",
+    target_triple = "aarch64-apple-ios-macabi",
+    target_compatible_with = [
+        "@platforms//cpu:arm64",
+        "@platforms//os:macos",
+        "@apple_support//constraints:catalyst",
+    ],
+)
+
+rust.repository_set(
+    name = "rust_macos_x86_64",
+    edition = "2024",
+    exec_triple = "x86_64-apple-darwin",
+    target_triple = "x86_64-apple-darwin",
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:macos",
+        "@apple_support//constraints:device",
+    ],
+    versions = ["1.93.1"],
+)
+
+rust.repository_set(
+    name = "rust_macos_x86_64",
+    target_triple = "x86_64-apple-ios-sim",
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:ios",
+        "@apple_support//constraints:simulator",
+    ],
+)
+
+rust.repository_set(
+    name = "rust_macos_x86_64",
+    target_triple = "x86_64-apple-ios",
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:ios",
+        "@apple_support//constraints:device",
+    ],
+)
+
+rust.repository_set(
+    name = "rust_macos_x86_64",
+    target_triple = "x86_64-apple-ios-macabi",
+    target_compatible_with = [
+        "@platforms//cpu:x86_64",
+        "@platforms//os:macos",
+        "@apple_support//constraints:catalyst",
     ],
 )
 use_repo(rust, "rust_toolchains")
