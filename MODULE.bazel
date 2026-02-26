@@ -9,11 +9,10 @@ bazel_dep(name = "rules_rust", version = "0.68.1")
 bazel_dep(name = "apple_support", version = "2.2.0")
 bazel_dep(name = "rules_swift", version = "3.4.2")
 
-single_version_override(
+git_override(
     module_name = "rules_rust",
-    version = "0.68.1",
-    patches = ["//bazel/patches:rules_rust_catalyst_platform.patch"],
-    patch_strip = 1,
+    remote = "https://github.com/idy/rules_rust.git",
+    commit = "15da88b152b74b1aac19cee0d4c06b14dd3e92d4",
 )
 
 # Rust toolchain — host + iOS cross-compilation
