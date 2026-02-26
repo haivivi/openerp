@@ -3,3 +3,4 @@ build --enable_platform_specific_config
 
 # Rust
 build --@rules_rust//rust/toolchain/channel=stable
+build --repo_env=CARGO_BAZEL_TIMEOUT=1200

@@ -9,6 +9,13 @@ bazel_dep(name = "rules_rust", version = "0.68.1")
 bazel_dep(name = "apple_support", version = "2.2.0")
 bazel_dep(name = "rules_swift", version = "3.4.2")
 
+single_version_override(
+    module_name = "rules_rust",
+    version = "0.68.1",
+    patches = ["//bazel/patches:rules_rust_catalyst_platform.patch"],
+    patch_strip = 1,
+)
+
 # Rust toolchain — host + iOS cross-compilation
 rust = use_extension("@rules_rust//rust:extensions.bzl", "rust")
 rust.toolchain(
@@ -187,6 +194,7 @@ crate.from_specs(
         "x86_64-apple-darwin",
         "aarch64-apple-ios-sim",
         "aarch64-apple-ios",
+        "aarch64-apple-ios-macabi",
         "x86_64-unknown-linux-gnu",
         "aarch64-unknown-linux-gnu",
     ],
