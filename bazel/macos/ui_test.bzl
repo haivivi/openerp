@@ -144,10 +144,12 @@ APP_PID=$!
 sleep "$TIMEOUT_SEC"
 
 if ! kill -0 "$APP_PID" 2>/dev/null; then
+    set +e
     wait "$APP_PID"
     RC=$?
+    set -e
     echo "ERROR: App exited early with code $RC"
-    exit "$RC"
+    exit 1
 fi
 
 echo "App launch smoke test passed (${{TIMEOUT_SEC}}s)"

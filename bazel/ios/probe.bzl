@@ -12,19 +12,18 @@ def _ios_probe_impl(ctx):
         if DefaultInfo in dep:
             all_files.extend(dep[DefaultInfo].files.to_list())
 
-    # Copy them into the output dir
-    cmds = ["mkdir -p {out}".format(out = out.path)]
+    args = ctx.actions.args()
+    args.add(out.path)
     for f in all_files:
-        cmds.append("cp {src} {out}/$(basename {src})".format(src = f.path, out = out.path))
-    cmds.append("echo 'Probe collected {n} files'".format(n = len(all_files)))
+        args.add(f.path)
 
-    ctx.actions.run_shell(
+    ctx.actions.run(
+        executable = ctx.executable._collector,
         outputs = [out],
         inputs = all_files,
-        command = "\n".join(cmds),
+        arguments = [args],
         mnemonic = "IosProbe",
         progress_message = "Probing iOS transition output",
-        use_default_shell_env = True,
     )
 
     return [DefaultInfo(files = depset([out]))]
@@ -37,6 +36,11 @@ ios_probe = rule(
         ),
         "_allowlist_function_transition": attr.label(
             default = "@bazel_tools//tools/allowlists/function_transition_allowlist",
+        ),
+        "_collector": attr.label(
+            default = "//devops/tools/probe:collector",
+            cfg = "exec",
+            executable = True,
         ),
     },
 )
