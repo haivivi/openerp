@@ -41,11 +41,17 @@ jobs:
           ALL_TEST: ${{ steps.affected.outputs.test_targets }}
         run: |
           # Split targets: e2e/flux/swift/ → macOS, everything else → Linux.
-          # Filter out manual swift_library targets (internal deps, conflict when built together).
+          # Filter out targets that should not run in PR CI build matrix:
+          # - manual swift_library internals
+          # - ios_ipa (requires provisioning profile on CI)
           LINUX_BUILD=""
           MACOS_BUILD=""
           for t in $ALL_BUILD; do
-            case "$t" in *:TwitterFluxLib|*:TwitterFluxTestLib) continue ;; esac
+            case "$t" in
+              *:TwitterFluxLib|*:TwitterFluxTestLib|//e2e/flux/swift:ios_ipa)
+                continue
+                ;;
+            esac
             if echo "$t" | grep -qE '^//e2e/flux/swift:'; then
               MACOS_BUILD="$MACOS_BUILD $t"
             else
