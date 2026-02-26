@@ -1,8 +1,8 @@
-"""Minimal probe rule to test iOS platform transition."""
+"""macOS probe — test macOS platform transition and collect build artifacts."""
 
-load(":transition.bzl", "ios_sim_arm64_transition")
+load(":transition.bzl", "macos_arm64_transition")
 
-def _ios_probe_impl(ctx):
+def _macos_probe_impl(ctx):
     """Collect all files from transitioned deps into a directory."""
     out = ctx.actions.declare_directory(ctx.label.name + "_out")
 
@@ -22,17 +22,17 @@ def _ios_probe_impl(ctx):
         outputs = [out],
         inputs = all_files,
         arguments = [args],
-        mnemonic = "IosProbe",
-        progress_message = "Probing iOS transition output",
+        mnemonic = "MacosProbe",
+        progress_message = "Probing macOS transition output",
     )
 
     return [DefaultInfo(files = depset([out]))]
 
-ios_probe = rule(
-    implementation = _ios_probe_impl,
+macos_probe = rule(
+    implementation = _macos_probe_impl,
     attrs = {
         "deps": attr.label_list(
-            cfg = ios_sim_arm64_transition,
+            cfg = macos_arm64_transition,
         ),
         "_allowlist_function_transition": attr.label(
             default = "@bazel_tools//tools/allowlists/function_transition_allowlist",

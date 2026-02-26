@@ -1,0 +1,106 @@
+load("@rules_swift//swift:swift.bzl", "swift_library", "swift_test")
+load("//bazel/ios:defs.bzl", "ios_app", "ios_ipa", "ios_ui_runner")
+load("//bazel/ios:probe.bzl", "ios_probe")
+load("//bazel/macos:defs.bzl", "macos_app", "macos_ui_runner", "macos_probe")
+
+swift_library(
+    name = "TwitterFluxLib",
+    srcs = glob(["Sources/**/*.swift"]),
+    module_name = "TwitterFlux",
+    tags = ["macos", "manual"],
+)
+
+ios_probe(
+    name = "probe",
+    tags = ["macos"],
+    deps = [
+        ":TwitterFluxLib",
+        "//rust/lib/flux_ffi:flux_ffi_static",
+    ],
+)
+
+macos_probe(
+    name = "macos_probe",
+    tags = ["macos"],
+    deps = [
+        ":TwitterFluxLib",
+        "//rust/lib/flux_ffi:flux_ffi_static",
+    ],
+)
+
+swift_library(
+    name = "TwitterFluxTestLib",
+    srcs = glob(["Sources/**/*.swift"]),
+    copts = ["-DTESTING"],
+    module_name = "TwitterFlux",
+    tags = ["macos", "manual"],
+    testonly = True,
+)
+
+swift_test(
+    name = "FluxFFITests",
+    srcs = glob(["Tests/**/*.swift"]),
+    tags = ["macos"],
+    deps = [
+        ":TwitterFluxTestLib",
+        "//rust/lib/flux_ffi:flux_ffi_static",
+    ],
+)
+
+ios_app(
+    name = "ios_app",
+    app_name = "TwitterFluxiOS",
+    bundle_id = "com.haivivi.twitterflux",
+    infoplist = "Info.plist",
+    tags = ["macos"],
+    deps = [
+        ":TwitterFluxLib",
+        "//rust/lib/flux_ffi:flux_ffi_static",
+    ],
+)
+
+ios_ipa(
+    name = "ios_ipa",
+    app_name = "TwitterFluxiOS",
+    bundle_id = "com.haivivi.twitterflux",
+    infoplist = "Info.plist",
+    minimum_os_version = "18.0",
+    team_id = "HAIVIVI000",
+    deps = [
+        ":TwitterFluxLib",
+        "//rust/lib/flux_ffi:flux_ffi_static",
+    ],
+    tags = ["macos"],
+)
+
+macos_app(
+    name = "macos_app",
+    app_name = "TwitterFluxMac",
+    bundle_id = "com.haivivi.twitterfluxmac",
+    infoplist = "Info.plist",
+    minimum_os_version = "18.0",
+    srcs = glob(["Sources/**/*.swift"]),
+    tags = ["macos"],
+    deps = [
+        "//rust/lib/flux_ffi:flux_ffi_static",
+    ],
+)
+
+ios_ui_runner(
+    name = "UITests",
+    app = [":ios_app"],
+    app_bundle_id = "com.haivivi.twitterflux",
+    tags = ["macos"],
+    test_srcs = glob(["UITests/**/*.swift"]),
+)
+
+macos_ui_runner(
+    name = "macos_ui_tests",
+    app = [":macos_app"],
+    app_bundle_id = "com.haivivi.twitterfluxmac",
+    tags = [
+        "macos",
+        "no-sandbox",
+    ],
+    test_srcs = glob(["UITests/**/*.swift"]),
+)

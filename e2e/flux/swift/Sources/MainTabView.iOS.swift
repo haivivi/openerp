@@ -1,49 +1,8 @@
-// TwitterFluxApp — entry point.
-// Flux owns all state. SwiftUI only renders.
+// MainTabView (iOS) — system tab bar implementation.
 
 import SwiftUI
 
-#if !TESTING
-@main
-#endif
-struct TwitterFluxApp: App {
-    @StateObject private var store = FluxStore()
-
-    var body: some Scene {
-        WindowGroup {
-            RootView()
-                .environmentObject(store)
-                .onAppear {
-                    store.emit("app/initialize")
-                }
-        }
-    }
-}
-
-/// Root view — routes based on `app/route` state.
-struct RootView: View {
-    @EnvironmentObject var store: FluxStore
-
-    private var route: String {
-        (store.get("app/route") as AppRoute?)?.path ?? "/login"
-    }
-
-    private var isLoggedIn: Bool {
-        (store.get("auth/state") as AuthState?)?.phase == .authenticated
-    }
-
-    var body: some View {
-        Group {
-            if !isLoggedIn {
-                LoginView()
-            } else {
-                MainTabView()
-            }
-        }
-    }
-}
-
-/// Main tab view — shown after login.
+#if !targetEnvironment(macCatalyst)
 struct MainTabView: View {
     @EnvironmentObject var store: FluxStore
     @State private var selectedTab = 0
@@ -88,3 +47,4 @@ struct MainTabView: View {
         }
     }
 }
+#endif

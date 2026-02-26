@@ -5,7 +5,9 @@ load(":providers.bzl", "IosAppInfo")
 
 def _ios_ipa_impl(ctx):
     bundle_name = ctx.attr.app_name or ctx.label.name
-    app_dir = ctx.actions.declare_directory(bundle_name + ".app")
+    # Use a label-scoped staging .app to avoid output conflicts when an
+    # ios_app target and an ios_ipa target share the same app_name.
+    app_dir = ctx.actions.declare_directory(ctx.label.name + ".stage.app")
     ipa_file = ctx.actions.declare_file(bundle_name + ".ipa")
     bundle_id = ctx.attr.bundle_id
     team_id = ctx.attr.team_id
@@ -139,8 +141,8 @@ fi
 
 # Create IPA (Payload/Name.app → zip)
 PAYLOAD=$(mktemp -d)
-mkdir -p "$PAYLOAD/Payload"
-cp -R "$APP_DIR" "$PAYLOAD/Payload/"
+mkdir -p "$PAYLOAD/Payload/$BUNDLE_NAME.app"
+cp -R "$APP_DIR/" "$PAYLOAD/Payload/$BUNDLE_NAME.app/"
 (cd "$PAYLOAD" && zip -qr - Payload) > "$IPA"
 rm -rf "$PAYLOAD"
 

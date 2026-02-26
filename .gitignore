@@ -23,3 +23,6 @@ Thumbs.db
 *.redb
 *.db
 *.sqlite
+
+# Workspace assets
+openteam/

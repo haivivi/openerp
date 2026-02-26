@@ -8,7 +8,7 @@ rust_library(
     visibility = ["//visibility:public"],
     deps = [
         "//rust/lib/flux",
-        "//rust/lib/flux_golden:flux_golden_lib",
+        "//e2e/flux/rust:flux_golden_lib",
         "//rust/lib/dsl/client",
         "//rust/lib/dsl/store",
         "//rust/lib/dsl/types",
@@ -37,7 +37,7 @@ rust_static_library(
     visibility = ["//visibility:public"],
     deps = [
         "//rust/lib/flux",
-        "//rust/lib/flux_golden:flux_golden_lib",
+        "//e2e/flux/rust:flux_golden_lib",
         "//rust/lib/dsl/client",
         "//rust/lib/dsl/store",
         "//rust/lib/dsl/types",
