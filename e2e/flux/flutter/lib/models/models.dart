@@ -1,5 +1,8 @@
 /// Twitter state models — Dart mirrors of Rust #[state] types.
 /// Golden test: hand-written. Production: auto-generated from #[state] definitions.
+///
+/// Each model has a `fromJson` factory matching Swift's Codable decoding,
+/// so FluxStore can deserialize JSON from the Rust FFI engine.
 library;
 
 // MARK: - auth/state
@@ -18,6 +21,17 @@ class AuthState {
     this.busy = false,
     this.error,
   });
+
+  factory AuthState.fromJson(Map<String, dynamic> json) => AuthState(
+    phase: json['phase'] == 'authenticated'
+        ? AuthPhase.authenticated
+        : AuthPhase.unauthenticated,
+    user: json['user'] != null
+        ? UserProfile.fromJson(json['user'] as Map<String, dynamic>)
+        : null,
+    busy: json['busy'] as bool? ?? false,
+    error: json['error'] as String?,
+  );
 
   AuthState copyWith({
     AuthPhase? phase,
@@ -55,6 +69,17 @@ class UserProfile {
     this.followingCount = 0,
     this.tweetCount = 0,
   });
+
+  factory UserProfile.fromJson(Map<String, dynamic> json) => UserProfile(
+    id: json['id'] as String? ?? '',
+    username: json['username'] as String? ?? '',
+    displayName: json['displayName'] as String? ?? '',
+    bio: json['bio'] as String?,
+    avatar: json['avatar'] as String?,
+    followerCount: json['followerCount'] as int? ?? 0,
+    followingCount: json['followingCount'] as int? ?? 0,
+    tweetCount: json['tweetCount'] as int? ?? 0,
+  );
 }
 
 // MARK: - timeline/feed
@@ -71,6 +96,17 @@ class TimelineFeed {
     this.hasMore = false,
     this.error,
   });
+
+  factory TimelineFeed.fromJson(Map<String, dynamic> json) => TimelineFeed(
+    items:
+        (json['items'] as List<dynamic>?)
+            ?.map((e) => FeedItem.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        const [],
+    loading: json['loading'] as bool? ?? false,
+    hasMore: json['hasMore'] as bool? ?? false,
+    error: json['error'] as String?,
+  );
 }
 
 class FeedItem {
@@ -93,6 +129,17 @@ class FeedItem {
     this.replyToId,
     this.createdAt = '',
   });
+
+  factory FeedItem.fromJson(Map<String, dynamic> json) => FeedItem(
+    tweetId: json['tweetId'] as String? ?? '',
+    author: UserProfile.fromJson(json['author'] as Map<String, dynamic>),
+    content: json['content'] as String? ?? '',
+    likeCount: json['likeCount'] as int? ?? 0,
+    likedByMe: json['likedByMe'] as bool? ?? false,
+    replyCount: json['replyCount'] as int? ?? 0,
+    replyToId: json['replyToId'] as String?,
+    createdAt: json['createdAt'] as String? ?? '',
+  );
 }
 
 // MARK: - compose/state
@@ -109,6 +156,13 @@ class ComposeState {
     this.busy = false,
     this.error,
   });
+
+  factory ComposeState.fromJson(Map<String, dynamic> json) => ComposeState(
+    content: json['content'] as String? ?? '',
+    replyToId: json['replyToId'] as String?,
+    busy: json['busy'] as bool? ?? false,
+    error: json['error'] as String?,
+  );
 }
 
 // MARK: - profile/{id}
@@ -125,6 +179,17 @@ class ProfilePage {
     this.followedByMe = false,
     this.loading = false,
   });
+
+  factory ProfilePage.fromJson(Map<String, dynamic> json) => ProfilePage(
+    user: UserProfile.fromJson(json['user'] as Map<String, dynamic>),
+    tweets:
+        (json['tweets'] as List<dynamic>?)
+            ?.map((e) => FeedItem.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        const [],
+    followedByMe: json['followedByMe'] as bool? ?? false,
+    loading: json['loading'] as bool? ?? false,
+  );
 }
 
 // MARK: - tweet/{id}
@@ -139,6 +204,17 @@ class TweetDetailState {
     this.replies = const [],
     this.loading = false,
   });
+
+  factory TweetDetailState.fromJson(Map<String, dynamic> json) =>
+      TweetDetailState(
+        tweet: FeedItem.fromJson(json['tweet'] as Map<String, dynamic>),
+        replies:
+            (json['replies'] as List<dynamic>?)
+                ?.map((e) => FeedItem.fromJson(e as Map<String, dynamic>))
+                .toList() ??
+            const [],
+        loading: json['loading'] as bool? ?? false,
+      );
 }
 
 // MARK: - search/state
@@ -157,6 +233,22 @@ class SearchState {
     this.loading = false,
     this.error,
   });
+
+  factory SearchState.fromJson(Map<String, dynamic> json) => SearchState(
+    query: json['query'] as String? ?? '',
+    users:
+        (json['users'] as List<dynamic>?)
+            ?.map((e) => UserProfile.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        const [],
+    tweets:
+        (json['tweets'] as List<dynamic>?)
+            ?.map((e) => FeedItem.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        const [],
+    loading: json['loading'] as bool? ?? false,
+    error: json['error'] as String?,
+  );
 }
 
 // MARK: - settings/state
@@ -175,6 +267,14 @@ class SettingsState {
     this.saved = false,
     this.error,
   });
+
+  factory SettingsState.fromJson(Map<String, dynamic> json) => SettingsState(
+    displayName: json['displayName'] as String? ?? '',
+    bio: json['bio'] as String? ?? '',
+    busy: json['busy'] as bool? ?? false,
+    saved: json['saved'] as bool? ?? false,
+    error: json['error'] as String?,
+  );
 }
 
 // MARK: - settings/password
@@ -185,6 +285,12 @@ class PasswordState {
   final String? error;
 
   const PasswordState({this.busy = false, this.success = false, this.error});
+
+  factory PasswordState.fromJson(Map<String, dynamic> json) => PasswordState(
+    busy: json['busy'] as bool? ?? false,
+    success: json['success'] as bool? ?? false,
+    error: json['error'] as String?,
+  );
 }
 
 // MARK: - inbox/state
@@ -201,6 +307,17 @@ class InboxState {
     this.loading = false,
     this.error,
   });
+
+  factory InboxState.fromJson(Map<String, dynamic> json) => InboxState(
+    messages:
+        (json['messages'] as List<dynamic>?)
+            ?.map((e) => InboxMessage.fromJson(e as Map<String, dynamic>))
+            .toList() ??
+        const [],
+    unreadCount: json['unreadCount'] as int? ?? 0,
+    loading: json['loading'] as bool? ?? false,
+    error: json['error'] as String?,
+  );
 }
 
 class InboxMessage {
@@ -219,4 +336,13 @@ class InboxMessage {
     this.read = false,
     this.createdAt = '',
   });
+
+  factory InboxMessage.fromJson(Map<String, dynamic> json) => InboxMessage(
+    id: json['id'] as String? ?? '',
+    kind: json['kind'] as String? ?? '',
+    title: json['title'] as String? ?? '',
+    body: json['body'] as String? ?? '',
+    read: json['read'] as bool? ?? false,
+    createdAt: json['createdAt'] as String? ?? '',
+  );
 }
