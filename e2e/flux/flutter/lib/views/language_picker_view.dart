@@ -10,7 +10,7 @@ class LanguagePickerView extends StatelessWidget {
 
   static const _languages = [
     (code: 'en', flag: '🇺🇸', name: 'English'),
-    (code: 'zh-CN', flag: '🇨🇳', name: '中文'),
+    (code: 'zh-CN', flag: '🇨🇳', name: '简体中文'),
     (code: 'ja', flag: '🇯🇵', name: '日本語'),
     (code: 'es', flag: '🇪🇸', name: 'Español'),
   ];

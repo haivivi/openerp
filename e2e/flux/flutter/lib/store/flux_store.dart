@@ -88,12 +88,14 @@ class FluxStore extends ChangeNotifier {
 
   /// Dispatch an action.
   /// In FFI mode, calls `flux_emit` with JSON payload → Rust handles everything.
-  /// In mock mode, no-op (golden tests pre-populate state).
+  /// In mock mode, handle core actions for integration tests.
   void emit(String path, [Map<String, dynamic>? json]) {
     final bridge = _bridge;
     if (bridge != null) {
       final payload = json != null ? jsonEncode(json) : null;
       bridge.emit(path, payload);
+    } else {
+      _handleMockAction(path, json);
     }
     notifyListeners();
   }
@@ -185,6 +187,92 @@ class FluxStore extends ChangeNotifier {
       }
     }
     return template;
+  }
+
+  // -- Mock actions ---------------------------------------------------------
+
+  void _handleMockAction(String path, Map<String, dynamic>? json) {
+    switch (path) {
+      case 'app/initialize':
+        _mockState.putIfAbsent(
+          'auth/state',
+          () => const AuthState(phase: AuthPhase.unauthenticated),
+        );
+        return;
+      case 'auth/login':
+        _handleMockLogin(json);
+        return;
+      case 'auth/logout':
+        _mockState['auth/state'] = const AuthState(
+          phase: AuthPhase.unauthenticated,
+        );
+        return;
+      case 'timeline/load':
+        _mockState.putIfAbsent(
+          'timeline/feed',
+          () => const TimelineFeed(items: []),
+        );
+        return;
+      case 'inbox/load':
+        _mockState.putIfAbsent(
+          'inbox/state',
+          () => const InboxState(messages: []),
+        );
+        return;
+      case 'search/query':
+        final query = (json?['query'] as String? ?? '').trim();
+        final current = _mockState['search/state'] as SearchState?;
+        _mockState['search/state'] = SearchState(
+          query: query,
+          users: current?.users ?? const [],
+          tweets: current?.tweets ?? const [],
+          loading: false,
+          error: null,
+        );
+        return;
+      case 'search/clear':
+        _mockState['search/state'] = const SearchState();
+        return;
+      default:
+        // Non-critical mock actions are ignored by design.
+        return;
+    }
+  }
+
+  void _handleMockLogin(Map<String, dynamic>? json) {
+    final username = (json?['username'] as String? ?? '').trim();
+    final password = (json?['password'] as String? ?? '').trim();
+
+    if (username == 'alice' && password == 'password') {
+      _mockState['auth/state'] = const AuthState(
+        phase: AuthPhase.authenticated,
+        user: UserProfile(
+          id: 'alice-id',
+          username: 'alice',
+          displayName: 'Alice',
+          bio: 'Flutter developer and testing enthusiast',
+          followerCount: 42,
+          followingCount: 100,
+          tweetCount: 25,
+        ),
+      );
+
+      // Ensure post-login pages render without indefinite loading spinners.
+      _mockState.putIfAbsent(
+        'timeline/feed',
+        () => const TimelineFeed(items: []),
+      );
+      _mockState.putIfAbsent(
+        'inbox/state',
+        () => const InboxState(messages: []),
+      );
+      _mockState.putIfAbsent('search/state', () => const SearchState());
+    } else {
+      _mockState['auth/state'] = const AuthState(
+        phase: AuthPhase.unauthenticated,
+        error: 'Invalid credentials',
+      );
+    }
   }
 }
 

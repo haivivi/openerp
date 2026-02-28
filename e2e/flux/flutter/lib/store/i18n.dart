@@ -19,12 +19,12 @@ const Map<String, String> _en = {
   'ui/login/username': 'Username',
   'ui/login/password': 'Password',
   'ui/login/button': 'Sign In',
-  'ui/login/hint': 'Use your account to sign in',
+  'ui/login/hint': 'Use alice / password to sign in',
 
   // Home
   'ui/home/title': 'Home',
   'ui/home/empty': 'No tweets yet',
-  'ui/home/empty_hint': 'Follow people to see their tweets',
+  'ui/home/empty_hint': 'Pull to refresh',
 
   // Common
   'ui/common/loading': 'Loading...',
@@ -42,7 +42,7 @@ const Map<String, String> _en = {
 
   // Inbox
   'ui/inbox/title': 'Inbox',
-  'ui/inbox/empty': 'No messages yet',
+  'ui/inbox/empty': 'No messages',
   'ui/inbox/unread': 'New',
   'ui/inbox/mark_read': 'Mark as read',
 
