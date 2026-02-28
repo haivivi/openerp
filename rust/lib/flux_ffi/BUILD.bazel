@@ -1,7 +1,36 @@
-load("@rules_rust//rust:defs.bzl", "rust_library", "rust_static_library", "rust_test")
+load("@rules_rust//rust:defs.bzl", "rust_library", "rust_shared_library", "rust_static_library", "rust_test")
 
 rust_library(
     name = "flux_ffi",
+    crate_name = "flux_ffi",
+    srcs = glob(["src/**/*.rs"]),
+    edition = "2024",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//rust/lib/flux",
+        "//e2e/flux/rust:flux_golden_lib",
+        "//rust/lib/dsl/client",
+        "//rust/lib/dsl/store",
+        "//rust/lib/dsl/types",
+        "//rust/lib/dsl/web",
+        "//rust/lib/blob",
+        "//rust/lib/core",
+        "//rust/lib/kv",
+        "@crates//:axum",
+        "@crates//:base64",
+        "@crates//:chrono",
+        "@crates//:reqwest",
+        "@crates//:serde",
+        "@crates//:serde_json",
+        "@crates//:tempfile",
+        "@crates//:tokio",
+        "@crates//:tracing",
+    ],
+)
+
+# Shared library for Flutter (dart:ffi) linking.
+rust_shared_library(
+    name = "flux_ffi_dylib",
     crate_name = "flux_ffi",
     srcs = glob(["src/**/*.rs"]),
     edition = "2024",
